@@ -2,6 +2,7 @@ declare function acquireVsCodeApi(): { postMessage(msg: unknown): void };
 
 import { matchLine } from '../shared/tagMatching';
 import { FilterMode, Tag } from '../shared/tag';
+import { scrollReducer, ScrollState } from '../shared/scrollState';
 
 const vscode = acquireVsCodeApi();
 
@@ -20,11 +21,13 @@ const tagsRow = document.getElementById('tags-row') as HTMLDivElement;
 const log = document.getElementById('log') as HTMLDivElement;
 const sendInput = document.getElementById('send-input') as HTMLInputElement;
 const sendBtn = document.getElementById('send') as HTMLButtonElement;
+const scrollStateBtn = document.getElementById('scroll-state') as HTMLButtonElement;
 
 let state: 'idle' | 'connecting' | 'connected' = 'idle';
 // The three-state control arrives with the filter ticket; rendering already
 // honors visibility so include/exclude only need to flip this mode.
 let filterMode: FilterMode = 'off';
+let scroll: ScrollState = 'follow';
 let tags: Tag[] = [];
 // Index-aligned with log's child rows; kept so a tag change can restyle
 // every line (filtering never discards data — ADR-0004).
@@ -78,7 +81,6 @@ function styleRow(row: HTMLElement, line: string): void {
 }
 
 function appendLines(lines: string[]): void {
-  const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
   const frag = document.createDocumentFragment();
   for (const line of lines) {
     const row = document.createElement('div');
@@ -89,7 +91,7 @@ function appendLines(lines: string[]): void {
     frag.appendChild(row);
   }
   log.appendChild(frag);
-  if (atBottom) {
+  if (scroll === 'follow') {
     log.scrollTop = log.scrollHeight;
   }
   updateButtons();
@@ -176,8 +178,36 @@ sendInput.addEventListener('keydown', (e) => {
 clearBtn.addEventListener('click', () => {
   log.textContent = '';
   lineStore.length = 0;
+  scroll = scrollReducer(scroll, { type: 'reset' });
+  renderScrollIndicator();
   updateButtons();
 });
+
+// Scroll Lock: user scrolls drive the follow/locked reducer; programmatic
+// pinning only ever scrolls to the bottom, which keeps Follow.
+log.addEventListener('scroll', () => {
+  const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+  const next = scrollReducer(scroll, { type: 'scrolled', atBottom });
+  if (next !== scroll) {
+    scroll = next;
+    renderScrollIndicator();
+  }
+});
+
+scrollStateBtn.addEventListener('click', () => {
+  scroll = scrollReducer(scroll, { type: 'toggle' });
+  if (scroll === 'follow') {
+    log.scrollTop = log.scrollHeight; // rejoining the stream snaps to the bottom
+  }
+  renderScrollIndicator();
+});
+
+function renderScrollIndicator(): void {
+  scrollStateBtn.innerHTML = scroll === 'follow' ? '&#8681; Following' : '&#128274; Locked';
+  scrollStateBtn.title =
+    scroll === 'follow' ? 'Viewport follows new lines — click to lock' : 'Scroll locked, data keeps arriving — click to rejoin';
+  scrollStateBtn.classList.toggle('locked', scroll === 'locked');
+}
 
 tagBtn.addEventListener('click', () => {
   const selected = window.getSelection()?.toString().trim() ?? '';
@@ -193,4 +223,5 @@ refreshBtn.addEventListener('click', () => {
 
 document.addEventListener('selectionchange', updateTagButton);
 
+renderScrollIndicator();
 vscode.postMessage({ type: 'ready' });

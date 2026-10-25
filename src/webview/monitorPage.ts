@@ -38,6 +38,7 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   button.secondary { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
   #clear, #create-tag { padding: 4px 8px; }
   #status { margin-left: auto; color: var(--vscode-descriptionForeground); }
+  #scroll-state.locked { background: var(--vscode-inputValidation-warningBackground, #5a5a30); }
   #tags-row { border-bottom: 1px solid var(--vscode-panel-border); }
   .chip { border: 1px solid; border-radius: 12px; padding: 1px 10px; font-size: 0.9em; }
   .chip-off { opacity: 0.45; text-decoration: line-through; }
@@ -68,6 +69,7 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
     <button id="connect">&#9654; Start Monitoring</button>
     <button id="clear" class="secondary" title="Clear monitor">&#128465;</button>
     <button id="create-tag" class="secondary" disabled title="Create a tag from the selected text">+ Tag</button>
+    <button id="scroll-state" class="secondary">&#8681; Following</button>
     <span id="status">Idle</span>
   </div>
   <div id="tags-row" class="row" style="display: none;"></div>
