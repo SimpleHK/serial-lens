@@ -11,45 +11,69 @@ type WebviewToHost =
   | { type: 'disconnect' };
 
 export function activate(context: vscode.ExtensionContext): void {
+  const provider = new MonitorViewProvider();
   context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(MonitorViewProvider.viewId, provider, {
+      webviewOptions: { retainContextWhenHidden: true },
+    }),
     vscode.commands.registerCommand('serialMonitor.open', () => {
-      openMonitorPanel(context);
+      void vscode.commands.executeCommand(`${MonitorViewProvider.viewId}.focus`);
     }),
   );
 }
 
 export function deactivate(): void {
-  // Controllers and their ports are disposed with their panels.
+  // Controllers and their ports are disposed with their views.
 }
 
-function openMonitorPanel(context: vscode.ExtensionContext): void {
-  const panel = vscode.window.createWebviewPanel('serialMonitor', 'Serial Monitor', vscode.ViewColumn.Beside, {
-    enableScripts: true,
-    retainContextWhenHidden: true,
-  });
+/**
+ * The monitor docks in the bottom panel as a "SERIAL MONITOR" tab, matching
+ * the Microsoft Serial Monitor layout. One shared controller per view; the
+ * view keeps its state while hidden (retainContextWhenHidden) so streaming
+ * output survives tab switches.
+ */
+class MonitorViewProvider implements vscode.WebviewViewProvider {
+  public static readonly viewId = 'serialMonitor.view';
 
-  const controller = new MonitorController(new NodeSerialPortBackend(), (msg: HostToWebview) => {
-    // The panel may already be disposed when a late batch arrives.
-    void Promise.resolve(panel.webview.postMessage(msg)).catch(() => undefined);
-  });
+  private view: vscode.WebviewView | undefined;
+  private controller: MonitorController | undefined;
 
-  panel.webview.html = monitorPageHtml();
-  panel.webview.onDidReceiveMessage((msg: WebviewToHost) => {
-    switch (msg.type) {
-      case 'ready':
-      case 'refreshPorts':
-        void controller.refreshPorts();
-        break;
-      case 'connect':
-        void controller.connect(String(msg.port), Number(msg.baudRate));
-        break;
-      case 'disconnect':
-        void controller.disconnect();
-        break;
-    }
-  }, undefined, context.subscriptions);
+  resolveWebviewView(view: vscode.WebviewView): void {
+    this.view = view;
+    view.webview.options = { enableScripts: true };
+    view.webview.html = monitorPageHtml();
+    view.title = 'Serial Monitor';
 
-  panel.onDidDispose(() => {
-    void controller.dispose();
-  }, undefined, context.subscriptions);
+    const controller = new MonitorController(new NodeSerialPortBackend(), (msg: HostToWebview) => {
+      if (msg.type === 'state') {
+        view.title = msg.state === 'connected' && msg.path ? `Serial Monitor: ${msg.path}` : 'Serial Monitor';
+      }
+      // The view may already be disposed when a late batch arrives.
+      void Promise.resolve(view.webview.postMessage(msg)).catch(() => undefined);
+    });
+    this.controller = controller;
+
+    view.webview.onDidReceiveMessage((msg: WebviewToHost) => {
+      switch (msg.type) {
+        case 'ready':
+        case 'refreshPorts':
+          void controller.refreshPorts();
+          break;
+        case 'connect':
+          void controller.connect(String(msg.port), Number(msg.baudRate));
+          break;
+        case 'disconnect':
+          void controller.disconnect();
+          break;
+      }
+    });
+
+    view.onDidDispose(() => {
+      void controller.dispose();
+      if (this.controller === controller) {
+        this.controller = undefined;
+        this.view = undefined;
+      }
+    });
+  }
 }

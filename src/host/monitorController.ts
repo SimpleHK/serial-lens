@@ -6,7 +6,7 @@ export type ControllerState = 'idle' | 'connecting' | 'connected';
 
 export type HostToWebview =
   | { type: 'ports'; ports: PortInfo[] }
-  | { type: 'state'; state: ControllerState; message?: string }
+  | { type: 'state'; state: ControllerState; path?: string; message?: string }
   | { type: 'append'; lines: string[] };
 
 export interface MonitorControllerOptions {
@@ -84,7 +84,7 @@ export class MonitorController {
         return;
       }
       this.stateValue = 'connected';
-      this.send({ type: 'state', state: 'connected' });
+      this.send({ type: 'state', state: 'connected', path });
     } catch (err) {
       if (this.wasTornDown()) {
         return; // a port error or unexpected close during open already handled the failure

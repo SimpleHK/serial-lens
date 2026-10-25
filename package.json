@@ -24,7 +24,16 @@
         "title": "Open Monitor",
         "category": "Serial Monitor"
       }
-    ]
+    ],
+    "views": {
+      "panel": [
+        {
+          "type": "webview",
+          "id": "serialMonitor.view",
+          "name": "Serial Monitor"
+        }
+      ]
+    }
   },
   "scripts": {
     "build": "node esbuild.mjs",

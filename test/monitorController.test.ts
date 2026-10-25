@@ -139,7 +139,7 @@ describe('MonitorController', () => {
     expect(controller.state).toBe('connected');
     expect(messages).toEqual([
       { type: 'state', state: 'connecting' },
-      { type: 'state', state: 'connected' },
+      { type: 'state', state: 'connected', path: 'COM3' },
     ]);
   });
 

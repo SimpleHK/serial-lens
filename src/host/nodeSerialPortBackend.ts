@@ -6,7 +6,11 @@ import { PortInfo, SerialPortBackend, SerialPortLike, Unsubscribe } from './seri
 export class NodeSerialPortBackend implements SerialPortBackend {
   async listPorts(): Promise<PortInfo[]> {
     const ports = await SerialPort.list();
-    return ports.map((p) => ({ path: p.path }));
+    return ports.map((p) => ({
+      path: p.path,
+      // Windows populates friendlyName at runtime but the typings omit it.
+      description: (p as { friendlyName?: string }).friendlyName,
+    }));
   }
 
   createPort(path: string, baudRate: number): SerialPortLike {

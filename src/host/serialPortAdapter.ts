@@ -4,6 +4,8 @@
  */
 export interface PortInfo {
   path: string;
+  /** Human-friendly description, e.g. "com0com - serial port emulator (COM10)". */
+  description?: string;
 }
 
 export interface Unsubscribe {
