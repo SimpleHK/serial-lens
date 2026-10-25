@@ -25,8 +25,16 @@
         "category": "Serial Monitor"
       }
     ],
-    "views": {
+    "viewsContainers": {
       "panel": [
+        {
+          "id": "serialMonitor",
+          "title": "Serial Monitor"
+        }
+      ]
+    },
+    "views": {
+      "serialMonitor": [
         {
           "type": "webview",
           "id": "serialMonitor.view",
