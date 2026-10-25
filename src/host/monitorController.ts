@@ -2,12 +2,12 @@ import { LineAssembler } from './lineAssembler';
 import { LineBatcher } from './lineBatcher';
 import { PortInfo, SerialPortBackend, SerialPortLike, Unsubscribe } from './serialPortAdapter';
 
+export type ControllerState = 'idle' | 'connecting' | 'connected';
+
 export type HostToWebview =
   | { type: 'ports'; ports: PortInfo[] }
-  | { type: 'state'; connected: boolean; connecting: boolean; message?: string }
+  | { type: 'state'; state: ControllerState; message?: string }
   | { type: 'append'; lines: string[] };
-
-export type ControllerState = 'idle' | 'connecting' | 'connected';
 
 export interface MonitorControllerOptions {
   /** Batching window for appends to the webview, in milliseconds. */
@@ -43,8 +43,7 @@ export class MonitorController {
     } catch (err) {
       this.send({
         type: 'state',
-        connected: false,
-        connecting: false,
+        state: 'idle',
         message: `Failed to list serial ports: ${describe(err)}`,
       });
     }
@@ -54,8 +53,7 @@ export class MonitorController {
     if (this.stateValue !== 'idle') {
       this.send({
         type: 'state',
-        connected: this.stateValue === 'connected',
-        connecting: this.stateValue === 'connecting',
+        state: this.stateValue,
         message:
           this.stateValue === 'connected'
             ? 'Already connected; disconnect first.'
@@ -65,7 +63,7 @@ export class MonitorController {
     }
 
     this.stateValue = 'connecting';
-    this.send({ type: 'state', connected: false, connecting: true });
+    this.send({ type: 'state', state: 'connecting' });
 
     try {
       const port = this.backend.createPort(path, baudRate);
@@ -86,19 +84,12 @@ export class MonitorController {
         return;
       }
       this.stateValue = 'connected';
-      this.send({ type: 'state', connected: true, connecting: false });
+      this.send({ type: 'state', state: 'connected' });
     } catch (err) {
       if (this.wasTornDown()) {
         return; // a port error or unexpected close during open already handled the failure
       }
-      this.discardPort();
-      this.stateValue = 'idle';
-      this.send({
-        type: 'state',
-        connected: false,
-        connecting: false,
-        message: `Failed to open ${path}: ${describe(err)}`,
-      });
+      await this.teardown(`Failed to open ${path}: ${describe(err)}`);
     }
   }
 
@@ -106,37 +97,35 @@ export class MonitorController {
     if (this.stateValue === 'idle') {
       return; // clean no-op
     }
-    const port = this.port;
-    const rest = this.assembler ? this.assembler.flush() : [];
-    if (this.batcher) {
-      this.batcher.add(rest);
-      this.batcher.dispose();
-    }
-    this.discardPort();
-    this.stateValue = 'idle';
-    if (port) {
-      try {
-        await port.close();
-      } catch {
-        // The port may already be gone; the user asked to close it either way.
-      }
-    }
-    this.send({ type: 'state', connected: false, connecting: false, message: 'Disconnected.' });
+    await this.teardown('Disconnected.');
   }
 
   async dispose(): Promise<void> {
+    await this.teardown();
+  }
+
+  /**
+   * Shared exit path from any non-idle state: flush the seam, detach the
+   * port, release the OS handle, and report idle. The port is closed here
+   * even on error/unplug paths so the handle is never left open unowned.
+   */
+  private async teardown(message?: string): Promise<void> {
     const port = this.port;
-    if (this.batcher) {
+    if (this.assembler && this.batcher) {
+      this.batcher.add(this.assembler.flush());
       this.batcher.dispose();
     }
-    this.discardPort();
+    this.detachPort();
     this.stateValue = 'idle';
     if (port) {
       try {
         await port.close();
       } catch {
-        // Best effort during teardown.
+        // The port may already be gone (unplug, failed open); nothing to do.
       }
+    }
+    if (message !== undefined) {
+      this.send({ type: 'state', state: 'idle', message });
     }
   }
 
@@ -151,28 +140,14 @@ export class MonitorController {
     if (this.stateValue === 'idle') {
       return;
     }
-    this.discardPort();
-    this.stateValue = 'idle';
-    this.send({
-      type: 'state',
-      connected: false,
-      connecting: false,
-      message: `Serial port error: ${describe(err)}`,
-    });
+    void this.teardown(`Serial port error: ${describe(err)}`);
   }
 
   private onUnexpectedClose(): void {
     if (this.stateValue === 'idle') {
       return; // our own disconnect already handled teardown
     }
-    this.discardPort();
-    this.stateValue = 'idle';
-    this.send({
-      type: 'state',
-      connected: false,
-      connecting: false,
-      message: 'Serial port closed unexpectedly.',
-    });
+    void this.teardown('Serial port closed unexpectedly.');
   }
 
   // A method rather than a direct field comparison: the async teardown
@@ -182,7 +157,7 @@ export class MonitorController {
     return this.stateValue === 'idle';
   }
 
-  private discardPort(): void {
+  private detachPort(): void {
     for (const unsub of this.unsubs.splice(0)) {
       unsub();
     }

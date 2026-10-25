@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { MonitorController, HostToWebview } from '../src/host/monitorController';
+import { HostToWebview, MonitorController } from '../src/host/monitorController';
 import { PortInfo, SerialPortBackend, SerialPortLike, Unsubscribe } from '../src/host/serialPortAdapter';
 
 class FakePort implements SerialPortLike {
   openError: Error | undefined;
   opened = false;
+  closeCount = 0;
   private readonly dataListeners: ((chunk: Uint8Array) => void)[] = [];
   private readonly errorListeners: ((err: Error) => void)[] = [];
   private readonly closeListeners: (() => void)[] = [];
@@ -18,6 +19,7 @@ class FakePort implements SerialPortLike {
   }
 
   async close(): Promise<void> {
+    this.closeCount++;
     this.opened = false;
     // Mirror the real port: the 'close' event fires after close() as well.
     this.emitClose();
@@ -120,7 +122,7 @@ describe('MonitorController', () => {
     await controller.refreshPorts();
 
     expect(messages).toEqual([
-      { type: 'state', connected: false, connecting: false, message: 'Failed to list serial ports: usb boom' },
+      { type: 'state', state: 'idle', message: 'Failed to list serial ports: usb boom' },
     ]);
   });
 
@@ -131,15 +133,17 @@ describe('MonitorController', () => {
     expect(controller.state).toBe('connecting');
     await connectPromise;
 
-    expect(backend.created).toEqual([{ path: 'COM3', baudRate: 115200, port: backend.created[0].port }]);
+    expect(backend.created).toEqual([
+      { path: 'COM3', baudRate: 115200, port: backend.created[0].port },
+    ]);
     expect(controller.state).toBe('connected');
     expect(messages).toEqual([
-      { type: 'state', connected: false, connecting: true },
-      { type: 'state', connected: true, connecting: false },
+      { type: 'state', state: 'connecting' },
+      { type: 'state', state: 'connected' },
     ]);
   });
 
-  it('reports open failure as a state message and returns to idle', async () => {
+  it('reports open failure as a state message, releases the port, and returns to idle', async () => {
     const backend = new FakeBackend();
     const port = new FakePort();
     port.openError = new Error('access denied');
@@ -150,9 +154,10 @@ describe('MonitorController', () => {
     await controller.connect('COM3', 9600);
 
     expect(controller.state).toBe('idle');
+    expect(port.closeCount).toBe(1);
     expect(messages).toEqual([
-      { type: 'state', connected: false, connecting: true },
-      { type: 'state', connected: false, connecting: false, message: 'Failed to open COM3: access denied' },
+      { type: 'state', state: 'connecting' },
+      { type: 'state', state: 'idle', message: 'Failed to open COM3: access denied' },
     ]);
   });
 
@@ -181,7 +186,7 @@ describe('MonitorController', () => {
     expect(backend.created).toHaveLength(1);
     expect(controller.state).toBe('connected');
     expect(messages).toEqual([
-      { type: 'state', connected: true, connecting: false, message: 'Already connected; disconnect first.' },
+      { type: 'state', state: 'connected', message: 'Already connected; disconnect first.' },
     ]);
   });
 
@@ -194,7 +199,7 @@ describe('MonitorController', () => {
     expect(messages).toEqual([]);
   });
 
-  it('explicit disconnect flushes the pending partial line, closes the port, reports idle', async () => {
+  it('explicit disconnect flushes the pending partial line, releases the port, reports idle', async () => {
     const { backend, messages, controller } = setup();
     await controller.connect('COM3', 115200);
     const port = backend.created[0].port;
@@ -204,23 +209,26 @@ describe('MonitorController', () => {
     await controller.disconnect();
 
     expect(controller.state).toBe('idle');
+    expect(port.closeCount).toBe(1);
     expect(port.opened).toBe(false);
     expect(messages).toEqual([
       { type: 'append', lines: ['partial line'] },
-      { type: 'state', connected: false, connecting: false, message: 'Disconnected.' },
+      { type: 'state', state: 'idle', message: 'Disconnected.' },
     ]);
   });
 
-  it('port error transitions to idle with a message and survives the trailing close event', async () => {
+  it('port error transitions to idle, releases the port, and survives the trailing close event', async () => {
     const { messages, controller } = setup();
     await controller.connect('COM3', 115200);
     const port = (controller as unknown as { port: FakePort }).port;
     messages.length = 0;
 
     port.emitError(new Error('device unplugged'));
+    await Promise.resolve(); // the teardown microtask delivers the state message
     expect(controller.state).toBe('idle');
+    expect(port.closeCount).toBe(1); // handle released even on the error path
     expect(messages).toEqual([
-      { type: 'state', connected: false, connecting: false, message: 'Serial port error: device unplugged' },
+      { type: 'state', state: 'idle', message: 'Serial port error: device unplugged' },
     ]);
 
     port.emitClose(); // the real port emits 'close' right after the error
@@ -228,21 +236,25 @@ describe('MonitorController', () => {
     expect(messages).toHaveLength(1); // no duplicate teardown message
   });
 
-  it('unexpected close transitions to idle with a message', async () => {
+  it('unexpected close transitions to idle, releases the port, and flushes the partial line', async () => {
     const { messages, controller } = setup();
     await controller.connect('COM3', 115200);
     const port = (controller as unknown as { port: FakePort }).port;
+    port.emitData(Buffer.from('half a line'));
     messages.length = 0;
 
     port.emitClose();
+    await Promise.resolve(); // the teardown microtask delivers the state message
 
     expect(controller.state).toBe('idle');
+    expect(port.closeCount).toBe(1);
     expect(messages).toEqual([
-      { type: 'state', connected: false, connecting: false, message: 'Serial port closed unexpectedly.' },
+      { type: 'append', lines: ['half a line'] },
+      { type: 'state', state: 'idle', message: 'Serial port closed unexpectedly.' },
     ]);
   });
 
-  it('dispose flushes buffered lines and closes the port', async () => {
+  it('dispose flushes buffered lines and closes the port without a state message', async () => {
     const { backend, messages, controller } = setup();
     await controller.connect('COM3', 115200);
     const port = backend.created[0].port;
@@ -252,6 +264,6 @@ describe('MonitorController', () => {
     await controller.dispose();
 
     expect(port.opened).toBe(false);
-    expect(messages).toEqual([{ type: 'append', lines: ['tail'] }]);
+    expect(messages).toEqual([{ type: 'append', lines: ['tail', 'more coming'] }]);
   });
 });
