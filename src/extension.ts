@@ -1,10 +1,19 @@
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 
-import { HostToWebview, MonitorController } from './host/monitorController';
+import {
+  LineEnding as ApiLineEnding,
+  MonitorPortSettings,
+  Port,
+  PortInformation,
+  SerialMonitorApi,
+  StopBits,
+  Version,
+} from './api/serialMonitorApi';
+import { HostToWebview, MonitorController, ControllerState } from './host/monitorController';
 import { NodeSerialPortBackend } from './host/nodeSerialPortBackend';
-import { TagStorage, TagStore } from './host/tagStore';
 import { LineEnding, SerialPortSettings } from './host/serialPortAdapter';
+import { TagStorage, TagStore } from './host/tagStore';
 import { Tag } from './shared/tag';
 import { monitorPageHtml } from './webview/monitorPage';
 
@@ -37,7 +46,9 @@ function toLineEnding(value: string): LineEnding {
   return (LINE_ENDINGS as readonly string[]).includes(value) ? (value as LineEnding) : 'LF';
 }
 
-export function activate(context: vscode.ExtensionContext): void {
+export function activate(
+  context: vscode.ExtensionContext,
+): { getApi(version: Version, extensionContext: vscode.ExtensionContext): Promise<SerialMonitorApi | undefined> } {
   const provider = new MonitorViewProvider(context.extensionUri);
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(MonitorViewProvider.viewId, provider, {
@@ -47,6 +58,17 @@ export function activate(context: vscode.ExtensionContext): void {
       void vscode.commands.executeCommand(`${MonitorViewProvider.viewId}.focus`);
     }),
   );
+
+  return {
+    getApi: (version: Version): Promise<SerialMonitorApi | undefined> => {
+      // Version negotiation per the original contract: requesting a version
+      // above what is supported yields undefined.
+      if (version > Version.latest) {
+        return Promise.resolve(undefined);
+      }
+      return Promise.resolve(new MonitorApi(provider));
+    },
+  };
 }
 
 export function deactivate(): void {
@@ -169,6 +191,75 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
       }
     });
   }
+
+  /** Starts monitoring through the view's controller; resolves to a Port
+   * whose onClosed fires when the connection drops for any reason. */
+  async startMonitoringPort(settings: MonitorPortSettings): Promise<Port> {
+    const controller = await this.ensureController();
+    if (controller.state !== 'idle') {
+      throw new Error(
+        'A monitor is already active; multiple simultaneous monitors are not supported in this version.',
+      );
+    }
+    const closed = new vscode.EventEmitter<void>();
+    const unsub = controller.onStateChange((s) => {
+      if (s === 'idle') {
+        unsub();
+        closed.fire();
+      }
+    });
+    await controller.connect(toApiSettings(settings));
+    // Read through a cast: TypeScript's alias narrowing of the getter gets
+    // this comparison wrong across the awaited connect() above.
+    const stateAfterConnect = controller.state as ControllerState;
+    if (stateAfterConnect !== 'connected') {
+      unsub();
+      closed.dispose();
+      throw new Error(`Failed to open ${settings.port}. See the monitor view for details.`);
+    }
+    const view = this.view;
+    if (view) {
+      void Promise.resolve(
+        view.webview.postMessage({ type: 'lineEnding', value: apiLineEndingToUi(settings.lineEnding) }),
+      ).catch(() => undefined);
+    }
+    return {
+      stopMonitoring: async () => {
+        unsub();
+        await controller.disconnect();
+        closed.dispose();
+      },
+      onClosed: closed.event,
+    };
+  }
+
+  async stopMonitoringPort(portName: string): Promise<boolean> {
+    const controller = this.controller;
+    if (controller && controller.state === 'connected' && controller.activePath === portName) {
+      await controller.disconnect();
+      return true;
+    }
+    return false;
+  }
+
+  clearMonitorOutput(): void {
+    void Promise.resolve(this.view?.webview.postMessage({ type: 'clear' })).catch(() => undefined);
+  }
+
+  private async ensureController(): Promise<MonitorController> {
+    if (this.controller) {
+      return this.controller;
+    }
+    await vscode.commands.executeCommand(`${MonitorViewProvider.viewId}.focus`);
+    const deadline = Date.now() + 5000;
+    while (!this.controller && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    if (!this.controller) {
+      throw new Error('The serial monitor view did not initialize.');
+    }
+    return this.controller;
+  }
 }
 
 function workspaceTagStorage(): TagStorage {
@@ -185,4 +276,62 @@ function workspaceTagStorage(): TagStorage {
       await vscode.workspace.getConfiguration('serialMonitor').update('tags', tags, target);
     },
   };
+}
+
+function toApiSettings(ms: MonitorPortSettings): SerialPortSettings {
+  return {
+    path: ms.port,
+    baudRate: ms.baudRate,
+    dataBits: ms.dataBits,
+    stopBits: ms.stopBits === StopBits.Two ? 2 : ms.stopBits === StopBits.Onepointfive ? 1.5 : 1,
+    parity: ms.parity,
+  };
+}
+
+function apiLineEndingToUi(le: ApiLineEnding): string {
+  switch (le) {
+    case ApiLineEnding.LF:
+      return 'LF';
+    case ApiLineEnding.CRLF:
+      return 'CRLF';
+    case ApiLineEnding.CR:
+      return 'CR';
+    default:
+      return 'none';
+  }
+}
+
+/** The SerialMonitorApi implementation over the monitor view's controller. */
+class MonitorApi implements SerialMonitorApi {
+  constructor(private readonly provider: MonitorViewProvider) {}
+
+  async listAvailablePorts(): Promise<PortInformation[]> {
+    const ports = await new NodeSerialPortBackend().listPorts();
+    return ports.map((p) => ({ portName: p.path, friendlyName: p.description }));
+  }
+
+  startMonitoringPort(monitorSettings: MonitorPortSettings): Promise<Port> {
+    return this.provider.startMonitoringPort(monitorSettings);
+  }
+
+  async stopMonitoringPort(portName: string): Promise<boolean> {
+    return this.provider.stopMonitoringPort(portName);
+  }
+
+  startMonitoringTCPConnection(): Promise<Port> {
+    // ADR-0002: TCP stays on the API surface but reports unsupported until it ships.
+    return Promise.reject(
+      new Error('TCP monitoring is not supported by this version of Serial Monitor (OSS).'),
+    );
+  }
+
+  async stopMonitoringTCPConnection(): Promise<boolean> {
+    return false;
+  }
+
+  async clearOutput(): Promise<void> {
+    this.provider.clearMonitorOutput();
+  }
+
+  dispose(): void {}
 }

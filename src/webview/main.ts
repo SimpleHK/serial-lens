@@ -298,6 +298,10 @@ window.addEventListener('message', (e) => {
   } else if (m.type === 'timestamps') {
     showTimestamps = m.enabled;
     scheduleRender();
+  } else if (m.type === 'clear') {
+    clearMonitor();
+  } else if (m.type === 'lineEnding') {
+    lineEndingSelect.value = m.value;
   } else if (m.type === 'tags') {
     tags = m.tags;
     renderChips();
@@ -348,12 +352,14 @@ timestampsCheckbox.addEventListener('change', () => {
   vscode.postMessage({ type: 'setTimestamps', enabled: timestampsCheckbox.checked });
 });
 
-clearBtn.addEventListener('click', () => {
+function clearMonitor(): void {
   clearBuffer();
   scroll = scrollReducer(scroll, { type: 'reset' });
   renderScrollIndicator();
   updateButtons();
-});
+}
+
+clearBtn.addEventListener('click', clearMonitor);
 
 // Scroll Lock: user scrolls drive the follow/locked reducer; programmatic
 // pinning only ever scrolls to the bottom, which keeps Follow.

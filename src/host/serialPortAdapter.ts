@@ -15,9 +15,9 @@ export interface Unsubscribe {
 export interface SerialPortSettings {
   path: string;
   baudRate: number;
-  dataBits: 7 | 8;
-  stopBits: 1 | 2;
-  parity: 'none' | 'even' | 'odd';
+  dataBits: 5 | 6 | 7 | 8;
+  stopBits: 1 | 1.5 | 2;
+  parity: 'none' | 'even' | 'odd' | 'mark' | 'space';
 }
 
 export type LineEnding = 'none' | 'LF' | 'CRLF' | 'CR';

@@ -82,7 +82,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:integration": "node scripts/build-integration.mjs && node dist/integration/runTest.js",
+    "test:integration": "npm run build && node scripts/build-integration.mjs && node dist/integration/runTest.js",
     "smoke:check": "node scripts/vserial-check.mjs",
     "smoke:device": "node scripts/virtual-device.mjs"
   },

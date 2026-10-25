@@ -2,6 +2,14 @@ import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { SerialPort } from 'serialport';
 
+import {
+  getSerialMonitorApi,
+  LineEnding,
+  Parity,
+  SerialMonitorApi,
+  StopBits,
+  Version,
+} from '../../src/api/serialMonitorApi';
 import { HostToWebview, MonitorController } from '../../src/host/monitorController';
 import { NodeSerialPortBackend } from '../../src/host/nodeSerialPortBackend';
 
@@ -220,6 +228,56 @@ suite('Serial Monitor integration', () => {
         } finally {
           await controller.dispose();
         }
+      });
+
+      test('public API: list, monitor, close, and TCP-unsupported', async function () {
+        if (!hasPair) {
+          this.skip();
+        }
+        this.timeout(30000);
+
+        const ext = vscode.extensions.getExtension(EXT_ID);
+        assert.ok(ext);
+        await ext.activate();
+        const api = await getSerialMonitorApi(Version.latest, {} as vscode.ExtensionContext);
+        assert.ok(api);
+
+        const ports = await api.listAvailablePorts();
+        assert.ok(ports.some((p) => p.portName === COM_A));
+
+        let closed = 0;
+        const port = await api.startMonitoringPort({
+          port: COM_A,
+          baudRate: 115200,
+          lineEnding: LineEnding.LF,
+          dataBits: 8,
+          stopBits: StopBits.One,
+          parity: Parity.None,
+        });
+        port.onClosed(() => {
+          closed++;
+        });
+        assert.strictEqual(await api.stopMonitoringPort(COM_A), true);
+        await sleep(100); // allow the close event to fire
+        assert.strictEqual(closed, 1);
+        assert.strictEqual(await api.stopMonitoringPort(COM_A), false);
+
+        await assert.rejects(
+          api.startMonitoringTCPConnection({ host: 'localhost', port: 1234, swoEnabled: false }),
+          /not supported/i,
+        );
+      });
+
+      test('public API: version negotiation returns undefined above supported', async function () {
+        this.timeout(15000);
+        const ext = vscode.extensions.getExtension(EXT_ID);
+        assert.ok(ext);
+        await ext.activate();
+        const exports = ext.exports as {
+          getApi(v: number, c: vscode.ExtensionContext): Promise<SerialMonitorApi | undefined>;
+        };
+        assert.strictEqual(await exports.getApi(999, {} as vscode.ExtensionContext), undefined);
+        assert.ok(await exports.getApi(Version.latest, {} as vscode.ExtensionContext));
       });
 
       test('double connect while connected is rejected without touching the port', async function () {

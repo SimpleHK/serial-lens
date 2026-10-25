@@ -369,6 +369,19 @@ describe('MonitorController', () => {
     expect(append.timestamps).toHaveLength(2);
   });
 
+  it('exposes state transitions and the active path to listeners', async () => {
+    const { controller } = setup();
+    const seen: string[] = [];
+    controller.onStateChange((s) => seen.push(s));
+
+    await controller.connect(S('COM3'));
+    expect(controller.activePath).toBe('COM3');
+    await controller.disconnect();
+
+    expect(seen).toEqual(['connecting', 'connected', 'idle']);
+    expect(controller.activePath).toBeUndefined();
+  });
+
   it('timestamps stay off by default and toggle live', async () => {
     const { backend, messages, controller } = setup();
     await controller.connect(S('COM3'));

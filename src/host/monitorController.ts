@@ -43,11 +43,13 @@ interface TimedLine {
 export class MonitorController {
   private port: SerialPortLike | undefined;
   private stateValue: ControllerState = 'idle';
+  private currentPath: string | undefined;
   private assembler: LineAssembler | undefined;
   private batcher: LineBatcher<TimedLine> | undefined;
   private ring: RingCounter;
   private timestampsEnabled: boolean;
   private readonly unsubs: Unsubscribe[] = [];
+  private readonly stateListeners = new Set<(s: ControllerState) => void>();
 
   constructor(
     private readonly backend: SerialPortBackend,
@@ -60,6 +62,24 @@ export class MonitorController {
 
   get state(): ControllerState {
     return this.stateValue;
+  }
+
+  /** The connected port path, or undefined while idle. */
+  get activePath(): string | undefined {
+    return this.currentPath;
+  }
+
+  /** Observes connection-state transitions (used by the public API bridge). */
+  onStateChange(listener: (s: ControllerState) => void): Unsubscribe {
+    this.stateListeners.add(listener);
+    return () => this.stateListeners.delete(listener);
+  }
+
+  private setState(s: ControllerState): void {
+    this.stateValue = s;
+    for (const listener of [...this.stateListeners]) {
+      listener(s);
+    }
   }
 
   async refreshPorts(): Promise<void> {
@@ -88,7 +108,7 @@ export class MonitorController {
       return;
     }
 
-    this.stateValue = 'connecting';
+    this.setState('connecting');
     this.send({ type: 'state', state: 'connecting' });
 
     try {
@@ -117,7 +137,8 @@ export class MonitorController {
         // An error or unexpected close tore the connection down while opening.
         return;
       }
-      this.stateValue = 'connected';
+      this.setState('connected');
+      this.currentPath = settings.path;
       this.send({ type: 'state', state: 'connected', path: settings.path });
     } catch (err) {
       if (this.wasTornDown()) {
@@ -176,7 +197,7 @@ export class MonitorController {
       this.batcher.dispose();
     }
     this.detachPort();
-    this.stateValue = 'idle';
+    this.setState('idle');
     if (port) {
       try {
         await port.close();
@@ -229,6 +250,7 @@ export class MonitorController {
     this.assembler = undefined;
     this.batcher = undefined;
     this.port = undefined;
+    this.currentPath = undefined;
   }
 }
 
