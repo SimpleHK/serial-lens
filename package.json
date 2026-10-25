@@ -31,7 +31,9 @@
     "watch": "node esbuild.mjs --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "smoke:check": "node scripts/vserial-check.mjs",
+    "smoke:device": "node scripts/virtual-device.mjs"
   },
   "dependencies": {
     "serialport": "^12.0.0"
