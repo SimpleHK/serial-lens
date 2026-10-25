@@ -65,7 +65,8 @@
             "type": "object",
             "required": ["name", "pattern", "isRegex", "color", "enabled"],
             "properties": {
-              "name": { "type": "string", "description": "Display name; the stable key used by chips." },
+              "id": { "type": "string", "description": "Stable identity used by the UI (assigned automatically)." },
+              "name": { "type": "string", "description": "Display name." },
               "pattern": { "type": "string", "description": "Literal substring, or regex source when isRegex is true." },
               "isRegex": { "type": "boolean", "description": "Whether pattern is a regular expression instead of a substring." },
               "color": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Hex color used for the full-line highlight and the chip." },

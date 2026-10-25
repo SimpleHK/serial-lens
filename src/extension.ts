@@ -25,9 +25,9 @@ type WebviewToHost =
   | { type: 'send'; text: string; lineEnding: string }
   | { type: 'setTimestamps'; enabled: boolean }
   | { type: 'createTag'; pattern: string }
-  | { type: 'toggleTag'; name: string }
-  | { type: 'updateTag'; name: string; patch: { name?: string; pattern?: string; isRegex?: boolean; color?: string; enabled?: boolean } }
-  | { type: 'removeTag'; name: string };
+  | { type: 'toggleTag'; id: string }
+  | { type: 'updateTag'; id: string; patch: { name?: string; pattern?: string; isRegex?: boolean; color?: string; enabled?: boolean } }
+  | { type: 'removeTag'; id: string };
 
 const LINE_ENDINGS: readonly LineEnding[] = ['none', 'LF', 'CRLF', 'CR'];
 
@@ -175,13 +175,13 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
           void tagStore.add(String(msg.pattern));
           break;
         case 'toggleTag':
-          void tagStore.toggle(String(msg.name));
+          void tagStore.toggle(String(msg.id));
           break;
         case 'updateTag':
-          void tagStore.update(String(msg.name), msg.patch);
+          void tagStore.update(String(msg.id), msg.patch);
           break;
         case 'removeTag':
-          void tagStore.remove(String(msg.name));
+          void tagStore.remove(String(msg.id));
           break;
       }
     });

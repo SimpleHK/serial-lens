@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import { isValidTag, nextFreeColor, Tag } from '../shared/tag';
 
 /**
@@ -13,16 +15,19 @@ type Listener = (tags: readonly Tag[]) => void;
 
 /**
  * Owns the workspace's tag vocabulary: load with sanitization, create tags
- * from a selected pattern, toggle enable state, persist on every change.
- * Filtering is a separate display-layer concern (ADR-0004) — the store only
- * holds the rules.
+ * from a selected pattern, toggle enable state, edit, delete, persist on
+ * every change. Tags are addressed by their stable `id` — names are display
+ * only and may be deduplicated or renamed at any time. Filtering is a
+ * separate display-layer concern (ADR-0004); the store only holds the rules.
  */
 export class TagStore {
   private tags: Tag[];
   private readonly listeners = new Set<Listener>();
 
   constructor(private readonly storage: TagStorage) {
-    this.tags = (storage.get() ?? []).filter(isValidTag);
+    // Legacy entries (pre-id) get an id assigned on load and persist with it
+    // on the next change.
+    this.tags = (storage.get() ?? []).filter(isValidTag).map((t) => ({ ...t, id: t.id ?? randomUUID() }));
   }
 
   getTags(): readonly Tag[] {
@@ -39,6 +44,7 @@ export class TagStore {
     const trimmed = pattern.trim();
     const name = this.uniqueName(trimmed.length > 0 ? trimmed : 'Tag');
     const tag: Tag = {
+      id: randomUUID(),
       name,
       pattern: trimmed,
       isRegex: false,
@@ -50,23 +56,23 @@ export class TagStore {
     return tag;
   }
 
-  async toggle(name: string): Promise<void> {
-    if (!this.tags.some((t) => t.name === name)) {
-      return; // unknown name: clean no-op
+  async toggle(id: string): Promise<void> {
+    if (!this.tags.some((t) => t.id === id)) {
+      return; // unknown id: clean no-op
     }
-    this.tags = this.tags.map((t) => (t.name === name ? { ...t, enabled: !t.enabled } : t));
+    this.tags = this.tags.map((t) => (t.id === id ? { ...t, enabled: !t.enabled } : t));
     await this.persist();
   }
 
   /** Applies a validated field patch; renaming dedupes against other tags. */
-  async update(name: string, patch: Partial<Omit<Tag, 'name'>> & { name?: string }): Promise<void> {
-    const current = this.tags.find((t) => t.name === name);
+  async update(id: string, patch: Partial<Omit<Tag, 'id'>>): Promise<void> {
+    const current = this.tags.find((t) => t.id === id);
     if (!current) {
       return;
     }
     const merged: Tag = { ...current };
     if (patch.name !== undefined && typeof patch.name === 'string' && patch.name.trim()) {
-      merged.name = this.uniqueNameFor(patch.name.trim(), name);
+      merged.name = this.uniqueNameFor(patch.name.trim(), id);
     }
     if (typeof patch.pattern === 'string' && patch.pattern.trim()) {
       merged.pattern = patch.pattern;
@@ -80,33 +86,21 @@ export class TagStore {
     if (typeof patch.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(patch.color)) {
       merged.color = patch.color;
     }
-    this.tags = this.tags.map((t) => (t.name === name ? merged : t));
+    this.tags = this.tags.map((t) => (t.id === id ? merged : t));
     await this.persist();
   }
 
-  async remove(name: string): Promise<void> {
-    if (!this.tags.some((t) => t.name === name)) {
+  async remove(id: string): Promise<void> {
+    if (!this.tags.some((t) => t.id === id)) {
       return;
     }
-    this.tags = this.tags.filter((t) => t.name !== name);
+    this.tags = this.tags.filter((t) => t.id !== id);
     await this.persist();
-  }
-
-  /** Like uniqueName, but a tag may keep its own current name. */
-  private uniqueNameFor(base: string, self: string): string {
-    if (base === self || !this.tags.some((t) => t.name === base)) {
-      return base;
-    }
-    let n = 2;
-    while (this.tags.some((t) => t.name === `${base} ${n}`)) {
-      n++;
-    }
-    return `${base} ${n}`;
   }
 
   /** Re-reads storage after external edits (e.g. settings.json changed). */
   reload(): void {
-    this.tags = (this.storage.get() ?? []).filter(isValidTag);
+    this.tags = (this.storage.get() ?? []).filter(isValidTag).map((t) => ({ ...t, id: t.id ?? randomUUID() }));
     for (const listener of this.listeners) {
       listener(this.tags);
     }
@@ -123,6 +117,18 @@ export class TagStore {
       n++;
     }
     return `${truncated} ${n}`;
+  }
+
+  /** Like uniqueName, but the tag being renamed may keep its own name. */
+  private uniqueNameFor(base: string, selfId: string): string {
+    if (!this.tags.some((t) => t.name === base && t.id !== selfId)) {
+      return base;
+    }
+    let n = 2;
+    while (this.tags.some((t) => t.name === `${base} ${n}` && t.id !== selfId)) {
+      n++;
+    }
+    return `${base} ${n}`;
   }
 
   private async persist(): Promise<void> {

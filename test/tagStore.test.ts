@@ -18,7 +18,7 @@ const memoryStorage = (initial?: Tag[]): TagStorage & { saved: Tag[][] } => {
 
 describe('TagStore', () => {
   it('loads existing tags from storage', () => {
-    const existing: Tag[] = [{ name: 'ERR', pattern: 'ERROR', isRegex: false, color: '#112233', enabled: true }];
+    const existing: Tag[] = [{ id: 'e1', name: 'ERR', pattern: 'ERROR', isRegex: false, color: '#112233', enabled: true }];
     const store = new TagStore(memoryStorage(existing));
     expect(store.getTags()).toEqual(existing);
   });
@@ -31,9 +31,10 @@ describe('TagStore', () => {
       'garbage',
       { name: 'noColor', pattern: 'p', isRegex: false, enabled: true },
     ] as unknown as Tag[]));
-    expect(store.getTags()).toEqual([
-      { name: 'ok', pattern: 'p', isRegex: false, color: '#112233', enabled: true },
-    ]);
+    const kept = store.getTags();
+    expect(kept).toHaveLength(1);
+    expect(kept[0].name).toBe('ok');
+    expect(typeof kept[0].id).toBe('string'); // every surviving tag gets an id
   });
 
   it('add creates an enabled substring tag prefilled from the pattern', async () => {
@@ -77,10 +78,10 @@ describe('TagStore', () => {
     const storage = memoryStorage();
     const store = new TagStore(storage);
     const t = await store.add('ERROR');
-    await store.toggle(t.name);
+    await store.toggle(t.id);
     expect(store.getTags()[0].enabled).toBe(false);
     expect(storage.saved.at(-1)).toEqual(store.getTags());
-    await store.toggle(t.name);
+    await store.toggle(t.id);
     expect(store.getTags()[0].enabled).toBe(true);
   });
 
@@ -98,7 +99,7 @@ describe('TagStore', () => {
     const store = new TagStore({ get: () => value, update: async (tags) => { value = tags; } });
     store.onChange(listener);
 
-    value = [{ name: 'external', pattern: 'E', isRegex: true, color: '#abcdef', enabled: false }];
+    value = [{ id: 'ext1', name: 'external', pattern: 'E', isRegex: true, color: '#abcdef', enabled: false }];
     store.reload();
 
     expect(store.getTags()).toEqual(value);
@@ -110,10 +111,10 @@ describe('TagStore', () => {
     const store = new TagStore(storage);
     const t = await store.add('old');
 
-    await store.update(t.name, { name: 'renamed', pattern: 'NEW', isRegex: true, color: '#123456', enabled: false });
+    await store.update(t.id, { name: 'renamed', pattern: 'NEW', isRegex: true, color: '#123456', enabled: false });
 
     expect(store.getTags()).toEqual([
-      { name: 'renamed', pattern: 'NEW', isRegex: true, color: '#123456', enabled: false },
+      { id: t.id, name: 'renamed', pattern: 'NEW', isRegex: true, color: '#123456', enabled: false },
     ]);
     expect(storage.saved.at(-1)).toEqual(store.getTags());
   });
@@ -123,10 +124,10 @@ describe('TagStore', () => {
     const a = await store.add('alpha');
     const b = await store.add('beta');
 
-    await store.update(a.name, { name: 'beta' }); // collide with the other tag
+    await store.update(a.id, { name: 'beta' }); // collide with the other tag
     expect(store.getTags()[0].name).toBe('beta 2');
 
-    await store.update(b.name, { name: 'beta' }); // its own name is fine
+    await store.update(b.id, { name: 'beta' }); // its own name is fine
     expect(store.getTags()[1].name).toBe('beta');
   });
 
@@ -135,8 +136,8 @@ describe('TagStore', () => {
     const t = await store.add('keep');
     const before = store.getTags();
 
-    await store.update('ghost', { pattern: 'x' });
-    await store.update(t.name, { color: 'not-a-color', pattern: '' } as Partial<Tag>);
+    await store.update('ghost-id', { pattern: 'x' });
+    await store.update(t.id, { color: 'not-a-color', pattern: '' } as Partial<Tag>);
 
     expect(store.getTags()).toEqual(before);
   });
@@ -147,7 +148,7 @@ describe('TagStore', () => {
     const a = await store.add('a');
     await store.add('b');
 
-    await store.remove(a.name);
+    await store.remove(a.id);
 
     expect(store.getTags().map((t) => t.name)).toEqual(['b']);
     expect(storage.saved.at(-1)).toEqual(store.getTags());
@@ -158,9 +159,19 @@ describe('TagStore', () => {
     await store.add('a');
     const before = store.getTags();
 
-    await store.remove('ghost');
+    await store.remove('ghost-id');
 
     expect(store.getTags()).toEqual(before);
+  });
+
+  it('assigns ids to legacy persisted tags that lack them', () => {
+    const store = new TagStore(memoryStorage([
+      { name: 'old', pattern: 'p', isRegex: false, color: '#112233', enabled: true },
+    ] as unknown as Tag[]));
+    const tags = store.getTags();
+    expect(tags).toHaveLength(1);
+    expect(tags[0].name).toBe('old');
+    expect(typeof tags[0].id).toBe('string');
   });
 
   it('notifies listeners on every change', async () => {
@@ -168,7 +179,7 @@ describe('TagStore', () => {
     const listener = vi.fn();
     store.onChange(listener);
     const t = await store.add('x');
-    await store.toggle(t.name);
+    await store.toggle(t.id);
     expect(listener).toHaveBeenCalledTimes(2);
   });
 });

@@ -294,7 +294,7 @@ function renderChips(): void {
     chip.style.background = t.enabled ? `${t.color}33` : 'transparent';
     chip.textContent = t.name;
     chip.title = t.enabled ? `Hide matches of "${t.name}"` : `Highlight matches of "${t.name}"`;
-    chip.addEventListener('click', () => vscode.postMessage({ type: 'toggleTag', name: t.name }));
+    chip.addEventListener('click', () => vscode.postMessage({ type: 'toggleTag', id: t.id }));
     tagsRow.appendChild(chip);
   }
   renderManagePanel();
@@ -319,7 +319,7 @@ function renderManagePanel(): void {
     nameInput.value = t.name;
     nameInput.title = 'Tag name';
     nameInput.addEventListener('change', () => {
-      vscode.postMessage({ type: 'updateTag', name: t.name, patch: { name: nameInput.value } });
+      vscode.postMessage({ type: 'updateTag', id: t.id, patch: { name: nameInput.value } });
     });
 
     const patternInput = document.createElement('input');
@@ -328,7 +328,7 @@ function renderManagePanel(): void {
     patternInput.value = t.pattern;
     patternInput.placeholder = 'Match pattern (substring or regex source)';
     patternInput.addEventListener('change', () => {
-      vscode.postMessage({ type: 'updateTag', name: t.name, patch: { pattern: patternInput.value } });
+      vscode.postMessage({ type: 'updateTag', id: t.id, patch: { pattern: patternInput.value } });
     });
 
     const regexLabel = document.createElement('label');
@@ -336,7 +336,7 @@ function renderManagePanel(): void {
     regexInput.type = 'checkbox';
     regexInput.checked = t.isRegex;
     regexInput.addEventListener('change', () => {
-      vscode.postMessage({ type: 'updateTag', name: t.name, patch: { isRegex: regexInput.checked } });
+      vscode.postMessage({ type: 'updateTag', id: t.id, patch: { isRegex: regexInput.checked } });
     });
     regexLabel.appendChild(regexInput);
     regexLabel.appendChild(document.createTextNode('regex'));
@@ -345,7 +345,7 @@ function renderManagePanel(): void {
     colorInput.type = 'color';
     colorInput.value = t.color;
     colorInput.addEventListener('change', () => {
-      vscode.postMessage({ type: 'updateTag', name: t.name, patch: { color: colorInput.value } });
+      vscode.postMessage({ type: 'updateTag', id: t.id, patch: { color: colorInput.value } });
     });
 
     const deleteBtn = document.createElement('button');
@@ -353,7 +353,7 @@ function renderManagePanel(): void {
     deleteBtn.textContent = 'Delete';
     deleteBtn.title = `Delete tag "${t.name}"`;
     deleteBtn.addEventListener('click', () => {
-      vscode.postMessage({ type: 'removeTag', name: t.name });
+      vscode.postMessage({ type: 'removeTag', id: t.id });
     });
 
     row.append(nameInput, patternInput, regexLabel, colorInput, deleteBtn);

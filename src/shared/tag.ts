@@ -6,7 +6,10 @@
  * the same shapes.
  */
 export interface Tag {
-  /** Display name; also the stable key used by chips and toggles. */
+  /** Stable identity: chips, panel edits, toggles, and deletes address tags
+   * by id — never by name, which is display-only and may be deduplicated. */
+  id: string;
+  /** Display name. */
   name: string;
   /** Match text: a literal substring, or a regex source when isRegex. */
   pattern: string;
@@ -34,7 +37,9 @@ export function nextFreeColor(existing: readonly Tag[]): string {
 
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 
-export function isValidTag(value: unknown): value is Tag {
+/** Validates persisted entries; `id` is optional so pre-id settings load,
+ * and the store assigns one on load. */
+export function isValidTag(value: unknown): value is Omit<Tag, 'id'> & { id?: string } {
   if (typeof value !== 'object' || value === null) {
     return false;
   }

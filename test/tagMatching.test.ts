@@ -4,6 +4,7 @@ import { matchLine, matchLines } from '../src/shared/tagMatching';
 import { Tag } from '../src/shared/tag';
 
 const tag = (over: Partial<Tag>): Tag => ({
+  id: 't1',
   name: 't',
   pattern: 'x',
   isRegex: false,
