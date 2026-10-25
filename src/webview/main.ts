@@ -576,24 +576,37 @@ refreshBtn.addEventListener('click', () => {
 
 function renderBaudMenu(): void {
   baudMenu.textContent = '';
-  const seen = new Set<number>();
-  const items: number[] = [];
-  for (const b of [...recentBauds, ...BAUD_RATE_PRESETS]) {
-    if (!seen.has(b)) {
-      seen.add(b);
-      items.push(b);
-    }
-  }
-  for (const b of items) {
+  const current = baudInput.value.trim();
+  const pushItem = (b: number, recent: boolean) => {
     const item = document.createElement('div');
-    item.className = 'baud-item' + (recentBauds.includes(b) ? ' recent' : '');
-    item.textContent = String(b);
-    item.title = recentBauds.includes(b) ? 'Recently used' : '';
+    item.className = 'baud-item' + (recent ? ' recent' : '');
+    item.textContent = (String(b) === current ? '✓︎ ' : '') + String(b);
+    item.title = recent ? 'Recently used' : '';
     item.addEventListener('click', () => {
       baudInput.value = String(b);
       baudMenu.style.display = 'none';
     });
     baudMenu.appendChild(item);
+  };
+  const header = (label: string) => {
+    const h = document.createElement('div');
+    h.className = 'baud-menu-header';
+    h.textContent = label;
+    baudMenu.appendChild(h);
+  };
+  const used = new Set<number>();
+  if (recentBauds.length) {
+    header('Recent');
+    for (const b of recentBauds) {
+      used.add(b);
+      pushItem(b, true);
+    }
+    header('Presets');
+  }
+  for (const b of BAUD_RATE_PRESETS) {
+    if (!used.has(b)) {
+      pushItem(b, false);
+    }
   }
 }
 
