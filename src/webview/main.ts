@@ -35,10 +35,13 @@ let tags: Tag[] = [];
 
 // Buffered content: one entry per received line, capped by the host which
 // reports drops via dropCount. decisions[i] is the cached matching decision
-// for lineStore[i]; visibleIndexes lists which lines the filter lets through.
-const lineStore: string[] = [];
+// for lineStore[i] (matching always uses the RAW text — the timestamp is
+// display decoration only, story 25); visibleIndexes lists which lines the
+// filter lets through.
+const lineStore: { text: string; ts?: number }[] = [];
 const decisions: LineDecision[] = [];
 let visibleIndexes: number[] = [];
+let showTimestamps = false;
 
 // Virtualized rendering: fixed-height rows, spacer divs hold the scrolled
 // distance so only the visible window (plus overscan) exists in the DOM.
@@ -61,8 +64,17 @@ function measureRowHeight(): void {
   probe.remove();
 }
 
-function renderText(line: string): string {
-  return line;
+function renderText(entry: { text: string; ts?: number }): string {
+  if (showTimestamps && entry.ts !== undefined) {
+    return `[${formatTimestamp(entry.ts)}] ${entry.text}`;
+  }
+  return entry.text;
+}
+
+function formatTimestamp(ts: number): string {
+  const d = new Date(ts);
+  const pad = (n: number, width = 2) => String(n).padStart(width, '0');
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`;
 }
 
 function renderWindow(): void {
@@ -160,14 +172,14 @@ function setStatus(message?: string): void {
     message || (state === 'connected' ? 'Connected' : state === 'connecting' ? 'Connecting...' : 'Idle');
 }
 
-function appendLines(lines: string[], dropCount: number): void {
+function appendLines(entries: { text: string; ts?: number }[], dropCount: number): void {
   dropOldest(dropCount);
-  for (const line of lines) {
-    decisions.push(matchLine(line, tags, filterMode));
+  for (const entry of entries) {
+    decisions.push(matchLine(entry.text, tags, filterMode));
     if (decisions[decisions.length - 1].visible) {
       visibleIndexes.push(lineStore.length);
     }
-    lineStore.push(line);
+    lineStore.push(entry);
   }
   scheduleRender();
   if (scroll === 'follow') {
@@ -181,7 +193,7 @@ function appendLines(lines: string[], dropCount: number): void {
 
 function restyleAllRows(): void {
   for (let i = 0; i < lineStore.length; i++) {
-    decisions[i] = matchLine(lineStore[i], tags, filterMode);
+    decisions[i] = matchLine(lineStore[i].text, tags, filterMode);
   }
   rebuildVisibleIndexes();
   scheduleRender();
@@ -282,7 +294,10 @@ window.addEventListener('message', (e) => {
     updateButtons();
     setStatus(m.message);
   } else if (m.type === 'append') {
-    appendLines(m.lines, m.dropCount);
+    appendLines(m.lines.map((text: string, i: number) => ({ text, ts: m.timestamps?.[i] })), m.dropCount);
+  } else if (m.type === 'timestamps') {
+    showTimestamps = m.enabled;
+    scheduleRender();
   } else if (m.type === 'tags') {
     tags = m.tags;
     renderChips();
@@ -326,6 +341,11 @@ sendInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
     sendCurrent();
   }
+});
+
+const timestampsCheckbox = document.getElementById('timestamps') as HTMLInputElement;
+timestampsCheckbox.addEventListener('change', () => {
+  vscode.postMessage({ type: 'setTimestamps', enabled: timestampsCheckbox.checked });
 });
 
 clearBtn.addEventListener('click', () => {

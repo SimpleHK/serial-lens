@@ -52,6 +52,11 @@
           "minimum": 100,
           "description": "Receive buffer cap in lines; the oldest lines drop out beyond it (applies live)."
         },
+        "serialMonitor.timestamps": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show a receive timestamp at the start of each line (display decoration only; tag matching always uses raw line content)."
+        },
         "serialMonitor.tags": {
           "type": "array",
           "default": [],

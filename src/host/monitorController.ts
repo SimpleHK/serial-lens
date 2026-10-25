@@ -16,13 +16,23 @@ export type ControllerState = 'idle' | 'connecting' | 'connected';
 export type HostToWebview =
   | { type: 'ports'; ports: PortInfo[] }
   | { type: 'state'; state: ControllerState; path?: string; message?: string }
-  | { type: 'append'; lines: string[]; dropCount: number };
+  | { type: 'append'; lines: string[]; timestamps?: number[]; dropCount: number };
 
 export interface MonitorControllerOptions {
   /** Batching window for appends to the webview, in milliseconds. */
   flushAfterMs?: number;
   /** Receive buffer cap in lines; oldest lines drop out beyond it (story 26). */
   maxBufferLines?: number;
+  /** Attach per-line receive timestamps (display decoration, story 24/25). */
+  timestamps?: boolean;
+}
+
+/** A line as it travels through the batching stage: raw content plus the
+ * moment it was assembled. The timestamp is display data and never part of
+ * matched content. */
+interface TimedLine {
+  text: string;
+  ts: number;
 }
 
 /**
@@ -36,6 +46,7 @@ export class MonitorController {
   private assembler: LineAssembler | undefined;
   private batcher: LineBatcher | undefined;
   private ring: RingCounter;
+  private timestampsEnabled: boolean;
   private readonly unsubs: Unsubscribe[] = [];
 
   constructor(
@@ -44,6 +55,7 @@ export class MonitorController {
     private readonly options: MonitorControllerOptions = {},
   ) {
     this.ring = new RingCounter(options.maxBufferLines ?? DEFAULT_MAX_BUFFER_LINES);
+    this.timestampsEnabled = options.timestamps ?? false;
   }
 
   get state(): ControllerState {
@@ -83,10 +95,15 @@ export class MonitorController {
       const port = this.backend.createPort(settings);
       this.port = port;
       this.assembler = new LineAssembler();
-      this.batcher = new LineBatcher(
-        (lines) => {
-          const dropCount = this.ring.push(lines.length);
-          this.send({ type: 'append', lines, dropCount });
+      this.batcher = new LineBatcher<TimedLine>(
+        (entries) => {
+          const dropCount = this.ring.push(entries.length);
+          this.send({
+            type: 'append',
+            lines: entries.map((e) => e.text),
+            timestamps: this.timestampsEnabled ? entries.map((e) => e.ts) : undefined,
+            dropCount,
+          });
         },
         { flushAfterMs: this.options.flushAfterMs },
       );
@@ -116,6 +133,11 @@ export class MonitorController {
     if (dropCount > 0) {
       this.send({ type: 'append', lines: [], dropCount });
     }
+  }
+
+  /** Toggles per-line receive timestamps for lines assembled from now on. */
+  setTimestamps(enabled: boolean): void {
+    this.timestampsEnabled = enabled;
   }
 
   /** Sends a message with the chosen line ending; clean no-op when idle. */
@@ -150,7 +172,7 @@ export class MonitorController {
   private async teardown(message?: string): Promise<void> {
     const port = this.port;
     if (this.assembler && this.batcher) {
-      this.batcher.add(this.assembler.flush());
+      this.batcher.add(this.assembler.flush().map(timed));
       this.batcher.dispose();
     }
     this.detachPort();
@@ -171,7 +193,12 @@ export class MonitorController {
     if (this.stateValue !== 'connected' || !this.assembler || !this.batcher) {
       return;
     }
-    this.batcher.add(this.assembler.push(chunk));
+    const lines = this.assembler.push(chunk);
+    if (lines.length === 0) {
+      return;
+    }
+    const ts = Date.now();
+    this.batcher.add(lines.map((text) => ({ text, ts })));
   }
 
   private onPortError(err: Error): void {
@@ -210,3 +237,7 @@ function describe(err: unknown): string {
 }
 
 const DEFAULT_MAX_BUFFER_LINES = 10000;
+
+function timed(text: string): TimedLine {
+  return { text, ts: Date.now() };
+}

@@ -75,6 +75,8 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
     <select id="line-ending"><option value="LF" selected>LF</option><option value="CRLF">CRLF</option><option value="CR">CR</option><option value="none">None</option></select>
     <label for="filter">Filter</label>
     <select id="filter"><option value="off" selected>Off</option><option value="include">Include</option><option value="exclude">Exclude</option></select>
+    <label for="timestamps">Timestamps</label>
+    <input id="timestamps" type="checkbox">
   </div>
   <div id="action-row" class="row">
     <button id="connect">&#9654; Start Monitoring</button>

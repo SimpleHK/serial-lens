@@ -351,4 +351,38 @@ describe('MonitorController', () => {
 
     expect(messages).toEqual([{ type: 'append', lines: [], dropCount: 2 }]);
   });
+
+  it('timestamps option attaches receive times to appends', async () => {
+    const { backend, messages, controller } = setup(['COM3'], { timestamps: true });
+    await controller.connect(S('COM3'));
+    const port = backend.created[0].port;
+    messages.length = 0;
+
+    port.emitData(Buffer.from('a\nb\n'));
+    vi.advanceTimersByTime(10);
+
+    const append = messages.find((m) => m.type === 'append');
+    assert(append && append.type === 'append');
+    expect(append.lines).toEqual(['a', 'b']); // raw content, no timestamp prefix
+    expect(append.timestamps).toHaveLength(2);
+  });
+
+  it('timestamps stay off by default and toggle live', async () => {
+    const { backend, messages, controller } = setup();
+    await controller.connect(S('COM3'));
+    const port = backend.created[0].port;
+    port.emitData(Buffer.from('a\n'));
+    vi.advanceTimersByTime(10);
+    const before = messages.find((m) => m.type === 'append');
+    assert(before && before.type === 'append');
+    expect(before.timestamps).toBeUndefined();
+
+    controller.setTimestamps(true);
+    messages.length = 0;
+    port.emitData(Buffer.from('b\n'));
+    vi.advanceTimersByTime(10);
+    const after = messages.find((m) => m.type === 'append');
+    assert(after && after.type === 'append');
+    expect(after.timestamps).toHaveLength(1);
+  });
 });

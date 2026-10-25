@@ -1,30 +1,31 @@
 export interface LineBatcherOptions {
   /** How long to wait before delivering a small batch, in milliseconds. */
   flushAfterMs?: number;
-  /** Deliver immediately once this many lines are buffered. */
-  maxLines?: number;
+  /** Deliver immediately once this many items are buffered. */
+  maxItems?: number;
 }
 
 /**
- * Collects assembled lines and delivers them to the webview in batches —
- * one message carrying many lines instead of one message per line, so a
- * fast stream does not flood the extension-host/webview boundary.
+ * Collects assembled items and delivers them to the webview in batches —
+ * one message carrying many items instead of one message per line, so a
+ * fast stream does not flood the extension-host/webview boundary. Generic
+ * over the item shape (plain lines now, timestamped lines with #10).
  */
-export class LineBatcher {
-  private buffer: string[] = [];
+export class LineBatcher<T> {
+  private buffer: T[] = [];
   private timer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(
-    private readonly sink: (lines: string[]) => void,
+    private readonly sink: (items: T[]) => void,
     private readonly options: LineBatcherOptions = {},
   ) {}
 
-  add(lines: readonly string[]): void {
-    if (lines.length === 0) {
+  add(items: readonly T[]): void {
+    if (items.length === 0) {
       return;
     }
-    this.buffer.push(...lines);
-    if (this.buffer.length >= this.maxLines) {
+    this.buffer.push(...items);
+    if (this.buffer.length >= this.maxItems) {
       this.flushNow();
       return;
     }
@@ -41,9 +42,9 @@ export class LineBatcher {
     if (this.buffer.length === 0) {
       return;
     }
-    const lines = this.buffer;
+    const items = this.buffer;
     this.buffer = [];
-    this.sink(lines);
+    this.sink(items);
   }
 
   /** Delivers whatever is still buffered before teardown. */
@@ -51,8 +52,8 @@ export class LineBatcher {
     this.flushNow();
   }
 
-  private get maxLines(): number {
-    return this.options.maxLines ?? 256;
+  private get maxItems(): number {
+    return this.options.maxItems ?? 256;
   }
 
   private get flushAfterMs(): number {

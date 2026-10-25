@@ -14,6 +14,7 @@ type WebviewToHost =
   | { type: 'connect'; port: string; baudRate: number; dataBits: number; stopBits: number; parity: string }
   | { type: 'disconnect' }
   | { type: 'send'; text: string; lineEnding: string }
+  | { type: 'setTimestamps'; enabled: boolean }
   | { type: 'createTag'; pattern: string }
   | { type: 'toggleTag'; name: string }
   | { type: 'updateTag'; name: string; patch: { name?: string; pattern?: string; isRegex?: boolean; color?: string; enabled?: boolean } }
@@ -80,6 +81,8 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
 
     const readCap = () =>
       vscode.workspace.getConfiguration('serialMonitor').get<number>('maxBufferLines', 10000);
+    const readTimestamps = () =>
+      vscode.workspace.getConfiguration('serialMonitor').get<boolean>('timestamps', false);
     const controller = new MonitorController(
       new NodeSerialPortBackend(),
       (msg: HostToWebview) => {
@@ -89,11 +92,16 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
         // The view may already be disposed when a late batch arrives.
         void Promise.resolve(view.webview.postMessage(msg)).catch(() => undefined);
       },
-      { maxBufferLines: readCap() },
+      { maxBufferLines: readCap(), timestamps: readTimestamps() },
     );
     this.controller = controller;
 
     const tagStore = new TagStore(workspaceTagStorage());
+    const sendDisplayState = () => {
+      void Promise.resolve(
+        view.webview.postMessage({ type: 'timestamps', enabled: readTimestamps() }),
+      ).catch(() => undefined);
+    };
     const sendTags = () => {
       // The view may already be disposed when a late change arrives.
       void Promise.resolve(view.webview.postMessage({ type: 'tags', tags: tagStore.getTags() })).catch(
@@ -108,6 +116,10 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
       if (e.affectsConfiguration('serialMonitor.maxBufferLines')) {
         controller.setCap(readCap());
       }
+      if (e.affectsConfiguration('serialMonitor.timestamps')) {
+        controller.setTimestamps(readTimestamps());
+        sendDisplayState();
+      }
     });
     sendTags();
 
@@ -116,6 +128,9 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
         case 'ready':
         case 'refreshPorts':
           void controller.refreshPorts();
+          if (msg.type === 'ready') {
+            sendDisplayState();
+          }
           break;
         case 'connect':
           void controller.connect(toSettings(msg));
@@ -125,6 +140,9 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
           break;
         case 'send':
           void controller.sendText(String(msg.text), toLineEnding(msg.lineEnding));
+          break;
+        case 'setTimestamps':
+          controller.setTimestamps(Boolean(msg.enabled));
           break;
         case 'createTag':
           void tagStore.add(String(msg.pattern));

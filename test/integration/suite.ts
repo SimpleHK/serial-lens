@@ -190,6 +190,38 @@ suite('Serial Monitor integration', () => {
         }
       });
 
+      test('attaches receive timestamps when enabled', async function () {
+        if (!hasPair) {
+          this.skip();
+        }
+        this.timeout(20000);
+
+        const messages: HostToWebview[] = [];
+        const controller = new MonitorController(new NodeSerialPortBackend(), (msg) => messages.push(msg), {
+          flushAfterMs: 30,
+          timestamps: true,
+        });
+
+        try {
+          await controller.connect({ path: COM_A, baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' });
+
+          const feeder = new SerialPort({ path: COM_B, baudRate: 115200 });
+          await opened(feeder, COM_B);
+          feeder.write(Buffer.from('ts-line\n'));
+
+          const append = await waitFor(() => {
+            const found = messages.find((m) => m.type === 'append' && m.lines.includes('ts-line'));
+            return found && found.type === 'append' ? found : undefined;
+          }, 5000, 'timestamped append');
+          expect(append.timestamps).toHaveLength(1);
+
+          feeder.close();
+          await controller.disconnect();
+        } finally {
+          await controller.dispose();
+        }
+      });
+
       test('double connect while connected is rejected without touching the port', async function () {
         if (!hasPair) {
           this.skip();
