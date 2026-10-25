@@ -24,9 +24,9 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   .row { display: flex; gap: 8px; align-items: center; padding: 6px 10px; flex-wrap: wrap; }
   #hw-row { border-bottom: 1px solid var(--vscode-panel-border); }
   #content-row { border-bottom: 1px solid var(--vscode-panel-border); }
-  label { color: var(--vscode-descriptionForeground); font-size: 11px; white-space: nowrap; }
+  label { color: var(--vscode-descriptionForeground); font-size: 12px; white-space: nowrap; }
   select, input[type="text"], #baud, #send-input {
-    height: var(--sm-ctl-h); box-sizing: border-box;
+    height: var(--sm-ctl-h); box-sizing: border-box; font-size: 13px;
     background: var(--vscode-dropdown-background); color: var(--vscode-dropdown-foreground);
     border: 1px solid transparent; border-radius: var(--sm-radius); padding: 0 8px; outline: none;
     font-family: inherit; font-size: inherit;
@@ -34,11 +34,11 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   select:hover, #baud:hover, #send-input:hover { border-color: var(--vscode-dropdown-border); }
   select:focus, #baud:focus, #send-input:focus { border-color: var(--vscode-focusBorder); }
   select { cursor: pointer; }
-  #port { flex: 1; min-width: 180px; }
+  #port { flex: 0 1 340px; min-width: 200px; max-width: 420px; }
   #baud { width: 88px; text-align: right; font-variant-numeric: tabular-nums; }
   input[type="checkbox"] { accent-color: var(--vscode-focusBorder); width: 14px; height: 14px; cursor: pointer; }
   button {
-    height: var(--sm-ctl-h); display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+    height: var(--sm-ctl-h); display: inline-flex; align-items: center; justify-content: center; gap: 4px; font-size: 13px;
     background: transparent; color: var(--vscode-foreground); border: none; border-radius: var(--sm-radius);
     padding: 0 8px; cursor: pointer; font-family: inherit; font-size: var(--vscode-font-size);
   }
@@ -62,7 +62,7 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
     border-radius: 6px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45); padding: 4px;
   }
   .baud-menu-header { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--vscode-descriptionForeground); padding: 4px 8px 2px; user-select: none; }
-  .baud-item { padding: 3px 8px; border-radius: 3px; cursor: pointer; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .baud-item { padding: 4px 10px; border-radius: 3px; cursor: pointer; white-space: nowrap; font-variant-numeric: tabular-nums; font-size: 13px; }
   .baud-item:hover { background: var(--vscode-list-hoverBackground); }
   .baud-item.current { color: var(--vscode-focusBorder); }
   .baud-item.recent::after { content: '937'; margin-left: 6px; color: var(--vscode-descriptionForeground); }
@@ -102,7 +102,7 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
     <span class="baud-wrap">
       <input id="baud" value="115200" inputmode="numeric">
       <button id="baud-toggle" class="secondary icon-btn" title="Quick-pick baud rate">&#9662;</button>
-      <div id="baud-menu"></div>
+      <div id="baud-menu" class="baud-menu"></div>
     </span>
     <label for="data-bits">Data bits</label>
     <select id="data-bits"><option value="8" selected>8</option><option value="7">7</option></select>
