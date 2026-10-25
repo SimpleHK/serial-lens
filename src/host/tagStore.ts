@@ -58,6 +58,52 @@ export class TagStore {
     await this.persist();
   }
 
+  /** Applies a validated field patch; renaming dedupes against other tags. */
+  async update(name: string, patch: Partial<Omit<Tag, 'name'>> & { name?: string }): Promise<void> {
+    const current = this.tags.find((t) => t.name === name);
+    if (!current) {
+      return;
+    }
+    const merged: Tag = { ...current };
+    if (patch.name !== undefined && typeof patch.name === 'string' && patch.name.trim()) {
+      merged.name = this.uniqueNameFor(patch.name.trim(), name);
+    }
+    if (typeof patch.pattern === 'string' && patch.pattern.trim()) {
+      merged.pattern = patch.pattern;
+    }
+    if (typeof patch.isRegex === 'boolean') {
+      merged.isRegex = patch.isRegex;
+    }
+    if (typeof patch.enabled === 'boolean') {
+      merged.enabled = patch.enabled;
+    }
+    if (typeof patch.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(patch.color)) {
+      merged.color = patch.color;
+    }
+    this.tags = this.tags.map((t) => (t.name === name ? merged : t));
+    await this.persist();
+  }
+
+  async remove(name: string): Promise<void> {
+    if (!this.tags.some((t) => t.name === name)) {
+      return;
+    }
+    this.tags = this.tags.filter((t) => t.name !== name);
+    await this.persist();
+  }
+
+  /** Like uniqueName, but a tag may keep its own current name. */
+  private uniqueNameFor(base: string, self: string): string {
+    if (base === self || !this.tags.some((t) => t.name === base)) {
+      return base;
+    }
+    let n = 2;
+    while (this.tags.some((t) => t.name === `${base} ${n}`)) {
+      n++;
+    }
+    return `${base} ${n}`;
+  }
+
   /** Re-reads storage after external edits (e.g. settings.json changed). */
   reload(): void {
     this.tags = (this.storage.get() ?? []).filter(isValidTag);

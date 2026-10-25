@@ -105,6 +105,64 @@ describe('TagStore', () => {
     expect(listener).toHaveBeenCalledTimes(1);
   });
 
+  it('update applies field patches and persists', async () => {
+    const storage = memoryStorage();
+    const store = new TagStore(storage);
+    const t = await store.add('old');
+
+    await store.update(t.name, { name: 'renamed', pattern: 'NEW', isRegex: true, color: '#123456', enabled: false });
+
+    expect(store.getTags()).toEqual([
+      { name: 'renamed', pattern: 'NEW', isRegex: true, color: '#123456', enabled: false },
+    ]);
+    expect(storage.saved.at(-1)).toEqual(store.getTags());
+  });
+
+  it('update rename dedupes against other tag names but keeps its own', async () => {
+    const store = new TagStore(memoryStorage());
+    const a = await store.add('alpha');
+    const b = await store.add('beta');
+
+    await store.update(a.name, { name: 'beta' }); // collide with the other tag
+    expect(store.getTags()[0].name).toBe('beta 2');
+
+    await store.update(b.name, { name: 'beta' }); // its own name is fine
+    expect(store.getTags()[1].name).toBe('beta');
+  });
+
+  it('update ignores invalid field values and unknown names', async () => {
+    const store = new TagStore(memoryStorage());
+    const t = await store.add('keep');
+    const before = store.getTags();
+
+    await store.update('ghost', { pattern: 'x' });
+    await store.update(t.name, { color: 'not-a-color', pattern: '' } as Partial<Tag>);
+
+    expect(store.getTags()).toEqual(before);
+  });
+
+  it('remove deletes the tag and persists', async () => {
+    const storage = memoryStorage();
+    const store = new TagStore(storage);
+    const a = await store.add('a');
+    await store.add('b');
+
+    await store.remove(a.name);
+
+    expect(store.getTags().map((t) => t.name)).toEqual(['b']);
+    expect(storage.saved.at(-1)).toEqual(store.getTags());
+  });
+
+  it('remove of an unknown name is a no-op', async () => {
+    const store = new TagStore(memoryStorage());
+    await store.add('a');
+    const before = store.getTags();
+
+    await store.remove('ghost');
+
+    expect(store.getTags()).toEqual(before);
+  });
+
   it('notifies listeners on every change', async () => {
     const store = new TagStore(memoryStorage());
     const listener = vi.fn();

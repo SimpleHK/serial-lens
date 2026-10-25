@@ -42,6 +42,14 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   #tags-row { border-bottom: 1px solid var(--vscode-panel-border); }
   .chip { border: 1px solid; border-radius: 12px; padding: 1px 10px; font-size: 0.9em; }
   .chip-off { opacity: 0.45; text-decoration: line-through; }
+  #manage-panel { display: none; flex-direction: column; gap: 4px; padding: 6px 10px; border-bottom: 1px solid var(--vscode-panel-border); }
+  .tag-edit-row { display: flex; gap: 6px; align-items: center; }
+  .tag-edit-row input[type="text"] { background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, var(--vscode-panel-border)); padding: 2px 4px; }
+  .tag-edit-row .tag-name { width: 120px; }
+  .tag-edit-row .tag-pattern { flex: 1; }
+  .tag-edit-row input[type="color"] { width: 28px; height: 22px; padding: 0; border: none; background: none; }
+  .tag-edit-row label { white-space: nowrap; }
+  .tag-edit-row .tag-delete { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); padding: 2px 8px; }
   #log { flex: 1; overflow-y: auto; overflow-x: auto; padding: 4px 10px; background: var(--vscode-editor-background); font-family: var(--vscode-editor-font-family, monospace); font-size: var(--vscode-editor-font-size, 13px); user-select: text; }
   .log-spacer { width: 1px; }
   #log .row-line { height: 20px; line-height: 20px; white-space: pre; width: max-content; min-width: 100%; }
@@ -72,10 +80,12 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
     <button id="connect">&#9654; Start Monitoring</button>
     <button id="clear" class="secondary" title="Clear monitor">&#128465;</button>
     <button id="create-tag" class="secondary" disabled title="Create a tag from the selected text">+ Tag</button>
+    <button id="manage-toggle" class="secondary" title="Manage tags">&#9881;</button>
     <button id="scroll-state" class="secondary">&#8681; Following</button>
     <span id="status">Idle</span>
   </div>
   <div id="tags-row" class="row" style="display: none;"></div>
+  <div id="manage-panel" style="display: none;"></div>
   <div id="log"></div>
   <div id="send-row" class="row">
     <input id="send-input" placeholder="Type in a message to send to the serial port...">

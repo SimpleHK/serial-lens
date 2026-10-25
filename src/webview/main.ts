@@ -23,6 +23,8 @@ const log = document.getElementById('log') as HTMLDivElement;
 const sendInput = document.getElementById('send-input') as HTMLInputElement;
 const sendBtn = document.getElementById('send') as HTMLButtonElement;
 const scrollStateBtn = document.getElementById('scroll-state') as HTMLButtonElement;
+const manageToggleBtn = document.getElementById('manage-toggle') as HTMLButtonElement;
+const managePanel = document.getElementById('manage-panel') as HTMLDivElement;
 
 let state: 'idle' | 'connecting' | 'connected' = 'idle';
 // The three-state control arrives with the filter ticket; rendering already
@@ -198,7 +200,77 @@ function renderChips(): void {
     chip.addEventListener('click', () => vscode.postMessage({ type: 'toggleTag', name: t.name }));
     tagsRow.appendChild(chip);
   }
+  renderManagePanel();
 }
+
+let manageOpen = false;
+
+function renderManagePanel(): void {
+  managePanel.style.display = manageOpen ? 'flex' : 'none';
+  if (!manageOpen) {
+    managePanel.textContent = '';
+    return;
+  }
+  managePanel.textContent = '';
+  for (const t of tags) {
+    const row = document.createElement('div');
+    row.className = 'tag-edit-row';
+
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.className = 'tag-name';
+    nameInput.value = t.name;
+    nameInput.title = 'Tag name';
+    nameInput.addEventListener('change', () => {
+      vscode.postMessage({ type: 'updateTag', name: t.name, patch: { name: nameInput.value } });
+    });
+
+    const patternInput = document.createElement('input');
+    patternInput.type = 'text';
+    patternInput.className = 'tag-pattern';
+    patternInput.value = t.pattern;
+    patternInput.placeholder = 'Match pattern (substring or regex source)';
+    patternInput.addEventListener('change', () => {
+      vscode.postMessage({ type: 'updateTag', name: t.name, patch: { pattern: patternInput.value } });
+    });
+
+    const regexLabel = document.createElement('label');
+    const regexInput = document.createElement('input');
+    regexInput.type = 'checkbox';
+    regexInput.checked = t.isRegex;
+    regexInput.addEventListener('change', () => {
+      vscode.postMessage({ type: 'updateTag', name: t.name, patch: { isRegex: regexInput.checked } });
+    });
+    regexLabel.appendChild(regexInput);
+    regexLabel.appendChild(document.createTextNode('regex'));
+
+    const colorInput = document.createElement('input');
+    colorInput.type = 'color';
+    colorInput.value = t.color;
+    colorInput.addEventListener('change', () => {
+      vscode.postMessage({ type: 'updateTag', name: t.name, patch: { color: colorInput.value } });
+    });
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'tag-delete';
+    deleteBtn.textContent = 'Delete';
+    deleteBtn.title = `Delete tag "${t.name}"`;
+    deleteBtn.addEventListener('click', () => {
+      vscode.postMessage({ type: 'removeTag', name: t.name });
+    });
+
+    row.append(nameInput, patternInput, regexLabel, colorInput, deleteBtn);
+    managePanel.appendChild(row);
+  }
+  if (!tags.length) {
+    managePanel.textContent = 'No tags yet — select text in the output and press “+ Tag”.';
+  }
+}
+
+manageToggleBtn.addEventListener('click', () => {
+  manageOpen = !manageOpen;
+  renderManagePanel();
+});
 
 window.addEventListener('message', (e) => {
   const m = e.data;
