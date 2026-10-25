@@ -65,7 +65,7 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
 </style>
 </head>
 <body>
-  <div id="config-row" class="row">
+  <div id="hw-row" class="row">
     <label for="mode">Monitor Mode</label>
     <select id="mode" disabled><option selected>Serial</option></select>
     <label for="port">Port</label>
@@ -77,31 +77,31 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
       <button id="baud-toggle" class="secondary icon-btn" title="Quick-pick baud rate">&#9662;</button>
       <div id="baud-menu"></div>
     </span>
-    <label for="line-ending">Line ending</label>
-    <select id="line-ending"><option value="LF" selected>LF</option><option value="CRLF">CRLF</option><option value="CR">CR</option><option value="none">None</option></select>
-    <button id="connect" class="primary-action">&#9654; Start Monitoring</button>
-    <button id="clear" class="secondary icon-btn" title="Clear monitor">&#128465;&#65039;</button>
-    <button id="create-tag" class="secondary icon-btn" disabled title="Create a tag from the selected text">&#127991;&#65039;</button>
-    <button id="manage-toggle" class="secondary icon-btn" title="Manage tags">&#9881;&#65039;</button>
-    <button id="log-dir" class="secondary icon-btn" title="Choose a log directory: every logged session writes a new .log file (right-click to clear)">&#128193;</button>
-    <button id="export-log" class="secondary icon-btn" disabled title="Export the buffered log to a file">&#128228;</button>
-    <button id="scroll-state" class="secondary">&#8681; Following</button>
-    <button id="collapse-params" class="secondary icon-btn" title="Hide the parameters row">&#9652;</button>
-    <span id="status">Idle</span>
-  </div>
-  <div id="params-row" class="row">
     <label for="data-bits">Data bits</label>
     <select id="data-bits"><option value="8" selected>8</option><option value="7">7</option></select>
     <label for="parity">Parity</label>
     <select id="parity"><option value="none" selected>None</option><option value="even">Even</option><option value="odd">Odd</option></select>
     <label for="stop-bits">Stop bits</label>
     <select id="stop-bits"><option value="1" selected>1</option><option value="2">2</option></select>
+    <label for="line-ending">Line ending</label>
+    <select id="line-ending"><option value="LF" selected>LF</option><option value="CRLF">CRLF</option><option value="CR">CR</option><option value="none">None</option></select>
+    <button id="connect" class="primary-action">&#9654; Start Monitoring</button>
+  </div>
+  <div id="content-row" class="row">
+    <button id="collapse-hw" class="secondary icon-btn" title="Hide the hardware row">&#9652;</button>
+    <button id="clear" class="secondary icon-btn" title="Clear monitor">&#128465;&#65039;</button>
+    <button id="create-tag" class="secondary icon-btn" disabled title="Create a tag from the selected text">&#127991;&#65039;</button>
+    <button id="manage-toggle" class="secondary icon-btn" title="Manage tags">&#9881;&#65039;</button>
     <label for="filter">Filter</label>
     <select id="filter"><option value="off" selected>Off</option><option value="include">Include</option><option value="exclude">Exclude</option></select>
     <label for="timestamps">Timestamps</label>
     <input id="timestamps" type="checkbox">
     <label for="log-session">Log to file</label>
     <input id="log-session" type="checkbox">
+    <button id="log-dir" class="secondary icon-btn" title="Choose a log directory: every logged session writes a new .log file (right-click to clear)">&#128193;</button>
+    <button id="export-log" class="secondary icon-btn" disabled title="Export the buffered log to a file">&#128228;</button>
+    <button id="scroll-state" class="secondary">&#8681; Following</button>
+    <span id="status">Idle</span>
   </div>
   <div id="tags-row" class="row" style="display: none;"></div>
   <div id="manage-panel" style="display: none;"></div>
