@@ -143,8 +143,7 @@ async function duo() {
   let flip = 0;
   while (running) {
     const line = flip % 2 === 0 ? `hello world ${pair}` : `abc ${pair}`;
-    await write(line + '
-');
+    await write(line + '\n');
     flip++;
     if (flip % 2 === 0) {
       pair++;
