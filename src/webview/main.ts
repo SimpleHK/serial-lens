@@ -4,6 +4,7 @@ import { LineDecision, matchLine } from '../shared/tagMatching';
 import { FilterMode, Tag } from '../shared/tag';
 import { scrollReducer, ScrollState } from '../shared/scrollState';
 import { formatTimestamp } from '../shared/timestamp';
+import { BAUD_RATE_PRESETS } from '../shared/baudPresets';
 
 const vscode = acquireVsCodeApi();
 
@@ -26,6 +27,9 @@ const sendBtn = document.getElementById('send') as HTMLButtonElement;
 const scrollStateBtn = document.getElementById('scroll-state') as HTMLButtonElement;
 const exportBtn = document.getElementById('export-log') as HTMLButtonElement;
 const logDirBtn = document.getElementById('log-dir') as HTMLButtonElement;
+const baudToggleBtn = document.getElementById('baud-toggle') as HTMLButtonElement;
+const baudMenu = document.getElementById('baud-menu') as HTMLDivElement;
+const logSessionCheckbox = document.getElementById('log-session') as HTMLInputElement;
 const manageToggleBtn = document.getElementById('manage-toggle') as HTMLButtonElement;
 const managePanel = document.getElementById('manage-panel') as HTMLDivElement;
 
@@ -45,6 +49,7 @@ const lineStore: { text: string; ts?: number }[] = [];
 const decisions: LineDecision[] = [];
 let visibleIndexes: number[] = [];
 let showTimestamps = false;
+let recentBauds: number[] = [];
 
 // Virtualized rendering: fixed-height rows, spacer divs hold the scrolled
 // distance so only the visible window (plus overscan) exists in the DOM.
@@ -447,7 +452,11 @@ window.addEventListener('message', (e) => {
     logDirBtn.classList.toggle('logging', Boolean(m.directory));
     logDirBtn.title = m.directory
       ? `Logging each session into ${m.directory}${m.fileName ? ` (now: ${m.fileName})` : ''} — right-click to clear`
-      : 'Choose a log directory: every session writes a new .log file (right-click to clear)';
+      : 'Choose a log directory: every logged session writes a new .log file (right-click to clear)';
+    logSessionCheckbox.checked = Boolean(m.desired);
+    logSessionCheckbox.disabled = state === 'connecting';
+  } else if (m.type === 'recentBauds') {
+    recentBauds = m.values;
   } else if (m.type === 'exportRequest') {
     vscode.postMessage({ type: 'exportData', entries: lineStore });
   } else if (m.type === 'clear') {
@@ -561,6 +570,50 @@ filterSelect.addEventListener('change', () => {
 
 refreshBtn.addEventListener('click', () => {
   vscode.postMessage({ type: 'refreshPorts' });
+});
+
+function renderBaudMenu(): void {
+  baudMenu.textContent = '';
+  const seen = new Set<number>();
+  const items: number[] = [];
+  for (const b of [...recentBauds, ...BAUD_RATE_PRESETS]) {
+    if (!seen.has(b)) {
+      seen.add(b);
+      items.push(b);
+    }
+  }
+  for (const b of items) {
+    const item = document.createElement('div');
+    item.className = 'baud-item' + (recentBauds.includes(b) ? ' recent' : '');
+    item.textContent = String(b);
+    item.title = recentBauds.includes(b) ? 'Recently used' : '';
+    item.addEventListener('click', () => {
+      baudInput.value = String(b);
+      baudMenu.style.display = 'none';
+    });
+    baudMenu.appendChild(item);
+  }
+}
+
+baudToggleBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (baudMenu.style.display === 'block') {
+    baudMenu.style.display = 'none';
+    return;
+  }
+  renderBaudMenu();
+  baudMenu.style.display = 'block';
+});
+
+document.addEventListener('click', (e) => {
+  const target = e.target as Node;
+  if (baudMenu.style.display === 'block' && target !== baudToggleBtn && !baudMenu.contains(target)) {
+    baudMenu.style.display = 'none';
+  }
+});
+
+logSessionCheckbox.addEventListener('change', () => {
+  vscode.postMessage({ type: 'setLogSession', enabled: logSessionCheckbox.checked });
 });
 
 vscode.postMessage({ type: 'ready' });

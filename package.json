@@ -52,6 +52,11 @@
           "minimum": 100,
           "description": "Receive buffer cap in lines; the oldest lines drop out beyond it (applies live)."
         },
+        "serialMonitor.recentBaudRates": {
+          "type": "array",
+          "default": [],
+          "description": "Recently used baud rates, shown first in the quick-pick."
+        },
         "serialMonitor.logDirectory": {
           "type": "string",
           "default": "",

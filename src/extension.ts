@@ -26,6 +26,7 @@ type WebviewToHost =
   | { type: 'disconnect' }
   | { type: 'send'; text: string; lineEnding: string }
   | { type: 'setTimestamps'; enabled: boolean }
+  | { type: 'setLogSession'; enabled: boolean }
   | { type: 'chooseLogDirectory' }
   | { type: 'clearLogDirectory' }
   | { type: 'export' }
@@ -125,6 +126,8 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
       vscode.workspace.getConfiguration('serialMonitor').get<boolean>('timestamps', false);
     const readLogDirectory = () =>
       vscode.workspace.getConfiguration('serialMonitor').get<string>('logDirectory', '');
+    const readRecentBauds = () =>
+      vscode.workspace.getConfiguration('serialMonitor').get<number[]>('recentBaudRates', []);
     const post = (msg: unknown) => {
       // The view may already be disposed when a late message arrives.
       void Promise.resolve(view.webview.postMessage(msg)).catch(() => undefined);
@@ -145,13 +148,13 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
     );
     this.controller = controller;
     this.postMessage = post;
-    // Per-session log file lifecycle: a fresh file per connection when a log
-    // directory is configured; nothing written while idle.
+    this.logSessionDesired = Boolean(readLogDirectory());
+    // Per-session log file lifecycle: when the user wants this session
+    // logged, a fresh file is created per connection (in the configured
+    // directory, or picked via save dialog); nothing written while idle.
     const stateSubscription = controller.onStateChange((s) => {
-      if (s === 'connected') {
-        const dir = readLogDirectory();
-        this.sessionLogFile = dir ? path.join(dir, `serial-${fileStamp(controller.activePath ?? 'port')}.log`) : undefined;
-        this.sendLoggingState(readLogDirectory);
+      if (s === 'connected' && this.logSessionDesired) {
+        void this.armSessionLog(controller.activePath ?? 'port', readLogDirectory);
       } else if (s === 'idle') {
         this.sessionLogFile = undefined;
         this.sendLoggingState(readLogDirectory);
@@ -196,8 +199,18 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
           if (msg.type === 'ready') {
             sendDisplayState();
             this.sendLoggingState(readLogDirectory);
+            post({ type: 'recentBauds', values: readRecentBauds() });
           }
           break;
+        case 'connect': {
+          const settings = toSettings(msg);
+          void controller.connect(settings).then(() => {
+            if (controller.state === 'connected') {
+              void this.pushRecentBaud(settings.baudRate, readRecentBauds);
+            }
+          });
+          break;
+        }
         case 'chooseLogDirectory':
           void this.chooseLogDirectory();
           break;
@@ -227,6 +240,18 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
         case 'send':
           void controller.sendText(String(msg.text), toLineEnding(msg.lineEnding));
           break;
+        case 'setLogSession': {
+          this.logSessionDesired = Boolean(msg.enabled);
+          if (controller.state === 'connected') {
+            if (this.logSessionDesired) {
+              void this.armSessionLog(controller.activePath ?? 'port', readLogDirectory);
+            } else {
+              this.sessionLogFile = undefined;
+            }
+            this.sendLoggingState(readLogDirectory);
+          }
+          break;
+        }
         case 'setTimestamps': {
           const enabled = Boolean(msg.enabled);
           controller.setTimestamps(enabled);
@@ -320,13 +345,43 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
     this.postMessage({ type: 'clear' });
   }
 
+  private logSessionDesired = false;
+
   private sendLoggingState(readLogDirectory: () => string): void {
     this.postMessage({
       type: 'logging',
       active: this.sessionLogFile !== undefined,
       fileName: this.sessionLogFile ? path.basename(this.sessionLogFile) : undefined,
       directory: readLogDirectory() || undefined,
+      desired: this.logSessionDesired,
     });
+  }
+
+  /** Arms this session's log file: the configured directory if present,
+   * otherwise a save dialog. Called on connect / mid-session toggle. */
+  private async armSessionLog(portPath: string, readLogDirectory: () => string): Promise<void> {
+    const dir = readLogDirectory();
+    if (dir) {
+      this.sessionLogFile = path.join(dir, `serial-${fileStamp(portPath)}.log`);
+      this.sendLoggingState(readLogDirectory);
+      return;
+    }
+    const target = await vscode.window.showSaveDialog({
+      defaultUri: vscode.Uri.file(`serial-${fileStamp(portPath)}.log`),
+      title: 'Save this session serial log to',
+      filters: { 'Log Files': ['log'], 'Text Files': ['txt'] },
+    });
+    if (!target) {
+      return; // user cancelled; session stays unlogged
+    }
+    this.sessionLogFile = target.fsPath;
+    this.sendLoggingState(readLogDirectory);
+  }
+
+  private async pushRecentBaud(baudRate: number, readRecentBauds: () => number[]): Promise<void> {
+    const next = [baudRate, ...readRecentBauds().filter((b) => b !== baudRate)].slice(0, 5);
+    await updateSerialMonitorSetting('recentBaudRates', next);
+    this.postMessage({ type: 'recentBauds', values: next });
   }
 
   /** 📁 Picks the directory every session logs into (right-click clears). */

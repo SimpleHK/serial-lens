@@ -8,12 +8,10 @@
  * ticket and are deliberately absent until then.
  */
 
+import { BAUD_RATE_PRESETS, DEFAULT_BAUD_RATE } from '../shared/baudPresets';
+
 export function monitorPageHtml(options: { scriptUri: string; cspSource: string }): string {
   const { scriptUri, cspSource } = options;
-  const baudOptions = BAUD_RATE_PRESETS.map(
-    (b) => `<option value="${b}"${b === DEFAULT_BAUD_RATE ? ' selected' : ''}>${b}</option>`,
-  ).join('');
-
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -24,6 +22,12 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   body { display: flex; flex-direction: column; height: 100vh; margin: 0; color: var(--vscode-foreground); font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); }
   .row { display: flex; gap: 8px; align-items: center; padding: 6px 10px; flex-wrap: wrap; }
   #config-row { border-bottom: 1px solid var(--vscode-panel-border); }
+  #connect { margin-left: auto; }
+  .baud-wrap { position: relative; display: inline-flex; align-items: center; gap: 2px; }
+  .baud-menu { display: none; position: absolute; top: 100%; left: 0; z-index: 10; max-height: 220px; overflow-y: auto; min-width: 130px; background: var(--vscode-dropdown-background); color: var(--vscode-dropdown-foreground); border: 1px solid var(--vscode-dropdown-border); box-shadow: 0 2px 8px rgba(0,0,0,0.4); }
+  .baud-item { padding: 3px 10px; cursor: pointer; white-space: nowrap; }
+  .baud-item:hover { background: var(--vscode-list-hoverBackground); }
+  .baud-item.recent::before { content: '937\FE0E '; color: var(--vscode-descriptionForeground); }
   #params-row { border-bottom: 1px solid var(--vscode-panel-border); padding-top: 4px; padding-bottom: 4px; }
   .tag-add { padding: 2px 10px; }
   #log-file.logging { background: var(--vscode-charts-red, #f14c4c); color: #ffffff; }
@@ -40,6 +44,7 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   button:disabled { opacity: 0.5; cursor: default; }
   button.secondary { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); border: 1px solid var(--vscode-panel-border); }
   .icon-btn { font-size: 18px; padding: 3px 9px; line-height: 1; min-width: 38px; text-align: center; vertical-align: middle; }
+  .primary-action { margin-left: auto; font-weight: 600; }
   #clear, #create-tag { padding: 4px 8px; }
   #status { margin-left: auto; color: var(--vscode-descriptionForeground); }
   #scroll-state.locked { background: var(--vscode-inputValidation-warningBackground, #5a5a30); }
@@ -67,10 +72,21 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
     <select id="port"></select>
     <button id="refresh" class="secondary icon-btn" title="Refresh port list">&#128260;</button>
     <label for="baud">Baud rate</label>
-    <input id="baud" list="baud-presets" value="115200" inputmode="numeric">
-    <datalist id="baud-presets">${baudOptions}</datalist>
+    <span class="baud-wrap">
+      <input id="baud" value="115200" inputmode="numeric">
+      <button id="baud-toggle" class="secondary icon-btn" title="Quick-pick baud rate">&#9662;</button>
+      <div id="baud-menu"></div>
+    </span>
     <label for="line-ending">Line ending</label>
     <select id="line-ending"><option value="LF" selected>LF</option><option value="CRLF">CRLF</option><option value="CR">CR</option><option value="none">None</option></select>
+    <button id="connect" class="primary-action">&#9654; Start Monitoring</button>
+    <button id="clear" class="secondary icon-btn" title="Clear monitor">&#128465;&#65039;</button>
+    <button id="create-tag" class="secondary icon-btn" disabled title="Create a tag from the selected text">&#127991;&#65039;</button>
+    <button id="manage-toggle" class="secondary icon-btn" title="Manage tags">&#9881;&#65039;</button>
+    <button id="log-dir" class="secondary icon-btn" title="Choose a log directory: every logged session writes a new .log file (right-click to clear)">&#128193;</button>
+    <button id="export-log" class="secondary icon-btn" disabled title="Export the buffered log to a file">&#128228;</button>
+    <button id="scroll-state" class="secondary">&#8681; Following</button>
+    <span id="status">Idle</span>
   </div>
   <div id="params-row" class="row">
     <label for="data-bits">Data bits</label>
@@ -83,16 +99,8 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
     <select id="filter"><option value="off" selected>Off</option><option value="include">Include</option><option value="exclude">Exclude</option></select>
     <label for="timestamps">Timestamps</label>
     <input id="timestamps" type="checkbox">
-  </div>
-  <div id="action-row" class="row">
-    <button id="connect">&#9654; Start Monitoring</button>
-    <button id="clear" class="secondary icon-btn" title="Clear monitor">&#128465;&#65039;</button>
-    <button id="create-tag" class="secondary icon-btn" disabled title="Create a tag from the selected text">&#127991;&#65039;</button>
-    <button id="manage-toggle" class="secondary icon-btn" title="Manage tags">&#9881;&#65039;</button>
-    <button id="export-log" class="secondary icon-btn" disabled title="Export the buffered log to a file">&#128228;</button>
-    <button id="log-dir" class="secondary icon-btn" title="Choose a log directory: every session writes a new .log file (right-click to clear)">&#128193;</button>
-    <button id="scroll-state" class="secondary">&#8681; Following</button>
-    <span id="status">Idle</span>
+    <label for="log-session">Log to file</label>
+    <input id="log-session" type="checkbox">
   </div>
   <div id="tags-row" class="row" style="display: none;"></div>
   <div id="manage-panel" style="display: none;"></div>
@@ -106,8 +114,3 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
 </html>`;
 }
 
-const BAUD_RATE_PRESETS = [
-  300, 1200, 2400, 4800, 9600, 14400, 19200, 38400, 57600, 115200, 230400, 460800, 500000,
-  921600, 1000000, 2000000,
-];
-const DEFAULT_BAUD_RATE = 115200;
