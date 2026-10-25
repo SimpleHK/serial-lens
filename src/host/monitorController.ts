@@ -44,7 +44,7 @@ export class MonitorController {
   private port: SerialPortLike | undefined;
   private stateValue: ControllerState = 'idle';
   private assembler: LineAssembler | undefined;
-  private batcher: LineBatcher | undefined;
+  private batcher: LineBatcher<TimedLine> | undefined;
   private ring: RingCounter;
   private timestampsEnabled: boolean;
   private readonly unsubs: Unsubscribe[] = [];

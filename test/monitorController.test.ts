@@ -113,7 +113,7 @@ describe('MonitorController', () => {
     vi.useRealTimers();
   });
 
-  function setup(paths?: string[], opts: { maxBufferLines?: number } = {}) {
+  function setup(paths?: string[], opts: { maxBufferLines?: number; timestamps?: boolean } = {}) {
     const backend = new FakeBackend(paths);
     const messages: HostToWebview[] = [];
     const controller = new MonitorController(backend, (msg) => messages.push(msg), {
@@ -362,7 +362,9 @@ describe('MonitorController', () => {
     vi.advanceTimersByTime(10);
 
     const append = messages.find((m) => m.type === 'append');
-    assert(append && append.type === 'append');
+    if (!append || append.type !== 'append') {
+      throw new Error('expected an append message');
+    }
     expect(append.lines).toEqual(['a', 'b']); // raw content, no timestamp prefix
     expect(append.timestamps).toHaveLength(2);
   });
@@ -374,7 +376,9 @@ describe('MonitorController', () => {
     port.emitData(Buffer.from('a\n'));
     vi.advanceTimersByTime(10);
     const before = messages.find((m) => m.type === 'append');
-    assert(before && before.type === 'append');
+    if (!before || before.type !== 'append') {
+      throw new Error('expected an append message');
+    }
     expect(before.timestamps).toBeUndefined();
 
     controller.setTimestamps(true);
@@ -382,7 +386,9 @@ describe('MonitorController', () => {
     port.emitData(Buffer.from('b\n'));
     vi.advanceTimersByTime(10);
     const after = messages.find((m) => m.type === 'append');
-    assert(after && after.type === 'append');
+    if (!after || after.type !== 'append') {
+      throw new Error('expected an append message');
+    }
     expect(after.timestamps).toHaveLength(1);
   });
 });

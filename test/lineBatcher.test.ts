@@ -13,7 +13,7 @@ describe('LineBatcher', () => {
 
   it('buffers small adds and flushes after the window', () => {
     const delivered: string[][] = [];
-    const b = new LineBatcher((lines) => delivered.push(lines), { flushAfterMs: 16 });
+    const b = new LineBatcher<string>((lines) => delivered.push(lines), { flushAfterMs: 16 });
 
     b.add(['a', 'b']);
     expect(delivered).toEqual([]);
@@ -22,9 +22,9 @@ describe('LineBatcher', () => {
     expect(delivered).toEqual([['a', 'b']]);
   });
 
-  it('flushes immediately when the buffer reaches maxLines', () => {
+  it('flushes immediately when the buffer reaches maxItems', () => {
     const delivered: string[][] = [];
-    const b = new LineBatcher((lines) => delivered.push(lines), { maxLines: 4 });
+    const b = new LineBatcher<string>((lines) => delivered.push(lines), { maxItems: 4 });
 
     b.add(['a', 'b']);
     expect(delivered).toEqual([]);
@@ -35,7 +35,7 @@ describe('LineBatcher', () => {
 
   it('flushNow delivers immediately', () => {
     const delivered: string[][] = [];
-    const b = new LineBatcher((lines) => delivered.push(lines), { flushAfterMs: 1000 });
+    const b = new LineBatcher<string>((lines) => delivered.push(lines), { flushAfterMs: 1000 });
 
     b.add(['x']);
     b.flushNow();
@@ -47,7 +47,7 @@ describe('LineBatcher', () => {
 
   it('dispose delivers whatever is still buffered', () => {
     const delivered: string[][] = [];
-    const b = new LineBatcher((lines) => delivered.push(lines), { flushAfterMs: 1000 });
+    const b = new LineBatcher<string>((lines) => delivered.push(lines), { flushAfterMs: 1000 });
 
     b.add(['late']);
     b.dispose();
@@ -56,7 +56,7 @@ describe('LineBatcher', () => {
 
   it('ignores empty adds', () => {
     const delivered: string[][] = [];
-    const b = new LineBatcher((lines) => delivered.push(lines));
+    const b = new LineBatcher<string>((lines) => delivered.push(lines));
 
     b.add([]);
     vi.advanceTimersByTime(1000);

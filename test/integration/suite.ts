@@ -213,7 +213,7 @@ suite('Serial Monitor integration', () => {
             const found = messages.find((m) => m.type === 'append' && m.lines.includes('ts-line'));
             return found && found.type === 'append' ? found : undefined;
           }, 5000, 'timestamped append');
-          expect(append.timestamps).toHaveLength(1);
+          assert.strictEqual(append.timestamps?.length, 1);
 
           feeder.close();
           await controller.disconnect();
