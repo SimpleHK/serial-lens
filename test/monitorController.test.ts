@@ -1,12 +1,28 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { HostToWebview, MonitorController } from '../src/host/monitorController';
-import { PortInfo, SerialPortBackend, SerialPortLike, Unsubscribe } from '../src/host/serialPortAdapter';
+import {
+  PortInfo,
+  SerialPortBackend,
+  SerialPortLike,
+  SerialPortSettings,
+  Unsubscribe,
+} from '../src/host/serialPortAdapter';
+
+const S = (path = 'COM3', baudRate = 115200): SerialPortSettings => ({
+  path,
+  baudRate,
+  dataBits: 8,
+  stopBits: 1,
+  parity: 'none',
+});
 
 class FakePort implements SerialPortLike {
   openError: Error | undefined;
+  writeError: Error | undefined;
   opened = false;
   closeCount = 0;
+  readonly written: string[] = [];
   private readonly dataListeners: ((chunk: Uint8Array) => void)[] = [];
   private readonly errorListeners: ((err: Error) => void)[] = [];
   private readonly closeListeners: (() => void)[] = [];
@@ -23,6 +39,13 @@ class FakePort implements SerialPortLike {
     this.opened = false;
     // Mirror the real port: the 'close' event fires after close() as well.
     this.emitClose();
+  }
+
+  async write(data: string): Promise<void> {
+    if (this.writeError) {
+      throw this.writeError;
+    }
+    this.written.push(data);
   }
 
   onData(listener: (chunk: Uint8Array) => void): Unsubscribe {
@@ -51,16 +74,16 @@ class FakePort implements SerialPortLike {
 }
 
 class FakeBackend implements SerialPortBackend {
-  readonly created: { path: string; baudRate: number; port: FakePort }[] = [];
+  readonly created: { settings: SerialPortSettings; port: FakePort }[] = [];
   constructor(readonly paths: string[] = ['COM3']) {}
 
   async listPorts(): Promise<PortInfo[]> {
     return this.paths.map((path) => ({ path }));
   }
 
-  createPort(path: string, baudRate: number): SerialPortLike {
+  createPort(settings: SerialPortSettings): SerialPortLike {
     const port = new FakePort();
-    this.created.push({ path, baudRate, port });
+    this.created.push({ settings, port });
     return port;
   }
 }
@@ -129,13 +152,11 @@ describe('MonitorController', () => {
   it('connects: creates the port with the requested path and baud, reporting connecting then connected', async () => {
     const { backend, messages, controller } = setup();
 
-    const connectPromise = controller.connect('COM3', 115200);
+    const connectPromise = controller.connect(S('COM3', 115200));
     expect(controller.state).toBe('connecting');
     await connectPromise;
 
-    expect(backend.created).toEqual([
-      { path: 'COM3', baudRate: 115200, port: backend.created[0].port },
-    ]);
+    expect(backend.created.map((c) => c.settings)).toEqual([S('COM3')]);
     expect(controller.state).toBe('connected');
     expect(messages).toEqual([
       { type: 'state', state: 'connecting' },
@@ -151,7 +172,7 @@ describe('MonitorController', () => {
     const messages: HostToWebview[] = [];
     const controller = new MonitorController(backend, (msg) => messages.push(msg));
 
-    await controller.connect('COM3', 9600);
+    await controller.connect(S('COM3', 9600));
 
     expect(controller.state).toBe('idle');
     expect(port.closeCount).toBe(1);
@@ -163,7 +184,7 @@ describe('MonitorController', () => {
 
   it('streams data through the data seam in batched appends', async () => {
     const { messages, controller } = setup();
-    await controller.connect('COM3', 115200);
+    await controller.connect(S('COM3', 115200));
     const port = (controller as unknown as { port: FakePort }).port;
 
     port.emitData(Buffer.from('he'));
@@ -178,10 +199,10 @@ describe('MonitorController', () => {
 
   it('rejects a second connect while connected without touching the port', async () => {
     const { backend, messages, controller } = setup();
-    await controller.connect('COM3', 115200);
+    await controller.connect(S('COM3', 115200));
     messages.length = 0;
 
-    await controller.connect('COM9', 9600);
+    await controller.connect(S('COM9', 9600));
 
     expect(backend.created).toHaveLength(1);
     expect(controller.state).toBe('connected');
@@ -201,7 +222,7 @@ describe('MonitorController', () => {
 
   it('explicit disconnect flushes the pending partial line, releases the port, reports idle', async () => {
     const { backend, messages, controller } = setup();
-    await controller.connect('COM3', 115200);
+    await controller.connect(S('COM3', 115200));
     const port = backend.created[0].port;
     port.emitData(Buffer.from('partial line'));
     messages.length = 0;
@@ -219,7 +240,7 @@ describe('MonitorController', () => {
 
   it('port error transitions to idle, releases the port, and survives the trailing close event', async () => {
     const { messages, controller } = setup();
-    await controller.connect('COM3', 115200);
+    await controller.connect(S('COM3', 115200));
     const port = (controller as unknown as { port: FakePort }).port;
     messages.length = 0;
 
@@ -238,7 +259,7 @@ describe('MonitorController', () => {
 
   it('unexpected close transitions to idle, releases the port, and flushes the partial line', async () => {
     const { messages, controller } = setup();
-    await controller.connect('COM3', 115200);
+    await controller.connect(S('COM3', 115200));
     const port = (controller as unknown as { port: FakePort }).port;
     port.emitData(Buffer.from('half a line'));
     messages.length = 0;
@@ -256,7 +277,7 @@ describe('MonitorController', () => {
 
   it('dispose flushes buffered lines and closes the port without a state message', async () => {
     const { backend, messages, controller } = setup();
-    await controller.connect('COM3', 115200);
+    await controller.connect(S('COM3', 115200));
     const port = backend.created[0].port;
     port.emitData(Buffer.from('tail\nmore coming'));
     messages.length = 0;
@@ -265,5 +286,41 @@ describe('MonitorController', () => {
 
     expect(port.opened).toBe(false);
     expect(messages).toEqual([{ type: 'append', lines: ['tail', 'more coming'] }]);
+  });
+
+  it('send while idle reports Not connected without crashing', async () => {
+    const { messages, controller } = setup();
+
+    await controller.sendText('hello', 'CRLF');
+
+    expect(messages).toEqual([{ type: 'state', state: 'idle', message: 'Not connected.' }]);
+  });
+
+  it('send appends the chosen line ending to the written data', async () => {
+    const { backend, controller } = setup();
+    await controller.connect(S('COM3', 115200));
+    const port = backend.created[0].port;
+
+    await controller.sendText('ping', 'CRLF');
+    await controller.sendText('reset', 'CR');
+    await controller.sendText('bare', 'none');
+    await controller.sendText('n', 'LF');
+
+    expect(port.written).toEqual(['ping\r\n', 'reset\r', 'bare', 'n\n']);
+  });
+
+  it('send failure surfaces as a state message and keeps the connection', async () => {
+    const { backend, messages, controller } = setup();
+    await controller.connect(S('COM3', 115200));
+    const port = backend.created[0].port;
+    port.writeError = new Error('driver exploded');
+    messages.length = 0;
+
+    await controller.sendText('x', 'LF');
+
+    expect(controller.state).toBe('connected');
+    expect(messages).toEqual([
+      { type: 'state', state: 'connected', message: 'Send failed: driver exploded' },
+    ]);
   });
 });

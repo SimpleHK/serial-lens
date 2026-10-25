@@ -4,16 +4,35 @@ import * as vscode from 'vscode';
 import { HostToWebview, MonitorController } from './host/monitorController';
 import { NodeSerialPortBackend } from './host/nodeSerialPortBackend';
 import { TagStorage, TagStore } from './host/tagStore';
+import { LineEnding, SerialPortSettings } from './host/serialPortAdapter';
 import { Tag } from './shared/tag';
 import { monitorPageHtml } from './webview/monitorPage';
 
 type WebviewToHost =
   | { type: 'ready' }
   | { type: 'refreshPorts' }
-  | { type: 'connect'; port: string; baudRate: number }
+  | { type: 'connect'; port: string; baudRate: number; dataBits: number; stopBits: number; parity: string }
   | { type: 'disconnect' }
+  | { type: 'send'; text: string; lineEnding: string }
   | { type: 'createTag'; pattern: string }
   | { type: 'toggleTag'; name: string };
+
+const LINE_ENDINGS: readonly LineEnding[] = ['none', 'LF', 'CRLF', 'CR'];
+
+function toSettings(msg: Extract<WebviewToHost, { type: 'connect' }>): SerialPortSettings {
+  const parity = msg.parity === 'even' || msg.parity === 'odd' ? msg.parity : 'none';
+  return {
+    path: String(msg.port),
+    baudRate: Number(msg.baudRate) || 115200,
+    dataBits: msg.dataBits === 7 ? 7 : 8,
+    stopBits: msg.stopBits === 2 ? 2 : 1,
+    parity,
+  };
+}
+
+function toLineEnding(value: string): LineEnding {
+  return (LINE_ENDINGS as readonly string[]).includes(value) ? (value as LineEnding) : 'LF';
+}
 
 export function activate(context: vscode.ExtensionContext): void {
   const provider = new MonitorViewProvider(context.extensionUri);
@@ -88,10 +107,13 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
           void controller.refreshPorts();
           break;
         case 'connect':
-          void controller.connect(String(msg.port), Number(msg.baudRate));
+          void controller.connect(toSettings(msg));
           break;
         case 'disconnect':
           void controller.disconnect();
+          break;
+        case 'send':
+          void controller.sendText(String(msg.text), toLineEnding(msg.lineEnding));
           break;
         case 'createTag':
           void tagStore.add(String(msg.pattern));

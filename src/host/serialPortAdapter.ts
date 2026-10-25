@@ -12,9 +12,27 @@ export interface Unsubscribe {
   (): void;
 }
 
+export interface SerialPortSettings {
+  path: string;
+  baudRate: number;
+  dataBits: 7 | 8;
+  stopBits: 1 | 2;
+  parity: 'none' | 'even' | 'odd';
+}
+
+export type LineEnding = 'none' | 'LF' | 'CRLF' | 'CR';
+
+export const LINE_ENDING_BYTES: Record<LineEnding, string> = {
+  none: '',
+  LF: '\n',
+  CRLF: '\r\n',
+  CR: '\r',
+};
+
 export interface SerialPortLike {
   open(): Promise<void>;
   close(): Promise<void>;
+  write(data: string): Promise<void>;
   onData(listener: (chunk: Uint8Array) => void): Unsubscribe;
   onError(listener: (err: Error) => void): Unsubscribe;
   /** Fires when the port closes for any reason, including unplug. */
@@ -23,5 +41,5 @@ export interface SerialPortLike {
 
 export interface SerialPortBackend {
   listPorts(): Promise<PortInfo[]>;
-  createPort(path: string, baudRate: number): SerialPortLike;
+  createPort(settings: SerialPortSettings): SerialPortLike;
 }

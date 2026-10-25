@@ -87,7 +87,7 @@ suite('Serial Monitor integration', () => {
         );
 
         try {
-          await controller.connect(COM_A, 115200);
+          await controller.connect({ path: COM_A, baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' });
           assert.strictEqual(controller.state, 'connected');
 
           const feeder = new SerialPort({ path: COM_B, baudRate: 115200 });
@@ -121,6 +121,37 @@ suite('Serial Monitor integration', () => {
         }
       });
 
+      test('sends text with the chosen line ending out the real port', async function () {
+        if (!hasPair) {
+          this.skip();
+        }
+        this.timeout(20000);
+
+        const controller = new MonitorController(new NodeSerialPortBackend(), () => undefined);
+        try {
+          await controller.connect({ path: COM_A, baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' });
+
+          const reader = new SerialPort({ path: COM_B, baudRate: 115200 });
+          await opened(reader, COM_B);
+          let received = '';
+          reader.on('data', (chunk: Buffer) => {
+            received += chunk.toString('utf-8');
+          });
+
+          await controller.sendText('ping', 'CRLF');
+          await waitFor(
+            () => (received.includes('ping\r\n') ? received : undefined),
+            5000,
+            'sent text on the wire',
+          );
+
+          reader.close();
+          await controller.disconnect();
+        } finally {
+          await controller.dispose();
+        }
+      });
+
       test('double connect while connected is rejected without touching the port', async function () {
         if (!hasPair) {
           this.skip();
@@ -131,10 +162,10 @@ suite('Serial Monitor integration', () => {
         const controller = new MonitorController(new NodeSerialPortBackend(), (msg) => messages.push(msg));
 
         try {
-          await controller.connect(COM_A, 115200);
+          await controller.connect({ path: COM_A, baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' });
           messages.length = 0;
 
-          await controller.connect(COM_B, 9600);
+          await controller.connect({ path: COM_B, baudRate: 9600, dataBits: 8, stopBits: 1, parity: 'none' });
           assert.strictEqual(controller.state, 'connected');
           const last = messages.at(-1);
           assert.ok(last && last.type === 'state' && last.message?.includes('Already connected'));

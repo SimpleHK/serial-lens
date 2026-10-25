@@ -3,7 +3,13 @@ import { promisify } from 'node:util';
 
 import { SerialPort } from 'serialport';
 
-import { PortInfo, SerialPortBackend, SerialPortLike, Unsubscribe } from './serialPortAdapter';
+import {
+  PortInfo,
+  SerialPortBackend,
+  SerialPortLike,
+  SerialPortSettings,
+  Unsubscribe,
+} from './serialPortAdapter';
 
 const execFileAsync = promisify(execFile);
 
@@ -30,8 +36,9 @@ export class NodeSerialPortBackend implements SerialPortBackend {
     return [...merged.values()].sort((a, b) => a.path.localeCompare(b.path, undefined, { numeric: true }));
   }
 
-  createPort(path: string, baudRate: number): SerialPortLike {
-    return new NodeSerialPort(new SerialPort({ path, baudRate, autoOpen: false }));
+  createPort(settings: SerialPortSettings): SerialPortLike {
+    const { path, baudRate, dataBits, stopBits, parity } = settings;
+    return new NodeSerialPort(new SerialPort({ path, baudRate, dataBits, stopBits, parity, autoOpen: false }));
   }
 }
 
@@ -64,6 +71,12 @@ class NodeSerialPort implements SerialPortLike {
   close(): Promise<void> {
     return new Promise((resolve) => {
       this.port.close(() => resolve());
+    });
+  }
+
+  write(data: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      this.port.write(data, (err) => (err ? reject(err) : resolve()));
     });
   }
 

@@ -28,7 +28,10 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   select { background: var(--vscode-dropdown-background); color: var(--vscode-dropdown-foreground); border: 1px solid var(--vscode-dropdown-border); padding: 2px 4px; }
   #mode { min-width: 90px; }
   #port { flex: 1; min-width: 180px; }
-  #baud { min-width: 100px; }
+  #baud { min-width: 90px; width: 90px; }
+  #send-row { border-top: 1px solid var(--vscode-panel-border); }
+  #send-input { flex: 1; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, var(--vscode-panel-border)); padding: 3px 6px; font-family: var(--vscode-editor-font-family, monospace); }
+  #send-row button:disabled { opacity: 0.5; cursor: default; }
   button { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; padding: 4px 12px; cursor: pointer; }
   button:hover:enabled { background: var(--vscode-button-hoverBackground); }
   button:disabled { opacity: 0.5; cursor: default; }
@@ -50,7 +53,16 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
     <select id="port"></select>
     <button id="refresh" class="secondary" title="Refresh port list">&#8635;</button>
     <label for="baud">Baud rate</label>
-    <select id="baud">${baudOptions}</select>
+    <input id="baud" list="baud-presets" value="115200" inputmode="numeric">
+    <datalist id="baud-presets">${baudOptions}</datalist>
+    <label for="data-bits">Data bits</label>
+    <select id="data-bits"><option value="8" selected>8</option><option value="7">7</option></select>
+    <label for="parity">Parity</label>
+    <select id="parity"><option value="none" selected>None</option><option value="even">Even</option><option value="odd">Odd</option></select>
+    <label for="stop-bits">Stop bits</label>
+    <select id="stop-bits"><option value="1" selected>1</option><option value="2">2</option></select>
+    <label for="line-ending">Line ending</label>
+    <select id="line-ending"><option value="LF" selected>LF</option><option value="CRLF">CRLF</option><option value="CR">CR</option><option value="none">None</option></select>
   </div>
   <div id="action-row" class="row">
     <button id="connect">&#9654; Start Monitoring</button>
@@ -60,6 +72,10 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   </div>
   <div id="tags-row" class="row" style="display: none;"></div>
   <div id="log"></div>
+  <div id="send-row" class="row">
+    <input id="send-input" placeholder="Type in a message to send to the serial port...">
+    <button id="send">Send</button>
+  </div>
   <script src="${scriptUri}"></script>
 </body>
 </html>`;

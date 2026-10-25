@@ -6,7 +6,11 @@ import { FilterMode, Tag } from '../shared/tag';
 const vscode = acquireVsCodeApi();
 
 const portSelect = document.getElementById('port') as HTMLSelectElement;
-const baudSelect = document.getElementById('baud') as HTMLSelectElement;
+const baudInput = document.getElementById('baud') as HTMLInputElement;
+const dataBitsSelect = document.getElementById('data-bits') as HTMLSelectElement;
+const paritySelect = document.getElementById('parity') as HTMLSelectElement;
+const stopBitsSelect = document.getElementById('stop-bits') as HTMLSelectElement;
+const lineEndingSelect = document.getElementById('line-ending') as HTMLSelectElement;
 const connectBtn = document.getElementById('connect') as HTMLButtonElement;
 const clearBtn = document.getElementById('clear') as HTMLButtonElement;
 const tagBtn = document.getElementById('create-tag') as HTMLButtonElement;
@@ -14,6 +18,8 @@ const refreshBtn = document.getElementById('refresh') as HTMLButtonElement;
 const statusEl = document.getElementById('status') as HTMLSpanElement;
 const tagsRow = document.getElementById('tags-row') as HTMLDivElement;
 const log = document.getElementById('log') as HTMLDivElement;
+const sendInput = document.getElementById('send-input') as HTMLInputElement;
+const sendBtn = document.getElementById('send') as HTMLButtonElement;
 
 let state: 'idle' | 'connecting' | 'connected' = 'idle';
 // The three-state control arrives with the filter ticket; rendering already
@@ -51,6 +57,7 @@ function updateButtons(): void {
   portSelect.disabled = isConnected;
   refreshBtn.disabled = isConnected;
   clearBtn.disabled = !isConnected && log.childElementCount === 0;
+  sendBtn.disabled = !isConnected;
   updateTagButton();
 }
 
@@ -140,7 +147,30 @@ connectBtn.addEventListener('click', () => {
   if (!path) {
     return;
   }
-  vscode.postMessage({ type: 'connect', port: path, baudRate: Number(baudSelect.value) });
+  vscode.postMessage({
+    type: 'connect',
+    port: path,
+    baudRate: Number(baudInput.value) || 115200,
+    dataBits: Number(dataBitsSelect.value),
+    stopBits: Number(stopBitsSelect.value),
+    parity: paritySelect.value,
+  });
+});
+
+function sendCurrent(): void {
+  const text = sendInput.value;
+  if (state !== 'connected') {
+    return;
+  }
+  sendInput.value = '';
+  vscode.postMessage({ type: 'send', text, lineEnding: lineEndingSelect.value });
+}
+
+sendBtn.addEventListener('click', sendCurrent);
+sendInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    sendCurrent();
+  }
 });
 
 clearBtn.addEventListener('click', () => {

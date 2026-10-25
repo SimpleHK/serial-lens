@@ -1,6 +1,14 @@
 import { LineAssembler } from './lineAssembler';
 import { LineBatcher } from './lineBatcher';
-import { PortInfo, SerialPortBackend, SerialPortLike, Unsubscribe } from './serialPortAdapter';
+import {
+  LINE_ENDING_BYTES,
+  LineEnding,
+  PortInfo,
+  SerialPortBackend,
+  SerialPortLike,
+  SerialPortSettings,
+  Unsubscribe,
+} from './serialPortAdapter';
 
 export type ControllerState = 'idle' | 'connecting' | 'connected';
 
@@ -49,7 +57,7 @@ export class MonitorController {
     }
   }
 
-  async connect(path: string, baudRate: number): Promise<void> {
+  async connect(settings: SerialPortSettings): Promise<void> {
     if (this.stateValue !== 'idle') {
       this.send({
         type: 'state',
@@ -66,7 +74,7 @@ export class MonitorController {
     this.send({ type: 'state', state: 'connecting' });
 
     try {
-      const port = this.backend.createPort(path, baudRate);
+      const port = this.backend.createPort(settings);
       this.port = port;
       this.assembler = new LineAssembler();
       this.batcher = new LineBatcher(
@@ -84,12 +92,25 @@ export class MonitorController {
         return;
       }
       this.stateValue = 'connected';
-      this.send({ type: 'state', state: 'connected', path });
+      this.send({ type: 'state', state: 'connected', path: settings.path });
     } catch (err) {
       if (this.wasTornDown()) {
         return; // a port error or unexpected close during open already handled the failure
       }
-      await this.teardown(`Failed to open ${path}: ${describe(err)}`);
+      await this.teardown(`Failed to open ${settings.path}: ${describe(err)}`);
+    }
+  }
+
+  /** Sends a message with the chosen line ending; clean no-op when idle. */
+  async sendText(text: string, lineEnding: LineEnding): Promise<void> {
+    if (this.stateValue !== 'connected' || !this.port) {
+      this.send({ type: 'state', state: this.stateValue, message: 'Not connected.' });
+      return;
+    }
+    try {
+      await this.port.write(text + LINE_ENDING_BYTES[lineEnding]);
+    } catch (err) {
+      this.send({ type: 'state', state: 'connected', message: `Send failed: ${describe(err)}` });
     }
   }
 
