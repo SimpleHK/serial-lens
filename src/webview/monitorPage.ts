@@ -65,6 +65,8 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
     <select id="stop-bits"><option value="1" selected>1</option><option value="2">2</option></select>
     <label for="line-ending">Line ending</label>
     <select id="line-ending"><option value="LF" selected>LF</option><option value="CRLF">CRLF</option><option value="CR">CR</option><option value="none">None</option></select>
+    <label for="filter">Filter</label>
+    <select id="filter"><option value="off" selected>Off</option><option value="include">Include</option><option value="exclude">Exclude</option></select>
   </div>
   <div id="action-row" class="row">
     <button id="connect">&#9654; Start Monitoring</button>

@@ -12,6 +12,7 @@ const dataBitsSelect = document.getElementById('data-bits') as HTMLSelectElement
 const paritySelect = document.getElementById('parity') as HTMLSelectElement;
 const stopBitsSelect = document.getElementById('stop-bits') as HTMLSelectElement;
 const lineEndingSelect = document.getElementById('line-ending') as HTMLSelectElement;
+const filterSelect = document.getElementById('filter') as HTMLSelectElement;
 const connectBtn = document.getElementById('connect') as HTMLButtonElement;
 const clearBtn = document.getElementById('clear') as HTMLButtonElement;
 const tagBtn = document.getElementById('create-tag') as HTMLButtonElement;
@@ -297,6 +298,13 @@ tagBtn.addEventListener('click', () => {
     return;
   }
   vscode.postMessage({ type: 'createTag', pattern: selected });
+});
+
+// Filtering is display-layer only (ADR-0004): switching modes recomputes
+// visibility and never changes the Follow/locked state.
+filterSelect.addEventListener('change', () => {
+  filterMode = filterSelect.value as FilterMode;
+  restyleAllRows();
 });
 
 refreshBtn.addEventListener('click', () => {
