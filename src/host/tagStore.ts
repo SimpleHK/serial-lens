@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { isValidTag, nextFreeColor, Tag } from '../shared/tag';
+import { isValidTag, nextFreeColor, normalizeTag, Tag } from '../shared/tag';
 
 /**
  * Persistence boundary so the store stays vscode-free and testable. The
@@ -27,7 +27,7 @@ export class TagStore {
   constructor(private readonly storage: TagStorage) {
     // Legacy entries (pre-id) get an id assigned on load and persist with it
     // on the next change.
-    this.tags = (storage.get() ?? []).filter(isValidTag).map((t) => ({ ...t, id: t.id ?? randomUUID() }));
+    this.tags = (storage.get() ?? []).filter(isValidTag).map((t) => ({ ...normalizeTag(t), id: t.id ?? randomUUID() }));
   }
 
   getTags(): readonly Tag[] {
@@ -49,19 +49,12 @@ export class TagStore {
       pattern: trimmed,
       isRegex: false,
       color: nextFreeColor(this.tags),
-      enabled: true,
+      highlight: true,
+      filter: true,
     };
     this.tags = [...this.tags, tag];
     await this.persist();
     return tag;
-  }
-
-  async toggle(id: string): Promise<void> {
-    if (!this.tags.some((t) => t.id === id)) {
-      return; // unknown id: clean no-op
-    }
-    this.tags = this.tags.map((t) => (t.id === id ? { ...t, enabled: !t.enabled } : t));
-    await this.persist();
   }
 
   /** Applies a validated field patch; renaming dedupes against other tags. */
@@ -80,8 +73,11 @@ export class TagStore {
     if (typeof patch.isRegex === 'boolean') {
       merged.isRegex = patch.isRegex;
     }
-    if (typeof patch.enabled === 'boolean') {
-      merged.enabled = patch.enabled;
+    if (typeof patch.highlight === 'boolean') {
+      merged.highlight = patch.highlight;
+    }
+    if (typeof patch.filter === 'boolean') {
+      merged.filter = patch.filter;
     }
     if (typeof patch.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(patch.color)) {
       merged.color = patch.color;

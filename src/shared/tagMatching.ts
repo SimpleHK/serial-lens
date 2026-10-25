@@ -11,22 +11,26 @@ export interface LineDecision {
 
 /**
  * Matching seam: pure functions over (lines, tags, filter mode) → decisions.
- * Enabled tags only — a disabled tag drives neither highlight nor filter.
- * Every enabled matching tag contributes its color. An invalid regex never
- * matches and never throws.
+ * Highlight and filter are independent per tag: only tags with highlight
+ * contribute colors, only tags with filter drive include/exclude. An
+ * invalid regex never matches and never throws.
  */
 export function matchLine(line: string, tags: readonly Tag[], mode: FilterMode): LineDecision {
   const highlightColors: string[] = [];
-  let matched = false;
+  let filterMatched = false;
   for (const tag of tags) {
-    if (!tag.enabled || !lineMatches(line, tag)) {
+    if (!lineMatches(line, tag)) {
       continue;
     }
-    matched = true;
-    highlightColors.push(tag.color);
+    if (tag.highlight) {
+      highlightColors.push(tag.color);
+    }
+    if (tag.filter) {
+      filterMatched = true;
+    }
   }
 
-  const visible = mode === 'include' ? matched : mode === 'exclude' ? !matched : true;
+  const visible = mode === 'include' ? filterMatched : mode === 'exclude' ? !filterMatched : true;
   return { visible, highlightColors };
 }
 

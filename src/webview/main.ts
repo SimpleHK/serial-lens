@@ -321,14 +321,31 @@ function renderChips(): void {
   tagsRow.textContent = '';
   tagsRow.style.display = tags.length ? 'flex' : 'none';
   for (const t of tags) {
-    const chip = document.createElement('button');
-    chip.className = `chip${t.enabled ? '' : ' chip-off'}`;
+    const chip = document.createElement('div');
+    chip.className = 'chip' + (t.highlight || t.filter ? '' : ' chip-off');
     chip.style.borderColor = t.color;
-    chip.style.background = t.enabled ? `${t.color}33` : 'transparent';
-    chip.textContent = t.name;
-    chip.title = (t.enabled ? `Hide matches of "${t.name}"` : `Highlight matches of "${t.name}"`) + ' — double-click to delete';
-    chip.addEventListener('click', () => vscode.postMessage({ type: 'toggleTag', id: t.id }));
+    chip.style.background = t.highlight ? `${t.color}33` : 'transparent';
+    const nameSpan = document.createElement('span');
+    nameSpan.textContent = t.name;
+    const segH = document.createElement('span');
+    segH.className = 'seg' + (t.highlight ? ' on' : '');
+    segH.textContent = 'H';
+    segH.title = t.highlight ? 'Highlighting ON — click to turn off' : 'Highlighting OFF — click to turn on';
+    segH.addEventListener('click', (e) => {
+      e.stopPropagation();
+      vscode.postMessage({ type: 'updateTag', id: t.id, patch: { highlight: !t.highlight } });
+    });
+    const segF = document.createElement('span');
+    segF.className = 'seg' + (t.filter ? ' on' : '');
+    segF.textContent = 'F';
+    segF.title = t.filter ? 'Filtering ON — click to turn off' : 'Filtering OFF — click to turn on';
+    segF.addEventListener('click', (e) => {
+      e.stopPropagation();
+      vscode.postMessage({ type: 'updateTag', id: t.id, patch: { filter: !t.filter } });
+    });
+    chip.title = `"${t.name}" — H: highlight on/off, F: filter on/off, double-click: delete`;
     chip.addEventListener('dblclick', () => vscode.postMessage({ type: 'removeTag', id: t.id }));
+    chip.append(nameSpan, segH, segF);
     tagsRow.appendChild(chip);
   }
   renderManagePanel();
@@ -397,6 +414,26 @@ function renderManagePanel(): void {
       vscode.postMessage({ type: 'updateTag', id: t.id, patch: { pattern: patternInput.value } });
     });
 
+    const hlLabel = document.createElement('label');
+    const hlInput = document.createElement('input');
+    hlInput.type = 'checkbox';
+    hlInput.checked = t.highlight;
+    hlInput.addEventListener('change', () => {
+      vscode.postMessage({ type: 'updateTag', id: t.id, patch: { highlight: hlInput.checked } });
+    });
+    hlLabel.appendChild(hlInput);
+    hlLabel.appendChild(document.createTextNode('H'));
+
+    const flLabel = document.createElement('label');
+    const flInput = document.createElement('input');
+    flInput.type = 'checkbox';
+    flInput.checked = t.filter;
+    flInput.addEventListener('change', () => {
+      vscode.postMessage({ type: 'updateTag', id: t.id, patch: { filter: flInput.checked } });
+    });
+    flLabel.appendChild(flInput);
+    flLabel.appendChild(document.createTextNode('F'));
+
     const regexLabel = document.createElement('label');
     const regexInput = document.createElement('input');
     regexInput.type = 'checkbox';
@@ -422,11 +459,14 @@ function renderManagePanel(): void {
       vscode.postMessage({ type: 'removeTag', id: t.id });
     });
 
-    row.append(nameInput, patternInput, regexLabel, colorInput, deleteBtn);
+    row.append(nameInput, patternInput, regexLabel, hlLabel, flLabel, colorInput, deleteBtn);
     managePanel.appendChild(row);
   }
   if (!tags.length) {
-    managePanel.textContent = 'No tags yet — select text in the output and press “+ Tag”.';
+    const hint = document.createElement('div');
+    hint.className = 'panel-hint';
+    hint.textContent = 'No tags yet — type a pattern above, or select text in the output and press the tag button.';
+    managePanel.appendChild(hint);
   }
 }
 

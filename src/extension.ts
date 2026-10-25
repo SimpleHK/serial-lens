@@ -32,8 +32,7 @@ type WebviewToHost =
   | { type: 'export' }
   | { type: 'exportData'; entries: { text: string; ts?: number }[] }
   | { type: 'createTag'; pattern: string }
-  | { type: 'toggleTag'; id: string }
-  | { type: 'updateTag'; id: string; patch: { name?: string; pattern?: string; isRegex?: boolean; color?: string; enabled?: boolean } }
+  | { type: 'updateTag'; id: string; patch: { name?: string; pattern?: string; isRegex?: boolean; color?: string; highlight?: boolean; filter?: boolean } }
   | { type: 'removeTag'; id: string }
   | { type: 'clearTags' };
 
@@ -262,9 +261,6 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
         }
         case 'createTag':
           void tagStore.add(String(msg.pattern));
-          break;
-        case 'toggleTag':
-          void tagStore.toggle(String(msg.id));
           break;
         case 'updateTag':
           void tagStore.update(String(msg.id), msg.patch);

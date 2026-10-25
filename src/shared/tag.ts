@@ -16,7 +16,10 @@ export interface Tag {
   isRegex: boolean;
   /** Hex color like '#RRGGBB'; rows get a translucent tint of it. */
   color: string;
-  enabled: boolean;
+  /** Participates in full-line highlighting. */
+  highlight: boolean;
+  /** Participates in filtering (drives include/exclude with the global mode). */
+  filter: boolean;
 }
 
 export type FilterMode = 'off' | 'include' | 'exclude';
@@ -37,9 +40,17 @@ export function nextFreeColor(existing: readonly Tag[]): string {
 
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 
-/** Validates persisted entries; `id` is optional so pre-id settings load,
- * and the store assigns one on load. */
-export function isValidTag(value: unknown): value is Omit<Tag, 'id'> & { id?: string } {
+/** A persisted entry before normalization: `highlight`/`filter` may be
+ * absent on pre-split settings, where legacy `enabled` applies to both. */
+export type RawTag = Omit<Tag, 'id' | 'highlight' | 'filter'> & {
+  id?: string;
+  highlight?: boolean;
+  filter?: boolean;
+  /** Legacy single switch (pre-split settings). */
+  enabled?: boolean;
+};
+
+export function isValidTag(value: unknown): value is RawTag {
   if (typeof value !== 'object' || value === null) {
     return false;
   }
@@ -48,7 +59,20 @@ export function isValidTag(value: unknown): value is Omit<Tag, 'id'> & { id?: st
     typeof t.name === 'string' && t.name.length > 0 &&
     typeof t.pattern === 'string' &&
     typeof t.isRegex === 'boolean' &&
-    typeof t.color === 'string' && HEX_COLOR.test(t.color) &&
-    typeof t.enabled === 'boolean'
+    typeof t.color === 'string' && HEX_COLOR.test(t.color)
   );
+}
+
+/** Normalizes a raw entry: fills ids and maps the legacy enabled switch. */
+export function normalizeTag(t: RawTag): Tag {
+  const enabled = t.enabled ?? false;
+  return {
+    id: t.id ?? '',
+    name: t.name,
+    pattern: t.pattern,
+    isRegex: t.isRegex,
+    color: t.color,
+    highlight: t.highlight ?? enabled,
+    filter: t.filter ?? enabled,
+  };
 }

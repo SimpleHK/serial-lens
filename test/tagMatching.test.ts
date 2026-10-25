@@ -9,7 +9,8 @@ const tag = (over: Partial<Tag>): Tag => ({
   pattern: 'x',
   isRegex: false,
   color: '#ff0000',
-  enabled: true,
+  highlight: true,
+  filter: true,
   ...over,
 });
 
@@ -29,16 +30,26 @@ describe('tagMatching (matching seam: lines + tags + filter mode → decisions)'
     expect(d.highlightColors).toEqual(['#ff0000']);
   });
 
-  it('ignores disabled tags entirely', () => {
-    const d = matchLine('has ERROR inside', [tag({ pattern: 'ERROR', enabled: false })], 'off');
-    expect(d).toEqual({ visible: true, highlightColors: [] });
+  it('highlight and filter are independent per tag', () => {
+    const tags = [
+      tag({ id: 'h', pattern: 'ERROR', color: '#00ff00', highlight: true, filter: false }),
+      tag({ id: 'f', pattern: 'WARN', color: '#0000ff', highlight: false, filter: true }),
+    ];
+    const hl = matchLine('has ERROR', tags, 'off');
+    expect(hl.highlightColors).toEqual(['#00ff00']); // highlight flag drives color
+
+    const fl = matchLine('has WARN', tags, 'include');
+    expect(fl.highlightColors).toEqual([]); // filter-only tag does not color
+    expect(fl.visible).toBe(true); // but it drives filtering
+
+    expect(matchLine('has ERROR', tags, 'include').visible).toBe(false); // highlight-only tag does not filter
   });
 
   it('collects every enabled matching tag in tag order (no masking)', () => {
     const tags = [
       tag({ id: '1', pattern: 'ERROR', color: '#00ff00' }),
       tag({ id: '2', pattern: 'ERR', color: '#0000ff' }),
-      tag({ id: '3', pattern: 'RO', color: '#ff00ff', enabled: false }),
+      tag({ id: '3', pattern: 'RO', color: '#ff00ff', highlight: false, filter: false }),
     ];
     const d = matchLine('ERROR', tags, 'off');
     expect(d.highlightColors).toEqual(['#00ff00', '#0000ff']);
@@ -67,7 +78,7 @@ describe('tagMatching (matching seam: lines + tags + filter mode → decisions)'
   });
 
   it('disabled tags do not drive the filter either', () => {
-    const tags = [tag({ pattern: 'ERROR', enabled: false })];
+    const tags = [tag({ pattern: 'ERROR', highlight: false, filter: false })];
     expect(matchLine('has ERROR', tags, 'include').visible).toBe(false);
     expect(matchLine('has ERROR', tags, 'exclude').visible).toBe(true);
   });

@@ -69,7 +69,10 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   #tags-row { border-bottom: 1px solid var(--vscode-panel-border); }
   .chip { border: 1px solid; border-radius: 999px; padding: 2px 12px; font-size: 1em; height: auto; }
   .chip:hover:enabled { filter: brightness(1.2); }
-  .chip-off { opacity: 0.45; text-decoration: line-through; }
+  .chip-off { opacity: 0.45; }
+  .chip .seg { font-size: 10px; padding: 0 4px; border-radius: 3px; margin-left: 4px; opacity: 0.35; cursor: pointer; user-select: none; }
+  .chip .seg.on { opacity: 1; background: rgba(255, 255, 255, 0.18); }
+  .panel-hint { color: var(--vscode-descriptionForeground); font-size: 12px; }
   #manage-panel { display: none; flex-direction: column; gap: 4px; padding: 6px 10px; border-bottom: 1px solid var(--vscode-panel-border); }
   .tag-edit-row { display: flex; gap: 6px; align-items: center; }
   .tag-edit-row input[type="text"] { background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, var(--vscode-panel-border)); border-radius: var(--sm-radius); height: var(--sm-ctl-h); padding: 0 6px; }
