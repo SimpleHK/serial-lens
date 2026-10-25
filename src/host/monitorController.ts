@@ -25,12 +25,14 @@ export interface MonitorControllerOptions {
   maxBufferLines?: number;
   /** Attach per-line receive timestamps (display decoration, story 24/25). */
   timestamps?: boolean;
+  /** Observes every delivered batch (used by the log-to-file feature). */
+  onBatch?: (entries: readonly TimedLine[]) => void;
 }
 
 /** A line as it travels through the batching stage: raw content plus the
  * moment it was assembled. The timestamp is display data and never part of
  * matched content. */
-interface TimedLine {
+export interface TimedLine {
   text: string;
   ts: number;
 }
@@ -124,6 +126,7 @@ export class MonitorController {
             timestamps: this.timestampsEnabled ? entries.map((e) => e.ts) : undefined,
             dropCount,
           });
+          this.options.onBatch?.(entries);
         },
         { flushAfterMs: this.options.flushAfterMs },
       );

@@ -1,4 +1,5 @@
 import * as path from 'node:path';
+import * as fs from 'node:fs/promises';
 import * as vscode from 'vscode';
 
 import {
@@ -10,11 +11,12 @@ import {
   StopBits,
   Version,
 } from './api/serialMonitorApi';
-import { HostToWebview, MonitorController, ControllerState } from './host/monitorController';
+import { ControllerState, HostToWebview, MonitorController, TimedLine } from './host/monitorController';
 import { NodeSerialPortBackend } from './host/nodeSerialPortBackend';
 import { LineEnding, SerialPortSettings } from './host/serialPortAdapter';
 import { TagStorage, TagStore } from './host/tagStore';
 import { Tag } from './shared/tag';
+import { formatTimestamp } from './shared/timestamp';
 import { monitorPageHtml } from './webview/monitorPage';
 
 type WebviewToHost =
@@ -24,6 +26,7 @@ type WebviewToHost =
   | { type: 'disconnect' }
   | { type: 'send'; text: string; lineEnding: string }
   | { type: 'setTimestamps'; enabled: boolean }
+  | { type: 'toggleLogging' }
   | { type: 'createTag'; pattern: string }
   | { type: 'toggleTag'; id: string }
   | { type: 'updateTag'; id: string; patch: { name?: string; pattern?: string; isRegex?: boolean; color?: string; enabled?: boolean } }
@@ -86,6 +89,8 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
 
   private view: vscode.WebviewView | undefined;
   private controller: MonitorController | undefined;
+  private postMessage: (msg: unknown) => void = () => undefined;
+  private loggingFile: string | undefined;
 
   constructor(private readonly extensionUri: vscode.Uri) {}
 
@@ -105,18 +110,26 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
       vscode.workspace.getConfiguration('serialMonitor').get<number>('maxBufferLines', 10000);
     const readTimestamps = () =>
       vscode.workspace.getConfiguration('serialMonitor').get<boolean>('timestamps', false);
+    const post = (msg: unknown) => {
+      // The view may already be disposed when a late message arrives.
+      void Promise.resolve(view.webview.postMessage(msg)).catch(() => undefined);
+    };
     const controller = new MonitorController(
       new NodeSerialPortBackend(),
       (msg: HostToWebview) => {
         if (msg.type === 'state') {
           view.title = msg.state === 'connected' && msg.path ? `Serial Monitor: ${msg.path}` : 'Serial Monitor';
         }
-        // The view may already be disposed when a late batch arrives.
-        void Promise.resolve(view.webview.postMessage(msg)).catch(() => undefined);
+        post(msg);
       },
-      { maxBufferLines: readCap(), timestamps: readTimestamps() },
+      {
+        maxBufferLines: readCap(),
+        timestamps: readTimestamps(),
+        onBatch: (entries) => this.logEntries(entries, readTimestamps()),
+      },
     );
     this.controller = controller;
+    this.postMessage = post;
 
     const tagStore = new TagStore(workspaceTagStorage());
     const sendDisplayState = () => {
@@ -152,6 +165,7 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
           void controller.refreshPorts();
           if (msg.type === 'ready') {
             sendDisplayState();
+            this.sendLoggingState();
           }
           break;
         case 'connect':
@@ -162,6 +176,9 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
           break;
         case 'send':
           void controller.sendText(String(msg.text), toLineEnding(msg.lineEnding));
+          break;
+        case 'toggleLogging':
+          void this.toggleLogging();
           break;
         case 'setTimestamps': {
           const enabled = Boolean(msg.enabled);
@@ -248,7 +265,65 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
   }
 
   clearMonitorOutput(): void {
-    void Promise.resolve(this.view?.webview.postMessage({ type: 'clear' })).catch(() => undefined);
+    this.postMessage({ type: 'clear' });
+  }
+
+  private sendLoggingState(): void {
+    this.postMessage({
+      type: 'logging',
+      active: this.loggingFile !== undefined,
+      fileName: this.loggingFile ? path.basename(this.loggingFile) : undefined,
+    });
+  }
+
+  /** Save-dialog toggle for log-to-file; every received batch appends. */
+  private async toggleLogging(): Promise<void> {
+    if (this.loggingFile) {
+      this.loggingFile = undefined;
+      this.sendLoggingState();
+      this.postMessage({ type: 'state', state: 'idle', message: 'Logging stopped.' });
+      return;
+    }
+    const now = new Date();
+    const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}-${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
+    const folder = vscode.workspace.workspaceFolders?.[0]?.uri;
+    const defaultUri = folder
+      ? vscode.Uri.joinPath(folder, `serial-monitor-${stamp}.log`)
+      : vscode.Uri.file(`serial-monitor-${stamp}.log`);
+    const target = await vscode.window.showSaveDialog({
+      defaultUri,
+      title: 'Save received serial data to',
+      filters: { 'Log Files': ['log'], 'Text Files': ['txt'] },
+    });
+    if (!target) {
+      return; // user cancelled the dialog
+    }
+    this.loggingFile = target.fsPath;
+    this.sendLoggingState();
+    this.postMessage({
+      type: 'state',
+      state: 'idle',
+      message: `Logging to ${path.basename(target.fsPath)}`,
+    });
+  }
+
+  private logEntries(entries: readonly TimedLine[], withTimestamps: boolean): void {
+    const file = this.loggingFile;
+    if (!file || entries.length === 0) {
+      return;
+    }
+    const text = entries
+      .map((e) => (withTimestamps ? `[${formatTimestamp(e.ts)}] ${e.text}` : e.text))
+      .join('\n') + '\n';
+    fs.appendFile(file, text, 'utf-8').catch((err: unknown) => {
+      this.loggingFile = undefined;
+      this.sendLoggingState();
+      this.postMessage({
+        type: 'state',
+        state: 'idle',
+        message: `Logging stopped: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    });
   }
 
   private async ensureController(): Promise<MonitorController> {

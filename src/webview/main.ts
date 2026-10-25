@@ -3,6 +3,7 @@ declare function acquireVsCodeApi(): { postMessage(msg: unknown): void };
 import { LineDecision, matchLine } from '../shared/tagMatching';
 import { FilterMode, Tag } from '../shared/tag';
 import { scrollReducer, ScrollState } from '../shared/scrollState';
+import { formatTimestamp } from '../shared/timestamp';
 
 const vscode = acquireVsCodeApi();
 
@@ -23,6 +24,7 @@ const log = document.getElementById('log') as HTMLDivElement;
 const sendInput = document.getElementById('send-input') as HTMLInputElement;
 const sendBtn = document.getElementById('send') as HTMLButtonElement;
 const scrollStateBtn = document.getElementById('scroll-state') as HTMLButtonElement;
+const logFileBtn = document.getElementById('log-file') as HTMLButtonElement;
 const manageToggleBtn = document.getElementById('manage-toggle') as HTMLButtonElement;
 const managePanel = document.getElementById('manage-panel') as HTMLDivElement;
 
@@ -69,12 +71,6 @@ function renderText(entry: { text: string; ts?: number }): string {
     return `[${formatTimestamp(entry.ts)}] ${entry.text}`;
   }
   return entry.text;
-}
-
-function formatTimestamp(ts: number): string {
-  const d = new Date(ts);
-  const pad = (n: number, width = 2) => String(n).padStart(width, '0');
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`;
 }
 
 function renderWindow(): void {
@@ -321,9 +317,12 @@ function renderChips(): void {
     chip.style.borderColor = t.color;
     chip.style.background = t.enabled ? `${t.color}33` : 'transparent';
     chip.textContent = t.name;
-    chip.title = (t.enabled ? `Hide matches of "${t.name}"` : `Highlight matches of "${t.name}"`) + ' — double-click to delete';
+    chip.title = (t.enabled ? `Hide matches of "${t.name}"` : `Highlight matches of "${t.name}"`) + ' — right-click to delete';
     chip.addEventListener('click', () => vscode.postMessage({ type: 'toggleTag', id: t.id }));
-    chip.addEventListener('dblclick', () => vscode.postMessage({ type: 'removeTag', id: t.id }));
+    chip.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      vscode.postMessage({ type: 'removeTag', id: t.id });
+    });
     tagsRow.appendChild(chip);
   }
   renderManagePanel();
@@ -437,6 +436,11 @@ window.addEventListener('message', (e) => {
     showTimestamps = m.enabled;
     timestampsCheckbox.checked = m.enabled; // keep the checkbox in sync with the setting
     scheduleRender();
+  } else if (m.type === 'logging') {
+    logFileBtn.classList.toggle('logging', m.active);
+    logFileBtn.title = m.active
+      ? `Logging to ${m.fileName} — click to stop`
+      : 'Save received data to a file';
   } else if (m.type === 'clear') {
     clearMonitor();
   } else if (m.type === 'lineEnding') {
@@ -548,6 +552,10 @@ filterSelect.addEventListener('change', () => {
 
 refreshBtn.addEventListener('click', () => {
   vscode.postMessage({ type: 'refreshPorts' });
+});
+
+logFileBtn.addEventListener('click', () => {
+  vscode.postMessage({ type: 'toggleLogging' });
 });
 
 document.addEventListener('selectionchange', updateTagButton);

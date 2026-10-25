@@ -26,6 +26,7 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   #config-row { border-bottom: 1px solid var(--vscode-panel-border); }
   #params-row { border-bottom: 1px solid var(--vscode-panel-border); padding-top: 4px; padding-bottom: 4px; }
   .tag-add { padding: 2px 10px; }
+  #log-file.logging { background: var(--vscode-charts-red, #f14c4c); color: #ffffff; }
   label { color: var(--vscode-descriptionForeground); }
   select { background: var(--vscode-dropdown-background); color: var(--vscode-dropdown-foreground); border: 1px solid var(--vscode-dropdown-border); padding: 2px 4px; }
   #mode { min-width: 90px; }
@@ -87,6 +88,7 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
     <button id="clear" class="secondary" title="Clear monitor">&#128465;</button>
     <button id="create-tag" class="secondary" disabled title="Create a tag from the selected text">&#127991;</button>
     <button id="manage-toggle" class="secondary" title="Manage tags">&#9881;</button>
+    <button id="log-file" class="secondary" title="Save received data to a file">&#128190;</button>
     <button id="scroll-state" class="secondary">&#8681; Following</button>
     <span id="status">Idle</span>
   </div>
