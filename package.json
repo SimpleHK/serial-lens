@@ -70,7 +70,7 @@
         "serialMonitor.tags": {
           "type": "array",
           "default": [],
-          "markdownDescription": "Tags: named row-matching rules (pattern + color + enabled state) consumed by highlighting and filtering. Usually managed from the monitor UI.",
+          "markdownDescription": "Tags: named row-matching rules (pattern + color + highlight/filter flags) consumed by highlighting and filtering. Usually managed from the monitor UI.",
           "items": {
             "type": "object",
             "required": ["name", "pattern", "isRegex", "color", "highlight", "filter"],

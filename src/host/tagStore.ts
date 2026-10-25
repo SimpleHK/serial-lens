@@ -105,10 +105,18 @@ export class TagStore {
 
   /** Re-reads storage after external edits (e.g. settings.json changed). */
   reload(): void {
-    this.tags = (this.storage.get() ?? []).filter(isValidTag).map((t) => ({ ...t, id: t.id ?? randomUUID() }));
+    this.tags = this.loadTags();
     for (const listener of this.listeners) {
       listener(this.tags);
     }
+  }
+
+  private loadTags(): Tag[] {
+    // One load path for both constructor and reload: legacy enabled ->
+    // highlight/filter migration must not depend on which one ran.
+    return (this.storage.get() ?? [])
+      .filter(isValidTag)
+      .map((t) => ({ ...normalizeTag(t), id: t.id ?? randomUUID() }));
   }
 
   private uniqueName(base: string): string {

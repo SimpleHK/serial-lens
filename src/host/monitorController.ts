@@ -151,6 +151,12 @@ export class MonitorController {
     }
   }
 
+  /** Clears the buffer count (clear output): nothing further drops until
+   * the cap is reached again. */
+  resetBuffer(): void {
+    this.ring.reset();
+  }
+
   /** Applies a new buffer cap live; drops oldest lines beyond it. */
   setCap(maxBufferLines: number): void {
     const dropCount = this.ring.setCap(maxBufferLines);

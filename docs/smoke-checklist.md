@@ -58,4 +58,4 @@ Open the monitor: bottom panel → SERIAL MONITOR tab (or `Serial Monitor: Open 
 
 ## Known MVP limits (by design, see spec Out of Scope)
 
-- One monitor at a time; TCP/SWO unsupported (API reports it); no badge/ANSI/plotting/export.
+- One monitor at a time; TCP/SWO unsupported (API reports it); no inline badges, ANSI interpretation, plotting, or send macros. Log export exists (📤).

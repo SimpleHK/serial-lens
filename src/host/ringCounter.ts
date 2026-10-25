@@ -26,6 +26,11 @@ export class RingCounter {
     return dropped;
   }
 
+  /** Empties the count without touching the cap (clear output). */
+  reset(): void {
+    this.countValue = 0;
+  }
+
   /** Applies a new cap; returns how many oldest lines dropped out. */
   setCap(cap: number): number {
     this.cap = cap;

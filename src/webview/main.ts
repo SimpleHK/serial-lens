@@ -556,6 +556,7 @@ timestampsCheckbox.addEventListener('change', () => {
 });
 
 function clearMonitor(): void {
+  vscode.postMessage({ type: 'clear' }); // host resets its ring count too
   clearBuffer();
   scroll = scrollReducer(scroll, { type: 'reset' });
   renderScrollIndicator();
@@ -680,8 +681,6 @@ collapseHwBtn.addEventListener('click', () => {
   collapseHwBtn.innerHTML = hwVisible ? '&#9652;' : '&#9662;';
   collapseHwBtn.title = hwVisible ? 'Hide the hardware row' : 'Show the hardware row';
 });
-
-vscode.postMessage({ type: 'ready' });
 
 exportBtn.addEventListener('click', () => {
   vscode.postMessage({ type: 'export' });

@@ -24,6 +24,7 @@ type WebviewToHost =
   | { type: 'refreshPorts' }
   | { type: 'connect'; port: string; baudRate: number; dataBits: number; stopBits: number; parity: string }
   | { type: 'disconnect' }
+  | { type: 'clear' }
   | { type: 'send'; text: string; lineEnding: string }
   | { type: 'setTimestamps'; enabled: boolean }
   | { type: 'setLogSession'; enabled: boolean }
@@ -39,12 +40,16 @@ type WebviewToHost =
 const LINE_ENDINGS: readonly LineEnding[] = ['none', 'LF', 'CRLF', 'CR'];
 
 function toSettings(msg: Extract<WebviewToHost, { type: 'connect' }>): SerialPortSettings {
-  const parity = msg.parity === 'even' || msg.parity === 'odd' ? msg.parity : 'none';
+  const dataBits = Number(msg.dataBits);
+  const stopBits = Number(msg.stopBits);
+  const parity = ['none', 'even', 'odd', 'mark', 'space'].includes(msg.parity)
+    ? (msg.parity as SerialPortSettings['parity'])
+    : 'none';
   return {
     path: String(msg.port),
     baudRate: Number(msg.baudRate) || 115200,
-    dataBits: msg.dataBits === 7 ? 7 : 8,
-    stopBits: msg.stopBits === 2 ? 2 : 1,
+    dataBits: ([5, 6, 7, 8] as number[]).includes(dataBits) ? (dataBits as SerialPortSettings['dataBits']) : 8,
+    stopBits: ([1, 1.5, 2] as number[]).includes(stopBits) ? (stopBits as SerialPortSettings['stopBits']) : 1,
     parity,
   };
 }
@@ -230,11 +235,11 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
             void this.completeExport(msg.entries);
           }
           break;
-        case 'connect':
-          void controller.connect(toSettings(msg));
-          break;
         case 'disconnect':
           void controller.disconnect();
+          break;
+        case 'clear':
+          controller.resetBuffer(); // the webview already emptied its own buffer
           break;
         case 'send':
           void controller.sendText(String(msg.text), toLineEnding(msg.lineEnding));

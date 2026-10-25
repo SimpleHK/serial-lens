@@ -108,11 +108,11 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
       <div id="baud-menu" class="baud-menu"></div>
     </span>
     <label for="data-bits">Data bits</label>
-    <select id="data-bits"><option value="8" selected>8</option><option value="7">7</option></select>
+    <select id="data-bits"><option value="8" selected>8</option><option value="7">7</option><option value="6">6</option><option value="5">5</option></select>
     <label for="parity">Parity</label>
-    <select id="parity"><option value="none" selected>None</option><option value="even">Even</option><option value="odd">Odd</option></select>
+    <select id="parity"><option value="none" selected>None</option><option value="even">Even</option><option value="odd">Odd</option><option value="mark">Mark</option><option value="space">Space</option></select>
     <label for="stop-bits">Stop bits</label>
-    <select id="stop-bits"><option value="1" selected>1</option><option value="2">2</option></select>
+    <select id="stop-bits"><option value="1" selected>1</option><option value="1.5">1.5</option><option value="2">2</option></select>
     <label for="line-ending">Line ending</label>
     <select id="line-ending"><option value="LF" selected>LF</option><option value="CRLF">CRLF</option><option value="CR">CR</option><option value="none">None</option></select>
     <button id="connect" class="primary-action">&#9654; Start Monitoring</button>

@@ -1,6 +1,6 @@
 /**
  * Unified Tag model (ADR-0003): a named row-matching rule — pattern
- * (substring or regex) plus color and enabled state. Highlighting and
+ * (substring or regex) plus color and highlight/filter flags. Highlighting and
  * filtering both consume tags; there are no highlight-only or filter-only
  * rules. Filtered/shared module so the webview and the extension host speak
  * the same shapes.
