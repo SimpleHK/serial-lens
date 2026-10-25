@@ -15,6 +15,8 @@
 //          stresses the data seam's cross-chunk reassembly
 //   utf8   Chinese and emoji lines
 //   burst  flood of ~2000 lines/s for --seconds, for eyeballing smoothness
+//   duo    alternates "hello world n" / "abc n" — two distinct patterns for
+//          exercising multiple tags
 import { SerialPort } from 'serialport';
 
 const argv = process.argv.slice(2);
@@ -54,7 +56,7 @@ process.on('SIGINT', () => {
 
 port.on('open', () => {
   console.log(`virtual-device: opened ${portPath} @ ${baudRate} — scenario "${scenario}". Ctrl-C to stop.`);
-  const scenarios = { lines, crlf, split, utf8, burst };
+  const scenarios = { lines, crlf, split, utf8, burst, duo };
   const run = scenarios[scenario];
   if (!run) {
     console.error(`unknown scenario "${scenario}" (expected: ${Object.keys(scenarios).join(', ')})`);
@@ -130,6 +132,23 @@ async function utf8() {
   while (running) {
     await write(lines[n % lines.length] + '\n');
     n++;
+    await sleep(interval);
+  }
+  port.close();
+  console.log('virtual-device: stopped');
+}
+
+async function duo() {
+  let pair = 1;
+  let flip = 0;
+  while (running) {
+    const line = flip % 2 === 0 ? `hello world ${pair}` : `abc ${pair}`;
+    await write(line + '
+');
+    flip++;
+    if (flip % 2 === 0) {
+      pair++;
+    }
     await sleep(interval);
   }
   port.close();

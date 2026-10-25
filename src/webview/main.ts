@@ -317,12 +317,9 @@ function renderChips(): void {
     chip.style.borderColor = t.color;
     chip.style.background = t.enabled ? `${t.color}33` : 'transparent';
     chip.textContent = t.name;
-    chip.title = (t.enabled ? `Hide matches of "${t.name}"` : `Highlight matches of "${t.name}"`) + ' — right-click to delete';
+    chip.title = (t.enabled ? `Hide matches of "${t.name}"` : `Highlight matches of "${t.name}"`) + ' — double-click to delete';
     chip.addEventListener('click', () => vscode.postMessage({ type: 'toggleTag', id: t.id }));
-    chip.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-      vscode.postMessage({ type: 'removeTag', id: t.id });
-    });
+    chip.addEventListener('dblclick', () => vscode.postMessage({ type: 'removeTag', id: t.id }));
     tagsRow.appendChild(chip);
   }
   renderManagePanel();
@@ -359,7 +356,15 @@ function renderManagePanel(): void {
       addTag();
     }
   });
-  addRow.append(addInput, addBtn);
+  const clearAllBtn = document.createElement('button');
+  clearAllBtn.className = 'tag-delete';
+  clearAllBtn.textContent = 'Delete all';
+  clearAllBtn.title = 'Remove every tag';
+  clearAllBtn.disabled = tags.length === 0;
+  clearAllBtn.addEventListener('click', () => {
+    vscode.postMessage({ type: 'clearTags' });
+  });
+  addRow.append(addInput, addBtn, clearAllBtn);
   managePanel.appendChild(addRow);
   for (const t of tags) {
     const row = document.createElement('div');
@@ -553,6 +558,8 @@ filterSelect.addEventListener('change', () => {
 refreshBtn.addEventListener('click', () => {
   vscode.postMessage({ type: 'refreshPorts' });
 });
+
+vscode.postMessage({ type: 'ready' });
 
 logFileBtn.addEventListener('click', () => {
   vscode.postMessage({ type: 'toggleLogging' });

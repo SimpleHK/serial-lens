@@ -30,7 +30,8 @@ type WebviewToHost =
   | { type: 'createTag'; pattern: string }
   | { type: 'toggleTag'; id: string }
   | { type: 'updateTag'; id: string; patch: { name?: string; pattern?: string; isRegex?: boolean; color?: string; enabled?: boolean } }
-  | { type: 'removeTag'; id: string };
+  | { type: 'removeTag'; id: string }
+  | { type: 'clearTags' };
 
 const LINE_ENDINGS: readonly LineEnding[] = ['none', 'LF', 'CRLF', 'CR'];
 
@@ -199,6 +200,9 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
           break;
         case 'removeTag':
           void tagStore.remove(String(msg.id));
+          break;
+        case 'clearTags':
+          void tagStore.clearAll();
           break;
       }
     });

@@ -38,12 +38,13 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   button { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; padding: 4px 12px; cursor: pointer; }
   button:hover:enabled { background: var(--vscode-button-hoverBackground); }
   button:disabled { opacity: 0.5; cursor: default; }
-  button.secondary { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
+  button.secondary { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); border: 1px solid var(--vscode-panel-border); }
+  .icon-btn { font-size: 1.2em; padding: 3px 11px; line-height: 1.2; min-width: 34px; }
   #clear, #create-tag { padding: 4px 8px; }
   #status { margin-left: auto; color: var(--vscode-descriptionForeground); }
   #scroll-state.locked { background: var(--vscode-inputValidation-warningBackground, #5a5a30); }
   #tags-row { border-bottom: 1px solid var(--vscode-panel-border); }
-  .chip { border: 1px solid; border-radius: 12px; padding: 1px 10px; font-size: 0.9em; }
+  .chip { border: 1px solid; border-radius: 12px; padding: 2px 12px; font-size: 1em; }
   .chip-off { opacity: 0.45; text-decoration: line-through; }
   #manage-panel { display: none; flex-direction: column; gap: 4px; padding: 6px 10px; border-bottom: 1px solid var(--vscode-panel-border); }
   .tag-edit-row { display: flex; gap: 6px; align-items: center; }
@@ -64,7 +65,7 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
     <select id="mode" disabled><option selected>Serial</option></select>
     <label for="port">Port</label>
     <select id="port"></select>
-    <button id="refresh" class="secondary" title="Refresh port list">&#8635;</button>
+    <button id="refresh" class="secondary icon-btn" title="Refresh port list">&#8635;</button>
     <label for="baud">Baud rate</label>
     <input id="baud" list="baud-presets" value="115200" inputmode="numeric">
     <datalist id="baud-presets">${baudOptions}</datalist>
@@ -85,10 +86,10 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   </div>
   <div id="action-row" class="row">
     <button id="connect">&#9654; Start Monitoring</button>
-    <button id="clear" class="secondary" title="Clear monitor">&#128465;</button>
-    <button id="create-tag" class="secondary" disabled title="Create a tag from the selected text">&#127991;</button>
-    <button id="manage-toggle" class="secondary" title="Manage tags">&#9881;</button>
-    <button id="log-file" class="secondary" title="Save received data to a file">&#128190;</button>
+    <button id="clear" class="secondary icon-btn" title="Clear monitor">&#128465;</button>
+    <button id="create-tag" class="secondary icon-btn" disabled title="Create a tag from the selected text">&#127991;</button>
+    <button id="manage-toggle" class="secondary icon-btn" title="Manage tags">&#9881;</button>
+    <button id="log-file" class="secondary icon-btn" title="Save received data to a file">&#128190;</button>
     <button id="scroll-state" class="secondary">&#8681; Following</button>
     <span id="status">Idle</span>
   </div>

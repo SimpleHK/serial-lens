@@ -174,6 +174,19 @@ describe('TagStore', () => {
     expect(typeof tags[0].id).toBe('string');
   });
 
+  it('clearAll removes every tag and persists', async () => {
+    const storage = memoryStorage();
+    const store = new TagStore(storage);
+    await store.add('a');
+    await store.add('b');
+    await store.clearAll();
+    expect(store.getTags()).toEqual([]);
+    expect(storage.saved.at(-1)).toEqual([]);
+
+    await store.clearAll(); // empty store: clean no-op
+    expect(storage.saved.at(-1)).toEqual([]);
+  });
+
   it('notifies listeners on every change', async () => {
     const store = new TagStore(memoryStorage());
     const listener = vi.fn();

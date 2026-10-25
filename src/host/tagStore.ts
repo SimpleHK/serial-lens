@@ -90,6 +90,15 @@ export class TagStore {
     await this.persist();
   }
 
+  /** Removes every tag at once (one-click clear). */
+  async clearAll(): Promise<void> {
+    if (this.tags.length === 0) {
+      return;
+    }
+    this.tags = [];
+    await this.persist();
+  }
+
   async remove(id: string): Promise<void> {
     if (!this.tags.some((t) => t.id === id)) {
       return;
