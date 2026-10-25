@@ -87,15 +87,19 @@ function renderWindow(): void {
     lineIndex: number;
     text: string;
     bg: string;
+    bgImage: string;
+    textIndent: string;
   }
   const rows: RowSpec[] = [];
   for (let p = first; p < last; p++) {
     const lineIndex = visibleIndexes[p];
-    const color = decisions[lineIndex].highlightColor;
+    const colors = decisions[lineIndex].highlightColors;
     rows.push({
       lineIndex,
       text: renderText(lineStore[lineIndex]),
-      bg: color ? `${color}45` : '',
+      bg: colors.length ? `${colors[0]}45` : '',
+      bgImage: colorBar(colors),
+      textIndent: colors.length > 1 ? '10px' : '',
     });
   }
   const topPx = first * rowHeightPx;
@@ -109,7 +113,14 @@ function renderWindow(): void {
     prev.topPx === topPx &&
     prev.bottomPx === bottomPx &&
     prev.rows.length === rows.length &&
-    prev.rows.every((r, i) => r.lineIndex === rows[i].lineIndex && r.text === rows[i].text && r.bg === rows[i].bg)
+    prev.rows.every(
+      (r, i) =>
+        r.lineIndex === rows[i].lineIndex &&
+        r.text === rows[i].text &&
+        r.bg === rows[i].bg &&
+        r.bgImage === rows[i].bgImage &&
+        r.textIndent === rows[i].textIndent,
+    )
   ) {
     return;
   }
@@ -122,6 +133,8 @@ function renderWindow(): void {
     row.dataset.lineIndex = String(r.lineIndex);
     row.textContent = r.text;
     row.style.background = r.bg;
+    row.style.backgroundImage = r.bgImage;
+    row.style.textIndent = r.textIndent;
     frag.appendChild(row);
   }
   spacerTop.style.height = `${topPx}px`;
@@ -131,10 +144,22 @@ function renderWindow(): void {
   lastRender = { topPx, bottomPx, rows };
 }
 
+/** Multi-match color bar: one 5px segment per matching tag, so overlapping
+ * tags stay visible instead of masking each other. */
+function colorBar(colors: string[]): string {
+  if (colors.length < 2) {
+    return '';
+  }
+  const stops = colors.map((c, i) => `${c} ${i * 5}px ${(i + 1) * 5}px`).join(', ');
+  return `linear-gradient(to right, ${stops}, transparent ${colors.length * 5}px)`;
+}
+
 interface RenderedRow {
   lineIndex: number;
   text: string;
   bg: string;
+  bgImage: string;
+  textIndent: string;
 }
 let lastRender: { topPx: number; bottomPx: number; rows: RenderedRow[] } | undefined;
 
@@ -250,6 +275,9 @@ function updateButtons(): void {
 function updateTagButton(): void {
   const selected = window.getSelection()?.toString().trim() ?? '';
   tagBtn.disabled = selected.length === 0;
+  tagBtn.title = selected
+    ? `Create a tag from "${selected.length > 24 ? selected.slice(0, 24) + '…' : selected}"`
+    : 'Create a tag from the selected text (or type one in the ⚙ panel)';
 }
 
 function setStatus(message?: string): void {
@@ -293,8 +321,9 @@ function renderChips(): void {
     chip.style.borderColor = t.color;
     chip.style.background = t.enabled ? `${t.color}33` : 'transparent';
     chip.textContent = t.name;
-    chip.title = t.enabled ? `Hide matches of "${t.name}"` : `Highlight matches of "${t.name}"`;
+    chip.title = (t.enabled ? `Hide matches of "${t.name}"` : `Highlight matches of "${t.name}"`) + ' — double-click to delete';
     chip.addEventListener('click', () => vscode.postMessage({ type: 'toggleTag', id: t.id }));
+    chip.addEventListener('dblclick', () => vscode.postMessage({ type: 'removeTag', id: t.id }));
     tagsRow.appendChild(chip);
   }
   renderManagePanel();
@@ -309,6 +338,30 @@ function renderManagePanel(): void {
     return;
   }
   managePanel.textContent = '';
+  const addRow = document.createElement('div');
+  addRow.className = 'tag-edit-row';
+  const addInput = document.createElement('input');
+  addInput.type = 'text';
+  addInput.className = 'tag-pattern';
+  addInput.placeholder = 'New tag pattern — type and press Enter (or click + Add)';
+  const addBtn = document.createElement('button');
+  addBtn.className = 'tag-add';
+  addBtn.textContent = '+ Add';
+  const addTag = () => {
+    const value = addInput.value.trim();
+    if (!value) {
+      return;
+    }
+    vscode.postMessage({ type: 'createTag', pattern: value });
+  };
+  addBtn.addEventListener('click', addTag);
+  addInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      addTag();
+    }
+  });
+  addRow.append(addInput, addBtn);
+  managePanel.appendChild(addRow);
   for (const t of tags) {
     const row = document.createElement('div');
     row.className = 'tag-edit-row';

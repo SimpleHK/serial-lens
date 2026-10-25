@@ -16,41 +16,42 @@ const tag = (over: Partial<Tag>): Tag => ({
 describe('tagMatching (matching seam: lines + tags + filter mode → decisions)', () => {
   it('highlights lines matching an enabled substring tag', () => {
     const d = matchLine('sensor read [ERROR] boom', [tag({ pattern: 'ERROR' })], 'off');
-    expect(d).toEqual({ visible: true, highlightColor: '#ff0000' });
+    expect(d).toEqual({ visible: true, highlightColors: ['#ff0000'] });
   });
 
   it('does not highlight non-matching lines', () => {
     const d = matchLine('all good here', [tag({ pattern: 'ERROR' })], 'off');
-    expect(d).toEqual({ visible: true, highlightColor: undefined });
+    expect(d).toEqual({ visible: true, highlightColors: [] });
   });
 
   it('supports regex mode', () => {
     const d = matchLine('temp=24.7C', [tag({ pattern: /temp=\d+(\.\d+)?C/.source, isRegex: true })], 'off');
-    expect(d.highlightColor).toBe('#ff0000');
+    expect(d.highlightColors).toEqual(['#ff0000']);
   });
 
   it('ignores disabled tags entirely', () => {
     const d = matchLine('has ERROR inside', [tag({ pattern: 'ERROR', enabled: false })], 'off');
-    expect(d).toEqual({ visible: true, highlightColor: undefined });
+    expect(d).toEqual({ visible: true, highlightColors: [] });
   });
 
-  it('first enabled matching tag wins (precedence by tag order)', () => {
+  it('collects every enabled matching tag in tag order (no masking)', () => {
     const tags = [
-      tag({ name: 'later', pattern: 'ERROR', color: '#00ff00' }),
-      tag({ name: 'earlier', pattern: 'ERR', color: '#0000ff' }),
+      tag({ id: '1', pattern: 'ERROR', color: '#00ff00' }),
+      tag({ id: '2', pattern: 'ERR', color: '#0000ff' }),
+      tag({ id: '3', pattern: 'RO', color: '#ff00ff', enabled: false }),
     ];
     const d = matchLine('ERROR', tags, 'off');
-    expect(d.highlightColor).toBe('#00ff00'); // earlier in the list wins, not the shorter pattern
+    expect(d.highlightColors).toEqual(['#00ff00', '#0000ff']);
   });
 
   it('treats an invalid regex as non-matching instead of throwing', () => {
     const d = matchLine('anything', [tag({ pattern: '([unclosed', isRegex: true })], 'off');
-    expect(d).toEqual({ visible: true, highlightColor: undefined });
+    expect(d).toEqual({ visible: true, highlightColors: [] });
   });
 
   it('substring matching is case-sensitive and literal', () => {
-    expect(matchLine('ERROR', [tag({ pattern: 'error' })], 'off').highlightColor).toBeUndefined();
-    expect(matchLine('a.c', [tag({ pattern: 'a.c', isRegex: false })], 'off').highlightColor).toBe('#ff0000');
+    expect(matchLine('ERROR', [tag({ pattern: 'error' })], 'off').highlightColors).toEqual([]);
+    expect(matchLine('a.c', [tag({ pattern: 'a.c', isRegex: false })], 'off').highlightColors).toEqual(['#ff0000']);
   });
 
   it('filter mode include shows only matching lines', () => {
@@ -74,16 +75,16 @@ describe('tagMatching (matching seam: lines + tags + filter mode → decisions)'
   it('matchLines maps decisions per line', () => {
     const out = matchLines(['ERROR a', 'fine', 'ERROR b'], [tag({ pattern: 'ERROR' })], 'include');
     expect(out).toEqual([
-      { visible: true, highlightColor: '#ff0000' },
-      { visible: false, highlightColor: undefined },
-      { visible: true, highlightColor: '#ff0000' },
+      { visible: true, highlightColors: ['#ff0000'] },
+      { visible: false, highlightColors: [] },
+      { visible: true, highlightColors: ['#ff0000'] },
     ]);
   });
 
-  it('empty tag list leaves everything visible and unhighlighted', () => {
+  it('empty tag list leaves everything unhighlighted', () => {
     expect(matchLines(['a', 'b'], [], 'include')).toEqual([
-      { visible: false, highlightColor: undefined },
-      { visible: false, highlightColor: undefined },
+      { visible: false, highlightColors: [] },
+      { visible: false, highlightColors: [] },
     ]);
   });
 });

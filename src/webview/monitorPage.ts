@@ -24,6 +24,8 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   body { display: flex; flex-direction: column; height: 100vh; margin: 0; color: var(--vscode-foreground); font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); }
   .row { display: flex; gap: 8px; align-items: center; padding: 6px 10px; flex-wrap: wrap; }
   #config-row { border-bottom: 1px solid var(--vscode-panel-border); }
+  #params-row { border-bottom: 1px solid var(--vscode-panel-border); padding-top: 4px; padding-bottom: 4px; }
+  .tag-add { padding: 2px 10px; }
   label { color: var(--vscode-descriptionForeground); }
   select { background: var(--vscode-dropdown-background); color: var(--vscode-dropdown-foreground); border: 1px solid var(--vscode-dropdown-border); padding: 2px 4px; }
   #mode { min-width: 90px; }
@@ -65,14 +67,16 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
     <label for="baud">Baud rate</label>
     <input id="baud" list="baud-presets" value="115200" inputmode="numeric">
     <datalist id="baud-presets">${baudOptions}</datalist>
+    <label for="line-ending">Line ending</label>
+    <select id="line-ending"><option value="LF" selected>LF</option><option value="CRLF">CRLF</option><option value="CR">CR</option><option value="none">None</option></select>
+  </div>
+  <div id="params-row" class="row">
     <label for="data-bits">Data bits</label>
     <select id="data-bits"><option value="8" selected>8</option><option value="7">7</option></select>
     <label for="parity">Parity</label>
     <select id="parity"><option value="none" selected>None</option><option value="even">Even</option><option value="odd">Odd</option></select>
     <label for="stop-bits">Stop bits</label>
     <select id="stop-bits"><option value="1" selected>1</option><option value="2">2</option></select>
-    <label for="line-ending">Line ending</label>
-    <select id="line-ending"><option value="LF" selected>LF</option><option value="CRLF">CRLF</option><option value="CR">CR</option><option value="none">None</option></select>
     <label for="filter">Filter</label>
     <select id="filter"><option value="off" selected>Off</option><option value="include">Include</option><option value="exclude">Exclude</option></select>
     <label for="timestamps">Timestamps</label>
@@ -81,7 +85,7 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   <div id="action-row" class="row">
     <button id="connect">&#9654; Start Monitoring</button>
     <button id="clear" class="secondary" title="Clear monitor">&#128465;</button>
-    <button id="create-tag" class="secondary" disabled title="Create a tag from the selected text">+ Tag</button>
+    <button id="create-tag" class="secondary" disabled title="Create a tag from the selected text">&#127991;</button>
     <button id="manage-toggle" class="secondary" title="Manage tags">&#9881;</button>
     <button id="scroll-state" class="secondary">&#8681; Following</button>
     <span id="status">Idle</span>
