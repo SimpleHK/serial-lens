@@ -24,7 +24,8 @@ const log = document.getElementById('log') as HTMLDivElement;
 const sendInput = document.getElementById('send-input') as HTMLInputElement;
 const sendBtn = document.getElementById('send') as HTMLButtonElement;
 const scrollStateBtn = document.getElementById('scroll-state') as HTMLButtonElement;
-const logFileBtn = document.getElementById('log-file') as HTMLButtonElement;
+const exportBtn = document.getElementById('export-log') as HTMLButtonElement;
+const logDirBtn = document.getElementById('log-dir') as HTMLButtonElement;
 const manageToggleBtn = document.getElementById('manage-toggle') as HTMLButtonElement;
 const managePanel = document.getElementById('manage-panel') as HTMLDivElement;
 
@@ -265,6 +266,7 @@ function updateButtons(): void {
   refreshBtn.disabled = isConnected;
   clearBtn.disabled = !isConnected && lineStore.length === 0;
   sendBtn.disabled = !isConnected;
+  exportBtn.disabled = lineStore.length === 0;
   updateTagButton();
 }
 
@@ -442,10 +444,12 @@ window.addEventListener('message', (e) => {
     timestampsCheckbox.checked = m.enabled; // keep the checkbox in sync with the setting
     scheduleRender();
   } else if (m.type === 'logging') {
-    logFileBtn.classList.toggle('logging', m.active);
-    logFileBtn.title = m.active
-      ? `Logging to ${m.fileName} — click to stop`
-      : 'Save received data to a file';
+    logDirBtn.classList.toggle('logging', Boolean(m.directory));
+    logDirBtn.title = m.directory
+      ? `Logging each session into ${m.directory}${m.fileName ? ` (now: ${m.fileName})` : ''} — right-click to clear`
+      : 'Choose a log directory: every session writes a new .log file (right-click to clear)';
+  } else if (m.type === 'exportRequest') {
+    vscode.postMessage({ type: 'exportData', entries: lineStore });
   } else if (m.type === 'clear') {
     clearMonitor();
   } else if (m.type === 'lineEnding') {
@@ -561,8 +565,16 @@ refreshBtn.addEventListener('click', () => {
 
 vscode.postMessage({ type: 'ready' });
 
-logFileBtn.addEventListener('click', () => {
-  vscode.postMessage({ type: 'toggleLogging' });
+exportBtn.addEventListener('click', () => {
+  vscode.postMessage({ type: 'export' });
+});
+
+logDirBtn.addEventListener('click', () => {
+  vscode.postMessage({ type: 'chooseLogDirectory' });
+});
+logDirBtn.addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+  vscode.postMessage({ type: 'clearLogDirectory' });
 });
 
 document.addEventListener('selectionchange', updateTagButton);

@@ -52,6 +52,11 @@
           "minimum": 100,
           "description": "Receive buffer cap in lines; the oldest lines drop out beyond it (applies live)."
         },
+        "serialMonitor.logDirectory": {
+          "type": "string",
+          "default": "",
+          "description": "Directory for per-session serial logs: each monitoring session creates a new timestamped .log file there."
+        },
         "serialMonitor.timestamps": {
           "type": "boolean",
           "default": false,

@@ -89,7 +89,8 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
     <button id="clear" class="secondary icon-btn" title="Clear monitor">&#128465;</button>
     <button id="create-tag" class="secondary icon-btn" disabled title="Create a tag from the selected text">&#127991;</button>
     <button id="manage-toggle" class="secondary icon-btn" title="Manage tags">&#9881;</button>
-    <button id="log-file" class="secondary icon-btn" title="Save received data to a file">&#128190;</button>
+    <button id="export-log" class="secondary icon-btn" disabled title="Export the buffered log to a file">&#128228;</button>
+    <button id="log-dir" class="secondary icon-btn" title="Choose a log directory: every session writes a new .log file (right-click to clear)">&#128193;</button>
     <button id="scroll-state" class="secondary">&#8681; Following</button>
     <span id="status">Idle</span>
   </div>
