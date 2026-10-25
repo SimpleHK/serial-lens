@@ -382,6 +382,7 @@ window.addEventListener('message', (e) => {
     appendLines(m.lines.map((text: string, i: number) => ({ text, ts: m.timestamps?.[i] })), m.dropCount);
   } else if (m.type === 'timestamps') {
     showTimestamps = m.enabled;
+    timestampsCheckbox.checked = m.enabled; // keep the checkbox in sync with the setting
     scheduleRender();
   } else if (m.type === 'clear') {
     clearMonitor();

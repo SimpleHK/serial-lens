@@ -163,9 +163,14 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
         case 'send':
           void controller.sendText(String(msg.text), toLineEnding(msg.lineEnding));
           break;
-        case 'setTimestamps':
-          controller.setTimestamps(Boolean(msg.enabled));
+        case 'setTimestamps': {
+          const enabled = Boolean(msg.enabled);
+          controller.setTimestamps(enabled);
+          // Persist through the setting so the config watcher syncs the
+          // webview's display flag and the choice survives reloads.
+          void updateSerialMonitorSetting('timestamps', enabled);
           break;
+        }
         case 'createTag':
           void tagStore.add(String(msg.pattern));
           break;
@@ -268,14 +273,18 @@ function workspaceTagStorage(): TagStorage {
   return {
     get: read,
     update: async (tags) => {
-      // Without an open folder there is no workspace scope to write to; fall
-      // back to the user-global setting so tags still persist.
-      const target = vscode.workspace.workspaceFolders?.length
-        ? vscode.ConfigurationTarget.Workspace
-        : vscode.ConfigurationTarget.Global;
-      await vscode.workspace.getConfiguration('serialMonitor').update('tags', tags, target);
+      await updateSerialMonitorSetting('tags', tags);
     },
   };
+}
+
+/** Writes a serialMonitor setting, falling back to user scope when no
+ * folder is open (workspace-scope updates need a folder). */
+async function updateSerialMonitorSetting(key: string, value: unknown): Promise<void> {
+  const target = vscode.workspace.workspaceFolders?.length
+    ? vscode.ConfigurationTarget.Workspace
+    : vscode.ConfigurationTarget.Global;
+  await vscode.workspace.getConfiguration('serialMonitor').update(key, value, target);
 }
 
 function toApiSettings(ms: MonitorPortSettings): SerialPortSettings {
