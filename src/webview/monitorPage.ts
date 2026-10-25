@@ -39,7 +39,7 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   button:hover:enabled { background: var(--vscode-button-hoverBackground); }
   button:disabled { opacity: 0.5; cursor: default; }
   button.secondary { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); border: 1px solid var(--vscode-panel-border); }
-  .icon-btn { font-size: 1.2em; padding: 3px 11px; line-height: 1.2; min-width: 34px; }
+  .icon-btn { font-size: 18px; padding: 3px 9px; line-height: 1; min-width: 38px; text-align: center; vertical-align: middle; }
   #clear, #create-tag { padding: 4px 8px; }
   #status { margin-left: auto; color: var(--vscode-descriptionForeground); }
   #scroll-state.locked { background: var(--vscode-inputValidation-warningBackground, #5a5a30); }
@@ -65,7 +65,7 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
     <select id="mode" disabled><option selected>Serial</option></select>
     <label for="port">Port</label>
     <select id="port"></select>
-    <button id="refresh" class="secondary icon-btn" title="Refresh port list">&#8635;</button>
+    <button id="refresh" class="secondary icon-btn" title="Refresh port list">&#128260;</button>
     <label for="baud">Baud rate</label>
     <input id="baud" list="baud-presets" value="115200" inputmode="numeric">
     <datalist id="baud-presets">${baudOptions}</datalist>
@@ -86,9 +86,9 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   </div>
   <div id="action-row" class="row">
     <button id="connect">&#9654; Start Monitoring</button>
-    <button id="clear" class="secondary icon-btn" title="Clear monitor">&#128465;</button>
-    <button id="create-tag" class="secondary icon-btn" disabled title="Create a tag from the selected text">&#127991;</button>
-    <button id="manage-toggle" class="secondary icon-btn" title="Manage tags">&#9881;</button>
+    <button id="clear" class="secondary icon-btn" title="Clear monitor">&#128465;&#65039;</button>
+    <button id="create-tag" class="secondary icon-btn" disabled title="Create a tag from the selected text">&#127991;&#65039;</button>
+    <button id="manage-toggle" class="secondary icon-btn" title="Manage tags">&#9881;&#65039;</button>
     <button id="export-log" class="secondary icon-btn" disabled title="Export the buffered log to a file">&#128228;</button>
     <button id="log-dir" class="secondary icon-btn" title="Choose a log directory: every session writes a new .log file (right-click to clear)">&#128193;</button>
     <button id="scroll-state" class="secondary">&#8681; Following</button>
