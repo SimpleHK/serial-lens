@@ -1,17 +1,22 @@
+import * as path from 'node:path';
 import * as vscode from 'vscode';
 
 import { HostToWebview, MonitorController } from './host/monitorController';
 import { NodeSerialPortBackend } from './host/nodeSerialPortBackend';
+import { TagStorage, TagStore } from './host/tagStore';
+import { Tag } from './shared/tag';
 import { monitorPageHtml } from './webview/monitorPage';
 
 type WebviewToHost =
   | { type: 'ready' }
   | { type: 'refreshPorts' }
   | { type: 'connect'; port: string; baudRate: number }
-  | { type: 'disconnect' };
+  | { type: 'disconnect' }
+  | { type: 'createTag'; pattern: string }
+  | { type: 'toggleTag'; name: string };
 
 export function activate(context: vscode.ExtensionContext): void {
-  const provider = new MonitorViewProvider();
+  const provider = new MonitorViewProvider(context.extensionUri);
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(MonitorViewProvider.viewId, provider, {
       webviewOptions: { retainContextWhenHidden: true },
@@ -23,7 +28,7 @@ export function activate(context: vscode.ExtensionContext): void {
 }
 
 export function deactivate(): void {
-  // Controllers and their ports are disposed with their views.
+  // Controllers, stores, and their ports are disposed with their views.
 }
 
 /**
@@ -38,10 +43,18 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
   private view: vscode.WebviewView | undefined;
   private controller: MonitorController | undefined;
 
+  constructor(private readonly extensionUri: vscode.Uri) {}
+
   resolveWebviewView(view: vscode.WebviewView): void {
     this.view = view;
-    view.webview.options = { enableScripts: true };
-    view.webview.html = monitorPageHtml();
+    const mediaRoot = vscode.Uri.file(path.join(this.extensionUri.fsPath, 'dist', 'media'));
+    view.webview.options = { enableScripts: true, localResourceRoots: [mediaRoot] };
+    view.webview.html = monitorPageHtml({
+      scriptUri: view.webview
+        .asWebviewUri(vscode.Uri.file(path.join(mediaRoot.fsPath, 'main.js')))
+        .toString(),
+      cspSource: view.webview.cspSource,
+    });
     view.title = 'Serial Monitor';
 
     const controller = new MonitorController(new NodeSerialPortBackend(), (msg: HostToWebview) => {
@@ -52,6 +65,21 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
       void Promise.resolve(view.webview.postMessage(msg)).catch(() => undefined);
     });
     this.controller = controller;
+
+    const tagStore = new TagStore(workspaceTagStorage());
+    const sendTags = () => {
+      // The view may already be disposed when a late change arrives.
+      void Promise.resolve(view.webview.postMessage({ type: 'tags', tags: tagStore.getTags() })).catch(
+        () => undefined,
+      );
+    };
+    const unsubscribeTags = tagStore.onChange(sendTags);
+    const configWatcher = vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('serialMonitor.tags')) {
+        tagStore.reload(); // also fires sendTags via onChange
+      }
+    });
+    sendTags();
 
     view.webview.onDidReceiveMessage((msg: WebviewToHost) => {
       switch (msg.type) {
@@ -65,10 +93,18 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
         case 'disconnect':
           void controller.disconnect();
           break;
+        case 'createTag':
+          void tagStore.add(String(msg.pattern));
+          break;
+        case 'toggleTag':
+          void tagStore.toggle(String(msg.name));
+          break;
       }
     });
 
     view.onDidDispose(() => {
+      unsubscribeTags();
+      configWatcher.dispose();
       void controller.dispose();
       if (this.controller === controller) {
         this.controller = undefined;
@@ -76,4 +112,17 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
       }
     });
   }
+}
+
+function workspaceTagStorage(): TagStorage {
+  const read = (): Tag[] | undefined =>
+    vscode.workspace.getConfiguration('serialMonitor').get<Tag[]>('tags');
+  return {
+    get: read,
+    update: async (tags) => {
+      await vscode.workspace
+        .getConfiguration('serialMonitor')
+        .update('tags', tags, vscode.ConfigurationTarget.Workspace);
+    },
+  };
 }

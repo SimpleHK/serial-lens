@@ -42,6 +42,27 @@
           "name": "Serial Monitor"
         }
       ]
+    },
+    "configuration": {
+      "title": "Serial Monitor",
+      "properties": {
+        "serialMonitor.tags": {
+          "type": "array",
+          "default": [],
+          "markdownDescription": "Tags: named row-matching rules (pattern + color + enabled state) consumed by highlighting and filtering. Usually managed from the monitor UI.",
+          "items": {
+            "type": "object",
+            "required": ["name", "pattern", "isRegex", "color", "enabled"],
+            "properties": {
+              "name": { "type": "string", "description": "Display name; the stable key used by chips." },
+              "pattern": { "type": "string", "description": "Literal substring, or regex source when isRegex is true." },
+              "isRegex": { "type": "boolean", "description": "Whether pattern is a regular expression instead of a substring." },
+              "color": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Hex color used for the full-line highlight and the chip." },
+              "enabled": { "type": "boolean", "description": "Disabled tags drive neither highlighting nor filtering." }
+            }
+          }
+        }
+      }
     }
   },
   "scripts": {
