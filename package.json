@@ -91,6 +91,7 @@
   },
   "scripts": {
     "build": "node esbuild.mjs",
+    "package": "npx --yes @vscode/vsce package",
     "watch": "node esbuild.mjs --watch",
     "typecheck": "tsc --noEmit",
     "check:manifest": "node scripts/check-manifest.mjs",
