@@ -120,9 +120,12 @@ function workspaceTagStorage(): TagStorage {
   return {
     get: read,
     update: async (tags) => {
-      await vscode.workspace
-        .getConfiguration('serialMonitor')
-        .update('tags', tags, vscode.ConfigurationTarget.Workspace);
+      // Without an open folder there is no workspace scope to write to; fall
+      // back to the user-global setting so tags still persist.
+      const target = vscode.workspace.workspaceFolders?.length
+        ? vscode.ConfigurationTarget.Workspace
+        : vscode.ConfigurationTarget.Global;
+      await vscode.workspace.getConfiguration('serialMonitor').update('tags', tags, target);
     },
   };
 }
