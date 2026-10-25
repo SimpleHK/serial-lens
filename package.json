@@ -93,9 +93,12 @@
     "build": "node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
     "typecheck": "tsc --noEmit",
+    "check:manifest": "node scripts/check-manifest.mjs",
+    "stop:feeder": "node scripts/stop-feeder.mjs",
+    "feeder": "node scripts/virtual-device.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:integration": "npm run build && node scripts/build-integration.mjs && node dist/integration/runTest.js",
+    "test:integration": "npm run build && node scripts/build-integration.mjs && node scripts/stop-feeder.mjs && node dist/integration/runTest.js",
     "smoke:check": "node scripts/vserial-check.mjs",
     "smoke:device": "node scripts/virtual-device.mjs"
   },
