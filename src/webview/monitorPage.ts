@@ -42,8 +42,9 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   #tags-row { border-bottom: 1px solid var(--vscode-panel-border); }
   .chip { border: 1px solid; border-radius: 12px; padding: 1px 10px; font-size: 0.9em; }
   .chip-off { opacity: 0.45; text-decoration: line-through; }
-  #log { flex: 1; overflow-y: auto; padding: 4px 10px; background: var(--vscode-editor-background); font-family: var(--vscode-editor-font-family, monospace); font-size: var(--vscode-editor-font-size, 13px); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
-  #log .row-line { min-height: 1.25em; }
+  #log { flex: 1; overflow-y: auto; overflow-x: auto; padding: 4px 10px; background: var(--vscode-editor-background); font-family: var(--vscode-editor-font-family, monospace); font-size: var(--vscode-editor-font-size, 13px); user-select: text; }
+  .log-spacer { width: 1px; }
+  #log .row-line { height: 20px; line-height: 20px; white-space: pre; width: max-content; min-width: 100%; }
 </style>
 </head>
 <body>

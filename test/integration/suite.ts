@@ -152,6 +152,44 @@ suite('Serial Monitor integration', () => {
         }
       });
 
+      test('caps the buffer and reports dropped oldest lines', async function () {
+        if (!hasPair) {
+          this.skip();
+        }
+        this.timeout(20000);
+
+        const messages: HostToWebview[] = [];
+        const controller = new MonitorController(new NodeSerialPortBackend(), (msg) => messages.push(msg), {
+          flushAfterMs: 30,
+          maxBufferLines: 5,
+        });
+
+        try {
+          await controller.connect({ path: COM_A, baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' });
+
+          const feeder = new SerialPort({ path: COM_B, baudRate: 115200 });
+          await opened(feeder, COM_B);
+          const batch = Array.from({ length: 20 }, (_, i) => `line-${i}\n`).join('');
+          feeder.write(Buffer.from(batch));
+
+          await waitFor(() => {
+            const lines = messages
+              .filter((m) => m.type === 'append')
+              .flatMap((m) => (m.type === 'append' ? m.lines : []));
+            return lines.length >= 20 ? lines : undefined;
+          }, 5000, 'all 20 lines');
+          const drops = messages
+            .filter((m) => m.type === 'append')
+            .reduce((sum, m) => sum + (m.type === 'append' ? m.dropCount : 0), 0);
+          assert.strictEqual(drops, 15, 'expected 20 lines with cap 5 to drop 15');
+
+          feeder.close();
+          await controller.disconnect();
+        } finally {
+          await controller.dispose();
+        }
+      });
+
       test('double connect while connected is rejected without touching the port', async function () {
         if (!hasPair) {
           this.skip();

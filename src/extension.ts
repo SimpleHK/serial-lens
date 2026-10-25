@@ -76,13 +76,19 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
     });
     view.title = 'Serial Monitor';
 
-    const controller = new MonitorController(new NodeSerialPortBackend(), (msg: HostToWebview) => {
-      if (msg.type === 'state') {
-        view.title = msg.state === 'connected' && msg.path ? `Serial Monitor: ${msg.path}` : 'Serial Monitor';
-      }
-      // The view may already be disposed when a late batch arrives.
-      void Promise.resolve(view.webview.postMessage(msg)).catch(() => undefined);
-    });
+    const readCap = () =>
+      vscode.workspace.getConfiguration('serialMonitor').get<number>('maxBufferLines', 10000);
+    const controller = new MonitorController(
+      new NodeSerialPortBackend(),
+      (msg: HostToWebview) => {
+        if (msg.type === 'state') {
+          view.title = msg.state === 'connected' && msg.path ? `Serial Monitor: ${msg.path}` : 'Serial Monitor';
+        }
+        // The view may already be disposed when a late batch arrives.
+        void Promise.resolve(view.webview.postMessage(msg)).catch(() => undefined);
+      },
+      { maxBufferLines: readCap() },
+    );
     this.controller = controller;
 
     const tagStore = new TagStore(workspaceTagStorage());
@@ -96,6 +102,9 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
     const configWatcher = vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('serialMonitor.tags')) {
         tagStore.reload(); // also fires sendTags via onChange
+      }
+      if (e.affectsConfiguration('serialMonitor.maxBufferLines')) {
+        controller.setCap(readCap());
       }
     });
     sendTags();

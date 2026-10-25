@@ -113,11 +113,12 @@ describe('MonitorController', () => {
     vi.useRealTimers();
   });
 
-  function setup(paths?: string[]) {
+  function setup(paths?: string[], opts: { maxBufferLines?: number } = {}) {
     const backend = new FakeBackend(paths);
     const messages: HostToWebview[] = [];
     const controller = new MonitorController(backend, (msg) => messages.push(msg), {
       flushAfterMs: 10,
+      ...opts,
     });
     return { backend, messages, controller };
   }
@@ -194,7 +195,7 @@ describe('MonitorController', () => {
 
     vi.advanceTimersByTime(10);
     const appends = messages.filter((m) => m.type === 'append');
-    expect(appends).toEqual([{ type: 'append', lines: ['hello', 'world'] }]);
+    expect(appends).toEqual([{ type: 'append', lines: ['hello', 'world'], dropCount: 0 }]);
   });
 
   it('rejects a second connect while connected without touching the port', async () => {
@@ -233,7 +234,7 @@ describe('MonitorController', () => {
     expect(port.closeCount).toBe(1);
     expect(port.opened).toBe(false);
     expect(messages).toEqual([
-      { type: 'append', lines: ['partial line'] },
+      { type: 'append', lines: ['partial line'], dropCount: 0 },
       { type: 'state', state: 'idle', message: 'Disconnected.' },
     ]);
   });
@@ -270,7 +271,7 @@ describe('MonitorController', () => {
     expect(controller.state).toBe('idle');
     expect(port.closeCount).toBe(1);
     expect(messages).toEqual([
-      { type: 'append', lines: ['half a line'] },
+      { type: 'append', lines: ['half a line'], dropCount: 0 },
       { type: 'state', state: 'idle', message: 'Serial port closed unexpectedly.' },
     ]);
   });
@@ -285,7 +286,7 @@ describe('MonitorController', () => {
     await controller.dispose();
 
     expect(port.opened).toBe(false);
-    expect(messages).toEqual([{ type: 'append', lines: ['tail', 'more coming'] }]);
+    expect(messages).toEqual([{ type: 'append', lines: ['tail', 'more coming'], dropCount: 0 }]);
   });
 
   it('send while idle reports Not connected without crashing', async () => {
@@ -322,5 +323,32 @@ describe('MonitorController', () => {
     expect(messages).toEqual([
       { type: 'state', state: 'connected', message: 'Send failed: driver exploded' },
     ]);
+  });
+
+  it('reports drops when the buffer cap is exceeded', async () => {
+    const { backend, messages, controller } = setup(['COM3'], { maxBufferLines: 3 });
+    await controller.connect(S('COM3'));
+    const port = backend.created[0].port;
+    messages.length = 0;
+
+    port.emitData(Buffer.from('a\nb\nc\nd\ne\n')); // 5 lines, cap 3 → oldest 2 drop
+    vi.advanceTimersByTime(10);
+
+    expect(messages).toEqual([
+      { type: 'append', lines: ['a', 'b', 'c', 'd', 'e'], dropCount: 2 },
+    ]);
+  });
+
+  it('setCap shrink drops the difference immediately', async () => {
+    const { backend, messages, controller } = setup(['COM3'], { maxBufferLines: 10 });
+    await controller.connect(S('COM3'));
+    const port = backend.created[0].port;
+    port.emitData(Buffer.from('a\nb\nc\n'));
+    vi.advanceTimersByTime(10);
+    messages.length = 0;
+
+    controller.setCap(1);
+
+    expect(messages).toEqual([{ type: 'append', lines: [], dropCount: 2 }]);
   });
 });

@@ -1,6 +1,6 @@
 declare function acquireVsCodeApi(): { postMessage(msg: unknown): void };
 
-import { matchLine } from '../shared/tagMatching';
+import { LineDecision, matchLine } from '../shared/tagMatching';
 import { FilterMode, Tag } from '../shared/tag';
 import { scrollReducer, ScrollState } from '../shared/scrollState';
 
@@ -29,9 +29,92 @@ let state: 'idle' | 'connecting' | 'connected' = 'idle';
 let filterMode: FilterMode = 'off';
 let scroll: ScrollState = 'follow';
 let tags: Tag[] = [];
-// Index-aligned with log's child rows; kept so a tag change can restyle
-// every line (filtering never discards data — ADR-0004).
+
+// Buffered content: one entry per received line, capped by the host which
+// reports drops via dropCount. decisions[i] is the cached matching decision
+// for lineStore[i]; visibleIndexes lists which lines the filter lets through.
 const lineStore: string[] = [];
+const decisions: LineDecision[] = [];
+let visibleIndexes: number[] = [];
+
+// Virtualized rendering: fixed-height rows, spacer divs hold the scrolled
+// distance so only the visible window (plus overscan) exists in the DOM.
+const OVERSCAN_ROWS = 20;
+let rowHeightPx = 20;
+let renderScheduled = false;
+
+const spacerTop = document.createElement('div');
+const spacerBottom = document.createElement('div');
+spacerTop.className = 'log-spacer';
+spacerBottom.className = 'log-spacer';
+
+function measureRowHeight(): void {
+  const probe = document.createElement('div');
+  probe.className = 'row-line';
+  probe.style.visibility = 'hidden';
+  probe.textContent = 'X';
+  log.appendChild(probe);
+  rowHeightPx = probe.offsetHeight || 20;
+  probe.remove();
+}
+
+function renderText(line: string): string {
+  return line;
+}
+
+function renderWindow(): void {
+  renderScheduled = false;
+  const total = visibleIndexes.length;
+  const first = Math.max(0, Math.floor(log.scrollTop / rowHeightPx) - OVERSCAN_ROWS);
+  const last = Math.min(total, Math.ceil((log.scrollTop + log.clientHeight) / rowHeightPx) + OVERSCAN_ROWS);
+
+  const frag = document.createDocumentFragment();
+  for (let p = first; p < last; p++) {
+    const lineIndex = visibleIndexes[p];
+    const row = document.createElement('div');
+    row.className = 'row-line';
+    row.textContent = renderText(lineStore[lineIndex]);
+    const color = decisions[lineIndex].highlightColor;
+    row.style.background = color ? `${color}45` : '';
+    frag.appendChild(row);
+  }
+  spacerTop.style.height = `${first * rowHeightPx}px`;
+  spacerBottom.style.height = `${(total - last) * rowHeightPx}px`;
+  log.replaceChildren(spacerTop, frag, spacerBottom);
+}
+
+function scheduleRender(): void {
+  if (renderScheduled) {
+    return;
+  }
+  renderScheduled = true;
+  requestAnimationFrame(renderWindow);
+}
+
+function rebuildVisibleIndexes(): void {
+  visibleIndexes = [];
+  for (let i = 0; i < decisions.length; i++) {
+    if (decisions[i].visible) {
+      visibleIndexes.push(i);
+    }
+  }
+}
+
+function dropOldest(count: number): void {
+  if (count <= 0) {
+    return;
+  }
+  lineStore.splice(0, count);
+  decisions.splice(0, count);
+  rebuildVisibleIndexes();
+}
+
+function clearBuffer(): void {
+  lineStore.length = 0;
+  decisions.length = 0;
+  visibleIndexes = [];
+  scheduleRender();
+}
 
 function fillPorts(ports: { path: string; description?: string }[]): void {
   portSelect.textContent = '';
@@ -59,7 +142,7 @@ function updateButtons(): void {
   connectBtn.disabled = isConnecting || (!isConnected && portSelect.value === '');
   portSelect.disabled = isConnected;
   refreshBtn.disabled = isConnected;
-  clearBtn.disabled = !isConnected && log.childElementCount === 0;
+  clearBtn.disabled = !isConnected && lineStore.length === 0;
   sendBtn.disabled = !isConnected;
   updateTagButton();
 }
@@ -74,34 +157,31 @@ function setStatus(message?: string): void {
     message || (state === 'connected' ? 'Connected' : state === 'connecting' ? 'Connecting...' : 'Idle');
 }
 
-function styleRow(row: HTMLElement, line: string): void {
-  const decision = matchLine(line, tags, filterMode);
-  row.style.background = decision.highlightColor ? `${decision.highlightColor}45` : '';
-  row.style.display = decision.visible ? '' : 'none';
-}
-
-function appendLines(lines: string[]): void {
-  const frag = document.createDocumentFragment();
+function appendLines(lines: string[], dropCount: number): void {
+  dropOldest(dropCount);
   for (const line of lines) {
-    const row = document.createElement('div');
-    row.className = 'row-line';
-    row.textContent = line;
+    decisions.push(matchLine(line, tags, filterMode));
+    if (decisions[decisions.length - 1].visible) {
+      visibleIndexes.push(lineStore.length);
+    }
     lineStore.push(line);
-    styleRow(row, line);
-    frag.appendChild(row);
   }
-  log.appendChild(frag);
+  scheduleRender();
   if (scroll === 'follow') {
-    log.scrollTop = log.scrollHeight;
+    // Pin to the bottom after the window re-renders with the new content.
+    requestAnimationFrame(() => {
+      log.scrollTop = log.scrollHeight;
+    });
   }
   updateButtons();
 }
 
-/** Re-applies the current tag decisions to every buffered line. */
 function restyleAllRows(): void {
-  for (let i = 0; i < log.childElementCount; i++) {
-    styleRow(log.children[i] as HTMLElement, lineStore[i]);
+  for (let i = 0; i < lineStore.length; i++) {
+    decisions[i] = matchLine(lineStore[i], tags, filterMode);
   }
+  rebuildVisibleIndexes();
+  scheduleRender();
 }
 
 function renderChips(): void {
@@ -129,7 +209,7 @@ window.addEventListener('message', (e) => {
     updateButtons();
     setStatus(m.message);
   } else if (m.type === 'append') {
-    appendLines(m.lines);
+    appendLines(m.lines, m.dropCount);
   } else if (m.type === 'tags') {
     tags = m.tags;
     renderChips();
@@ -176,8 +256,7 @@ sendInput.addEventListener('keydown', (e) => {
 });
 
 clearBtn.addEventListener('click', () => {
-  log.textContent = '';
-  lineStore.length = 0;
+  clearBuffer();
   scroll = scrollReducer(scroll, { type: 'reset' });
   renderScrollIndicator();
   updateButtons();
@@ -192,6 +271,7 @@ log.addEventListener('scroll', () => {
     scroll = next;
     renderScrollIndicator();
   }
+  scheduleRender();
 });
 
 scrollStateBtn.addEventListener('click', () => {
@@ -205,7 +285,9 @@ scrollStateBtn.addEventListener('click', () => {
 function renderScrollIndicator(): void {
   scrollStateBtn.innerHTML = scroll === 'follow' ? '&#8681; Following' : '&#128274; Locked';
   scrollStateBtn.title =
-    scroll === 'follow' ? 'Viewport follows new lines — click to lock' : 'Scroll locked, data keeps arriving — click to rejoin';
+    scroll === 'follow'
+      ? 'Viewport follows new lines — click to lock'
+      : 'Scroll locked, data keeps arriving — click to rejoin';
   scrollStateBtn.classList.toggle('locked', scroll === 'locked');
 }
 
@@ -222,6 +304,9 @@ refreshBtn.addEventListener('click', () => {
 });
 
 document.addEventListener('selectionchange', updateTagButton);
+window.addEventListener('resize', scheduleRender);
 
+measureRowHeight();
 renderScrollIndicator();
+scheduleRender();
 vscode.postMessage({ type: 'ready' });

@@ -1,5 +1,6 @@
 import { LineAssembler } from './lineAssembler';
 import { LineBatcher } from './lineBatcher';
+import { RingCounter } from './ringCounter';
 import {
   LINE_ENDING_BYTES,
   LineEnding,
@@ -15,11 +16,13 @@ export type ControllerState = 'idle' | 'connecting' | 'connected';
 export type HostToWebview =
   | { type: 'ports'; ports: PortInfo[] }
   | { type: 'state'; state: ControllerState; path?: string; message?: string }
-  | { type: 'append'; lines: string[] };
+  | { type: 'append'; lines: string[]; dropCount: number };
 
 export interface MonitorControllerOptions {
   /** Batching window for appends to the webview, in milliseconds. */
   flushAfterMs?: number;
+  /** Receive buffer cap in lines; oldest lines drop out beyond it (story 26). */
+  maxBufferLines?: number;
 }
 
 /**
@@ -32,13 +35,16 @@ export class MonitorController {
   private stateValue: ControllerState = 'idle';
   private assembler: LineAssembler | undefined;
   private batcher: LineBatcher | undefined;
+  private ring: RingCounter;
   private readonly unsubs: Unsubscribe[] = [];
 
   constructor(
     private readonly backend: SerialPortBackend,
     private readonly send: (msg: HostToWebview) => void,
     private readonly options: MonitorControllerOptions = {},
-  ) {}
+  ) {
+    this.ring = new RingCounter(options.maxBufferLines ?? DEFAULT_MAX_BUFFER_LINES);
+  }
 
   get state(): ControllerState {
     return this.stateValue;
@@ -78,7 +84,10 @@ export class MonitorController {
       this.port = port;
       this.assembler = new LineAssembler();
       this.batcher = new LineBatcher(
-        (lines) => this.send({ type: 'append', lines }),
+        (lines) => {
+          const dropCount = this.ring.push(lines.length);
+          this.send({ type: 'append', lines, dropCount });
+        },
         { flushAfterMs: this.options.flushAfterMs },
       );
       this.unsubs.push(
@@ -98,6 +107,14 @@ export class MonitorController {
         return; // a port error or unexpected close during open already handled the failure
       }
       await this.teardown(`Failed to open ${settings.path}: ${describe(err)}`);
+    }
+  }
+
+  /** Applies a new buffer cap live; drops oldest lines beyond it. */
+  setCap(maxBufferLines: number): void {
+    const dropCount = this.ring.setCap(maxBufferLines);
+    if (dropCount > 0) {
+      this.send({ type: 'append', lines: [], dropCount });
     }
   }
 
@@ -191,3 +208,5 @@ export class MonitorController {
 function describe(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
+
+const DEFAULT_MAX_BUFFER_LINES = 10000;
