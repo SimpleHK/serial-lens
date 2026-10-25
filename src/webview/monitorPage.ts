@@ -86,6 +86,7 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
     <button id="log-dir" class="secondary icon-btn" title="Choose a log directory: every logged session writes a new .log file (right-click to clear)">&#128193;</button>
     <button id="export-log" class="secondary icon-btn" disabled title="Export the buffered log to a file">&#128228;</button>
     <button id="scroll-state" class="secondary">&#8681; Following</button>
+    <button id="collapse-params" class="secondary icon-btn" title="Hide the parameters row">&#9652;</button>
     <span id="status">Idle</span>
   </div>
   <div id="params-row" class="row">

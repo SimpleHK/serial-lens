@@ -30,6 +30,8 @@ const logDirBtn = document.getElementById('log-dir') as HTMLButtonElement;
 const baudToggleBtn = document.getElementById('baud-toggle') as HTMLButtonElement;
 const baudMenu = document.getElementById('baud-menu') as HTMLDivElement;
 const logSessionCheckbox = document.getElementById('log-session') as HTMLInputElement;
+const collapseParamsBtn = document.getElementById('collapse-params') as HTMLButtonElement;
+const paramsRow = document.getElementById('params-row') as HTMLDivElement;
 const manageToggleBtn = document.getElementById('manage-toggle') as HTMLButtonElement;
 const managePanel = document.getElementById('manage-panel') as HTMLDivElement;
 
@@ -614,6 +616,15 @@ document.addEventListener('click', (e) => {
 
 logSessionCheckbox.addEventListener('change', () => {
   vscode.postMessage({ type: 'setLogSession', enabled: logSessionCheckbox.checked });
+});
+
+// Quick collapse: hide the parameters row to give the console the full panel.
+let paramsVisible = true;
+collapseParamsBtn.addEventListener('click', () => {
+  paramsVisible = !paramsVisible;
+  paramsRow.style.display = paramsVisible ? 'flex' : 'none';
+  collapseParamsBtn.innerHTML = paramsVisible ? '&#9652;' : '&#9662;';
+  collapseParamsBtn.title = paramsVisible ? 'Hide the parameters row' : 'Show the parameters row';
 });
 
 vscode.postMessage({ type: 'ready' });
