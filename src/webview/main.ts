@@ -83,19 +83,104 @@ function renderWindow(): void {
   const first = Math.max(0, Math.floor(log.scrollTop / rowHeightPx) - OVERSCAN_ROWS);
   const last = Math.min(total, Math.ceil((log.scrollTop + log.clientHeight) / rowHeightPx) + OVERSCAN_ROWS);
 
-  const frag = document.createDocumentFragment();
+  interface RowSpec {
+    lineIndex: number;
+    text: string;
+    bg: string;
+  }
+  const rows: RowSpec[] = [];
   for (let p = first; p < last; p++) {
     const lineIndex = visibleIndexes[p];
+    const color = decisions[lineIndex].highlightColor;
+    rows.push({
+      lineIndex,
+      text: renderText(lineStore[lineIndex]),
+      bg: color ? `${color}45` : '',
+    });
+  }
+  const topPx = first * rowHeightPx;
+  const bottomPx = (total - last) * rowHeightPx;
+
+  // Skip the DOM swap entirely when the rendered window is unchanged — a
+  // streaming append below the viewport must not destroy a text selection.
+  const prev = lastRender;
+  if (
+    prev &&
+    prev.topPx === topPx &&
+    prev.bottomPx === bottomPx &&
+    prev.rows.length === rows.length &&
+    prev.rows.every((r, i) => r.lineIndex === rows[i].lineIndex && r.text === rows[i].text && r.bg === rows[i].bg)
+  ) {
+    return;
+  }
+
+  const savedSelection = captureSelection();
+  const frag = document.createDocumentFragment();
+  for (const r of rows) {
     const row = document.createElement('div');
     row.className = 'row-line';
-    row.textContent = renderText(lineStore[lineIndex]);
-    const color = decisions[lineIndex].highlightColor;
-    row.style.background = color ? `${color}45` : '';
+    row.dataset.lineIndex = String(r.lineIndex);
+    row.textContent = r.text;
+    row.style.background = r.bg;
     frag.appendChild(row);
   }
-  spacerTop.style.height = `${first * rowHeightPx}px`;
-  spacerBottom.style.height = `${(total - last) * rowHeightPx}px`;
+  spacerTop.style.height = `${topPx}px`;
+  spacerBottom.style.height = `${bottomPx}px`;
   log.replaceChildren(spacerTop, frag, spacerBottom);
+  restoreSelection(savedSelection);
+  lastRender = { topPx, bottomPx, rows };
+}
+
+interface RenderedRow {
+  lineIndex: number;
+  text: string;
+  bg: string;
+}
+let lastRender: { topPx: number; bottomPx: number; rows: RenderedRow[] } | undefined;
+
+interface SelectionPoint {
+  line: number;
+  off: number;
+}
+
+function captureSelection(): { start: SelectionPoint; end: SelectionPoint } | undefined {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
+    return undefined;
+  }
+  const range = sel.getRangeAt(0);
+  const start = locateSelectionBoundary(range.startContainer, range.startOffset);
+  const end = locateSelectionBoundary(range.endContainer, range.endOffset);
+  return start && end ? { start, end } : undefined;
+}
+
+function locateSelectionBoundary(node: Node | null, offset: number): SelectionPoint | undefined {
+  const row = (node instanceof Element ? node : node?.parentElement)?.closest('.row-line') as HTMLElement | null;
+  if (!row || row.dataset.lineIndex === undefined) {
+    return undefined;
+  }
+  const off = node && node.nodeType === Node.TEXT_NODE ? offset : offset === 0 ? 0 : (row.textContent?.length ?? 0);
+  return { line: Number(row.dataset.lineIndex), off };
+}
+
+function restoreSelection(saved?: { start: SelectionPoint; end: SelectionPoint }): void {
+  if (!saved) {
+    return;
+  }
+  const findRow = (line: number) => log.querySelector(`.row-line[data-line-index="${line}"]`);
+  const startRow = findRow(saved.start.line);
+  const endRow = findRow(saved.end.line);
+  if (!startRow || !endRow) {
+    return; // the selection scrolled out of the rendered window
+  }
+  const range = new Range();
+  const startText = startRow.childNodes[0] ?? startRow;
+  const endText = endRow.childNodes[0] ?? endRow;
+  range.setStart(startText, Math.min(saved.start.off, startRow.textContent?.length ?? 0));
+  range.setEnd(endText, Math.min(saved.end.off, endRow.textContent?.length ?? 0));
+  const selection = window.getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(range);
 }
 
 function scheduleRender(): void {
@@ -397,6 +482,8 @@ tagBtn.addEventListener('click', () => {
   }
   vscode.postMessage({ type: 'createTag', pattern: selected });
 });
+// Keep the selection alive: clicking the button must not collapse it.
+tagBtn.addEventListener('mousedown', (e) => e.preventDefault());
 
 // Filtering is display-layer only (ADR-0004): switching modes recomputes
 // visibility and never changes the Follow/locked state.
