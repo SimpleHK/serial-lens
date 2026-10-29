@@ -2,20 +2,27 @@
 
 Serial-port monitoring inside VS Code, rebuilt from scratch under MIT — an
 open alternative to Microsoft's archived (closed-source) Serial Monitor, with
-three features no surveyed serial monitor offers:
+features no surveyed serial monitor offers:
 
+- **Monitor tabs** — monitor several ports side by side: each tab is its own
+  session with an independent buffer, scroll position, and log-to-file state.
+  The **+** tab opens another monitor while the rest keep streaming.
+- **Open log files** — open a saved `.log`/`.txt` file as a read-only tab and
+  use the same tags, filtering, and export on recorded data.
 - **Tags** — select text, press **+ Tag**, and every matching line is
   Highlighted across the full line. Each tag is a colored chip in the toolbar;
   one click silences it everywhere (highlight *and* filter).
 - **Filter** — a global three-state control (off / include / exclude) over tag
   matches. Purely display-layer: nothing is discarded, so switching filters
   back recovers every line still in the buffer.
+- **Overview marks** — highlighted lines leave colored blocks along the
+  scrollbar (like the editor's overview ruler); click a block to jump there.
 - **Scroll Lock** — scroll up and the viewport stops while data keeps
   streaming; scroll back to the bottom (or click the indicator) to rejoin.
 
 Plus the complete base monitor: a port picker with friendly names, custom baud
 rates, data bits / stop bits / parity, a send input with line-ending choice,
-optional per-line receive timestamps, and a capped receive buffer
+per-line receive timestamps (on by default), and a capped receive buffer
 (10,000 lines by default) behind a virtualized console that stays smooth at
 high line rates.
 
@@ -56,10 +63,10 @@ resolves this extension after the original one.
 
 ## Architecture
 
-- [GLOSSARY.md](GLOSSARY.md) — the domain vocabulary (Tag, Highlight, Filter,
-  Scroll Lock, Follow); use these terms in issues and code
+- [GLOSSARY.md](GLOSSARY.md) — the domain vocabulary (Session/Tab, Tag,
+  Highlight, Filter, Scroll Lock, Follow); use these terms in issues and code
 - [docs/adr/](docs/adr/) — build-from-scratch, API alignment, unified Tag
-  model, display-layer filter + ring buffer
+  model, display-layer filter + ring buffer, one session per tab
 - Spec and tickets live in the GitHub issue tracker (spec: issue #1)
 - Test seams: data (chunks → lines → buffer), matching (lines + tags + filter
   mode → visibility/highlight), UI state (scroll events → Follow/locked)

@@ -23,6 +23,11 @@
         "command": "serialMonitor.open",
         "title": "Open Monitor",
         "category": "Serial Monitor"
+      },
+      {
+        "command": "serialMonitor.openLogFile",
+        "title": "Open Log File...",
+        "category": "Serial Monitor"
       }
     ],
     "viewsContainers": {
@@ -64,7 +69,7 @@
         },
         "serialMonitor.timestamps": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Show a receive timestamp at the start of each line (display decoration only; tag matching always uses raw line content)."
         },
         "serialMonitor.tags": {

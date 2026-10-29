@@ -23,15 +23,17 @@ type WebviewToHost =
   | { type: 'ready' }
   | { type: 'refreshPorts' }
   | { type: 'connect'; port: string; baudRate: number; dataBits: number; stopBits: number; parity: string }
-  | { type: 'disconnect' }
-  | { type: 'clear' }
-  | { type: 'send'; text: string; lineEnding: string }
+  | { type: 'disconnect'; sessionId: number }
+  | { type: 'closeSession'; sessionId: number }
+  | { type: 'openLogFile' }
+  | { type: 'clear'; sessionId?: number }
+  | { type: 'send'; sessionId: number; text: string; lineEnding: string }
   | { type: 'setTimestamps'; enabled: boolean }
-  | { type: 'setLogSession'; enabled: boolean }
+  | { type: 'setLogSession'; sessionId: number; enabled: boolean }
   | { type: 'chooseLogDirectory' }
   | { type: 'clearLogDirectory' }
-  | { type: 'export' }
-  | { type: 'exportData'; entries: { text: string; ts?: number }[] }
+  | { type: 'export'; sessionId: number }
+  | { type: 'exportData'; sessionId: number; entries: { text: string; ts?: number }[] }
   | { type: 'createTag'; pattern: string }
   | { type: 'updateTag'; id: string; patch: { name?: string; pattern?: string; isRegex?: boolean; color?: string; highlight?: boolean; filter?: boolean } }
   | { type: 'removeTag'; id: string }
@@ -65,6 +67,22 @@ function toLineEnding(value: string): LineEnding {
   return (LINE_ENDINGS as readonly string[]).includes(value) ? (value as LineEnding) : 'LF';
 }
 
+function readCap(): number {
+  return vscode.workspace.getConfiguration('serialMonitor').get<number>('maxBufferLines', 10000) ?? 10000;
+}
+
+function readTimestamps(): boolean {
+  return vscode.workspace.getConfiguration('serialMonitor').get<boolean>('timestamps', true) ?? true;
+}
+
+function readLogDirectory(): string {
+  return vscode.workspace.getConfiguration('serialMonitor').get<string>('logDirectory', '') ?? '';
+}
+
+function readRecentBauds(): number[] {
+  return vscode.workspace.getConfiguration('serialMonitor').get<number[]>('recentBaudRates', []) ?? [];
+}
+
 export function activate(
   context: vscode.ExtensionContext,
 ): { getApi(version: Version, extensionContext: vscode.ExtensionContext): Promise<SerialMonitorApi | undefined> } {
@@ -75,6 +93,9 @@ export function activate(
     }),
     vscode.commands.registerCommand('serialMonitor.open', () => {
       void vscode.commands.executeCommand(`${MonitorViewProvider.viewId}.focus`);
+    }),
+    vscode.commands.registerCommand('serialMonitor.openLogFile', () => {
+      void provider.openLogFileViaDialog();
     }),
   );
 
@@ -91,24 +112,40 @@ export function activate(
 }
 
 export function deactivate(): void {
-  // Controllers, stores, and their ports are disposed with their views.
+  // Sessions (and their ports) are disposed with their view.
 }
+
+/** A live tab in the monitor: one monitored port, or one opened log file
+ * shown read-only. Port sessions own their controller and log file. */
+interface PortSession {
+  kind: 'port';
+  id: number;
+  controller: MonitorController;
+  logDesired: boolean;
+  sessionLogFile?: string;
+}
+
+interface FileSession {
+  kind: 'file';
+  id: number;
+}
+
+type ProviderSession = PortSession | FileSession;
 
 /**
  * The monitor docks in the bottom panel as a "SERIAL MONITOR" tab, matching
- * the Microsoft Serial Monitor layout. One shared controller per view; the
- * view keeps its state while hidden (retainContextWhenHidden) so streaming
- * output survives tab switches.
+ * the Microsoft Serial Monitor layout. Sessions (monitored ports and opened
+ * log files) appear as tabs in the webview; the view keeps its state while
+ * hidden (retainContextWhenHidden) so streaming output survives switches.
  */
 class MonitorViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewId = 'serialMonitor.view';
 
   private view: vscode.WebviewView | undefined;
-  private controller: MonitorController | undefined;
-  private postMessage: (msg: unknown) => void = () => undefined;
-  /** Active per-session log file; created on connect when a log directory is
-   * configured, closed on disconnect. */
-  private sessionLogFile: string | undefined;
+  private readonly sessions = new Map<number, ProviderSession>();
+  private nextId = 1;
+  private post: (msg: unknown) => void = () => undefined;
+  private pendingExportId: number | undefined;
 
   constructor(private readonly extensionUri: vscode.Uri) {}
 
@@ -124,52 +161,15 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
     });
     view.title = 'Serial Monitor';
 
-    const readCap = () =>
-      vscode.workspace.getConfiguration('serialMonitor').get<number>('maxBufferLines', 10000);
-    const readTimestamps = () =>
-      vscode.workspace.getConfiguration('serialMonitor').get<boolean>('timestamps', false);
-    const readLogDirectory = () =>
-      vscode.workspace.getConfiguration('serialMonitor').get<string>('logDirectory', '');
-    const readRecentBauds = () =>
-      vscode.workspace.getConfiguration('serialMonitor').get<number[]>('recentBaudRates', []);
     const post = (msg: unknown) => {
       // The view may already be disposed when a late message arrives.
       void Promise.resolve(view.webview.postMessage(msg)).catch(() => undefined);
     };
-    const controller = new MonitorController(
-      new NodeSerialPortBackend(),
-      (msg: HostToWebview) => {
-        if (msg.type === 'state') {
-          view.title = msg.state === 'connected' && msg.path ? `Serial Monitor: ${msg.path}` : 'Serial Monitor';
-        }
-        post(msg);
-      },
-      {
-        maxBufferLines: readCap(),
-        timestamps: readTimestamps(),
-        onBatch: (entries) => this.logEntries(entries, readTimestamps()),
-      },
-    );
-    this.controller = controller;
-    this.postMessage = post;
-    this.logSessionDesired = Boolean(readLogDirectory());
-    // Per-session log file lifecycle: when the user wants this session
-    // logged, a fresh file is created per connection (in the configured
-    // directory, or picked via save dialog); nothing written while idle.
-    const stateSubscription = controller.onStateChange((s) => {
-      if (s === 'connected' && this.logSessionDesired) {
-        void this.armSessionLog(controller.activePath ?? 'port', readLogDirectory);
-      } else if (s === 'idle') {
-        this.sessionLogFile = undefined;
-        this.sendLoggingState(readLogDirectory);
-      }
-    });
+    this.post = post;
 
     const tagStore = new TagStore(workspaceTagStorage());
     const sendDisplayState = () => {
-      void Promise.resolve(
-        view.webview.postMessage({ type: 'timestamps', enabled: readTimestamps() }),
-      ).catch(() => undefined);
+      post({ type: 'timestamps', enabled: readTimestamps() });
     };
     const sendTags = () => {
       // The view may already be disposed when a late change arrives.
@@ -183,14 +183,26 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
         tagStore.reload(); // also fires sendTags via onChange
       }
       if (e.affectsConfiguration('serialMonitor.maxBufferLines')) {
-        controller.setCap(readCap());
+        for (const s of this.sessions.values()) {
+          if (s.kind === 'port') {
+            s.controller.setCap(readCap());
+          }
+        }
       }
       if (e.affectsConfiguration('serialMonitor.timestamps')) {
-        controller.setTimestamps(readTimestamps());
+        for (const s of this.sessions.values()) {
+          if (s.kind === 'port') {
+            s.controller.setTimestamps(readTimestamps());
+          }
+        }
         sendDisplayState();
       }
       if (e.affectsConfiguration('serialMonitor.logDirectory')) {
-        this.sendLoggingState(readLogDirectory);
+        for (const s of this.sessions.values()) {
+          if (s.kind === 'port') {
+            this.sendLoggingState(s);
+          }
+        }
       }
     });
     sendTags();
@@ -199,20 +211,71 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
       switch (msg.type) {
         case 'ready':
         case 'refreshPorts':
-          void controller.refreshPorts();
+          void this.refreshPorts();
           if (msg.type === 'ready') {
             sendDisplayState();
-            this.sendLoggingState(readLogDirectory);
             post({ type: 'recentBauds', values: readRecentBauds() });
           }
           break;
-        case 'connect': {
-          const settings = toSettings(msg);
-          void controller.connect(settings).then(() => {
-            if (controller.state === 'connected') {
-              void this.pushRecentBaud(settings.baudRate, readRecentBauds);
+        case 'connect':
+          void this.handleConnect(toSettings(msg));
+          break;
+        case 'disconnect': {
+          const s = this.sessions.get(msg.sessionId);
+          if (s?.kind === 'port') {
+            void s.controller.disconnect();
+          }
+          break;
+        }
+        case 'closeSession':
+          void this.destroySession(msg.sessionId);
+          break;
+        case 'openLogFile':
+          void this.openLogFileViaDialog();
+          break;
+        case 'clear': {
+          if (msg.sessionId === undefined) {
+            break; // the webview clears its own buffer; nothing to reset
+          }
+          const s = this.sessions.get(msg.sessionId);
+          if (s?.kind === 'port') {
+            s.controller.resetBuffer();
+          }
+          break;
+        }
+        case 'send': {
+          const s = this.sessions.get(msg.sessionId);
+          if (s?.kind === 'port') {
+            void s.controller.sendText(String(msg.text), toLineEnding(msg.lineEnding));
+          }
+          break;
+        }
+        case 'setLogSession': {
+          const s = this.sessions.get(msg.sessionId);
+          if (s?.kind !== 'port') {
+            break;
+          }
+          s.logDesired = Boolean(msg.enabled);
+          if (s.controller.state === 'connected') {
+            if (s.logDesired) {
+              void this.armSessionLog(s, s.controller.activePath ?? 'port');
+            } else {
+              s.sessionLogFile = undefined;
             }
-          });
+            this.sendLoggingState(s);
+          }
+          break;
+        }
+        case 'setTimestamps': {
+          const enabled = Boolean(msg.enabled);
+          for (const s of this.sessions.values()) {
+            if (s.kind === 'port') {
+              s.controller.setTimestamps(enabled);
+            }
+          }
+          // Persist through the setting so the config watcher syncs the
+          // webview's display flag and the choice survives reloads.
+          void updateSerialMonitorSetting('timestamps', enabled);
           break;
         }
         case 'chooseLogDirectory':
@@ -220,50 +283,25 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
           break;
         case 'clearLogDirectory':
           void updateSerialMonitorSetting('logDirectory', '');
-          this.sessionLogFile = undefined;
-          this.sendLoggingState(readLogDirectory);
+          for (const s of this.sessions.values()) {
+            if (s.kind === 'port') {
+              s.sessionLogFile = undefined;
+              this.sendLoggingState(s);
+            }
+          }
           break;
         case 'export':
           // Pull the buffered lines from the webview; completeExport opens
           // the save dialog once they arrive.
-          this.pendingExport = true;
-          post({ type: 'exportRequest' });
+          this.pendingExportId = msg.sessionId;
+          post({ type: 'exportRequest', sessionId: msg.sessionId });
           break;
         case 'exportData':
-          if (this.pendingExport) {
-            this.pendingExport = false;
-            void this.completeExport(msg.entries);
+          if (this.pendingExportId === msg.sessionId) {
+            this.pendingExportId = undefined;
+            void this.completeExport(msg.sessionId, msg.entries);
           }
           break;
-        case 'disconnect':
-          void controller.disconnect();
-          break;
-        case 'clear':
-          controller.resetBuffer(); // the webview already emptied its own buffer
-          break;
-        case 'send':
-          void controller.sendText(String(msg.text), toLineEnding(msg.lineEnding));
-          break;
-        case 'setLogSession': {
-          this.logSessionDesired = Boolean(msg.enabled);
-          if (controller.state === 'connected') {
-            if (this.logSessionDesired) {
-              void this.armSessionLog(controller.activePath ?? 'port', readLogDirectory);
-            } else {
-              this.sessionLogFile = undefined;
-            }
-            this.sendLoggingState(readLogDirectory);
-          }
-          break;
-        }
-        case 'setTimestamps': {
-          const enabled = Boolean(msg.enabled);
-          controller.setTimestamps(enabled);
-          // Persist through the setting so the config watcher syncs the
-          // webview's display flag and the choice survives reloads.
-          void updateSerialMonitorSetting('timestamps', enabled);
-          break;
-        }
         case 'createTag':
           void tagStore.add(String(msg.pattern));
           break;
@@ -281,40 +319,193 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
 
     view.onDidDispose(() => {
       unsubscribeTags();
-      stateSubscription();
       configWatcher.dispose();
-      void controller.dispose();
-      this.sessionLogFile = undefined;
-      if (this.controller === controller) {
-        this.controller = undefined;
-        this.view = undefined;
+      for (const id of [...this.sessions.keys()]) {
+        void this.destroySession(id);
       }
+      this.view = undefined;
     });
   }
 
-  /** Starts monitoring through the view's controller; resolves to a Port
-   * whose onClosed fires when the connection drops for any reason. */
-  async startMonitoringPort(settings: MonitorPortSettings): Promise<Port> {
-    const controller = await this.ensureController();
-    if (controller.state !== 'idle') {
-      throw new Error(
-        'A monitor is already active; multiple simultaneous monitors are not supported in this version.',
-      );
+  // --- Session lifecycle -----------------------------------------------------
+
+  private async refreshPorts(): Promise<void> {
+    try {
+      const ports = await new NodeSerialPortBackend().listPorts();
+      this.post({ type: 'ports', ports });
+    } catch (err) {
+      this.postMessageStatus(`Failed to list serial ports: ${describe(err)}`);
     }
+  }
+
+  private createPortSession(portPath: string): PortSession {
+    const id = this.nextId++;
+    const controller = new MonitorController(
+      new NodeSerialPortBackend(),
+      (msg: HostToWebview) => this.post({ ...msg, sessionId: id }),
+      {
+        maxBufferLines: readCap(),
+        timestamps: readTimestamps(),
+        onBatch: (entries) => {
+          const s = this.sessions.get(id);
+          if (s?.kind === 'port') {
+            this.logEntries(s, entries, readTimestamps());
+          }
+        },
+      },
+    );
+    const session: PortSession = { kind: 'port', id, controller, logDesired: Boolean(readLogDirectory()) };
+    this.sessions.set(id, session);
+    // Per-session log lifecycle: a configured log directory means every new
+    // session logs by default; each connection writes a fresh file.
+    controller.onStateChange((s) => {
+      this.updateTitle();
+      if (s === 'connected') {
+        if (session.logDesired) {
+          void this.armSessionLog(session, controller.activePath ?? 'port');
+        }
+      } else if (s === 'idle') {
+        session.sessionLogFile = undefined;
+        this.sendLoggingState(session);
+      }
+    });
+    this.post({ type: 'sessionCreated', sessionId: id, kind: 'port', title: portPath, state: 'connecting' });
+    this.sendLoggingState(session);
+    return session;
+  }
+
+  private async handleConnect(settings: SerialPortSettings): Promise<void> {
+    const session = this.createPortSession(settings.path);
+    await session.controller.connect(settings);
+    if (session.controller.state === 'connected') {
+      void this.pushRecentBaud(settings.baudRate);
+      return;
+    }
+    // The teardown already reported why the open failed through the tagged
+    // state message; remove the never-connected tab.
+    this.post({ type: 'sessionFailed', sessionId: session.id, message: `Could not open ${settings.path}` });
+    await this.destroySession(session.id);
+  }
+
+  /** Tears a session down: disconnects its port when live, then drops it.
+   * The webview usually removed the tab already; sessionClosed is a no-op
+   * for it then. */
+  private async destroySession(id: number): Promise<void> {
+    const s = this.sessions.get(id);
+    if (!s) {
+      return;
+    }
+    this.sessions.delete(id);
+    this.updateTitle();
+    if (s.kind === 'port') {
+      await s.controller.disconnect();
+      await s.controller.dispose();
+    }
+    this.post({ type: 'sessionClosed', sessionId: id });
+  }
+
+  private updateTitle(): void {
+    const view = this.view;
+    if (!view) {
+      return;
+    }
+    const live: string[] = [];
+    for (const s of this.sessions.values()) {
+      if (s.kind === 'port' && s.controller.state === 'connected' && s.controller.activePath) {
+        live.push(s.controller.activePath);
+      }
+    }
+    view.title =
+      live.length === 0
+        ? 'Serial Monitor'
+        : live.length === 1
+          ? `Serial Monitor: ${live[0]}`
+          : `Serial Monitor (${live.length} ports)`;
+  }
+
+  // --- Open-a-log-file sessions ----------------------------------------------
+
+  /** 📂 Picks a saved log/text file and shows it as a read-only tab. */
+  async openLogFileViaDialog(): Promise<void> {
+    const picked = await vscode.window.showOpenDialog({
+      canSelectFiles: true,
+      canSelectFolders: false,
+      canSelectMany: false,
+      openLabel: 'Open',
+      title: 'Open a serial log file in a read-only tab',
+      filters: { 'Log Files': ['log', 'txt'], 'All Files': ['*'] },
+    });
+    if (!picked?.length) {
+      return; // user cancelled
+    }
+    await this.openLogFile(picked[0]);
+  }
+
+  async openLogFile(uri: vscode.Uri): Promise<void> {
+    if (!this.view) {
+      await vscode.commands.executeCommand(`${MonitorViewProvider.viewId}.focus`);
+    }
+    let content: string;
+    try {
+      content = await fs.readFile(uri.fsPath, 'utf-8');
+    } catch (err) {
+      void vscode.window.showErrorMessage(`Could not open ${path.basename(uri.fsPath)}: ${describe(err)}`);
+      return;
+    }
+    const lines = content.replace(/^\uFEFF/, '').split(/\r?\n/);
+    if (lines.length && lines[lines.length - 1] === '') {
+      lines.pop(); // trailing newline, not an empty record
+    }
+    // The buffer cap applies like a live stream: keep the newest lines.
+    const cap = readCap();
+    const dropCount = Math.max(0, lines.length - cap);
+    const kept = dropCount > 0 ? lines.slice(-cap) : lines;
+
+    const id = this.nextId++;
+    this.sessions.set(id, { kind: 'file', id });
+    this.post({
+      type: 'sessionCreated',
+      sessionId: id,
+      kind: 'file',
+      title: path.basename(uri.fsPath),
+      state: 'idle',
+    });
+    for (let i = 0; i < kept.length; i += 2000) {
+      this.post({ type: 'append', sessionId: id, lines: kept.slice(i, i + 2000), dropCount: i === 0 ? dropCount : 0 });
+    }
+  }
+
+  // --- Public-API surface -----------------------------------------------------
+
+  /** Starts monitoring through a new port session; resolves to a Port whose
+   * onClosed fires when the connection drops for any reason. */
+  async startMonitoringPort(settings: MonitorPortSettings): Promise<Port> {
+    await this.ensureView();
+    for (const s of this.sessions.values()) {
+      if (s.kind === 'port' && s.controller.state !== 'idle') {
+        throw new Error(
+          'A monitor is already active; multiple simultaneous monitors are not supported in this version.',
+        );
+      }
+    }
+    const apiSettings = toApiSettings(settings);
+    const session = this.createPortSession(settings.port);
     const closed = new vscode.EventEmitter<void>();
-    const unsub = controller.onStateChange((s) => {
+    const unsub = session.controller.onStateChange((s) => {
       if (s === 'idle') {
         unsub();
         closed.fire();
       }
     });
-    await controller.connect(toApiSettings(settings));
+    await session.controller.connect(apiSettings);
     // Read through a cast: TypeScript's alias narrowing of the getter gets
     // this comparison wrong across the awaited connect() above.
-    const stateAfterConnect = controller.state as ControllerState;
+    const stateAfterConnect = session.controller.state as ControllerState;
     if (stateAfterConnect !== 'connected') {
       unsub();
       closed.dispose();
+      this.post({ type: 'sessionFailed', sessionId: session.id, message: `Could not open ${settings.port}` });
+      await this.destroySession(session.id);
       throw new Error(`Failed to open ${settings.port}. See the monitor view for details.`);
     }
     const view = this.view;
@@ -326,45 +517,46 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
     return {
       stopMonitoring: async () => {
         unsub();
-        await controller.disconnect();
-        closed.dispose();
+        await session.controller.disconnect(); // the tab stays with its buffer
       },
       onClosed: closed.event,
     };
   }
 
   async stopMonitoringPort(portName: string): Promise<boolean> {
-    const controller = this.controller;
-    if (controller && controller.state === 'connected' && controller.activePath === portName) {
-      await controller.disconnect();
-      return true;
+    for (const s of this.sessions.values()) {
+      if (s.kind === 'port' && s.controller.state === 'connected' && s.controller.activePath === portName) {
+        await s.controller.disconnect();
+        return true;
+      }
     }
     return false;
   }
 
   clearMonitorOutput(): void {
-    this.postMessage({ type: 'clear' });
+    this.post({ type: 'clear' });
   }
 
-  private logSessionDesired = false;
+  // --- Session logging --------------------------------------------------------
 
-  private sendLoggingState(readLogDirectory: () => string): void {
-    this.postMessage({
+  private sendLoggingState(session: PortSession): void {
+    this.post({
       type: 'logging',
-      active: this.sessionLogFile !== undefined,
-      fileName: this.sessionLogFile ? path.basename(this.sessionLogFile) : undefined,
+      sessionId: session.id,
+      active: session.sessionLogFile !== undefined,
+      fileName: session.sessionLogFile ? path.basename(session.sessionLogFile) : undefined,
       directory: readLogDirectory() || undefined,
-      desired: this.logSessionDesired,
+      desired: session.logDesired,
     });
   }
 
-  /** Arms this session's log file: the configured directory if present,
+  /** Arms a session's log file: the configured directory if present,
    * otherwise a save dialog. Called on connect / mid-session toggle. */
-  private async armSessionLog(portPath: string, readLogDirectory: () => string): Promise<void> {
+  private async armSessionLog(session: PortSession, portPath: string): Promise<void> {
     const dir = readLogDirectory();
     if (dir) {
-      this.sessionLogFile = path.join(dir, `serial-${fileStamp(portPath)}.log`);
-      this.sendLoggingState(readLogDirectory);
+      session.sessionLogFile = path.join(dir, `serial-${fileStamp(portPath)}.log`);
+      this.sendLoggingState(session);
       return;
     }
     const target = await vscode.window.showSaveDialog({
@@ -375,14 +567,14 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
     if (!target) {
       return; // user cancelled; session stays unlogged
     }
-    this.sessionLogFile = target.fsPath;
-    this.sendLoggingState(readLogDirectory);
+    session.sessionLogFile = target.fsPath;
+    this.sendLoggingState(session);
   }
 
-  private async pushRecentBaud(baudRate: number, readRecentBauds: () => number[]): Promise<void> {
+  private async pushRecentBaud(baudRate: number): Promise<void> {
     const next = [baudRate, ...readRecentBauds().filter((b) => b !== baudRate)].slice(0, 5);
     await updateSerialMonitorSetting('recentBaudRates', next);
-    this.postMessage({ type: 'recentBauds', values: next });
+    this.post({ type: 'recentBauds', values: next });
   }
 
   /** 📁 Picks the directory every session logs into (right-click clears). */
@@ -398,18 +590,19 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
       return;
     }
     await updateSerialMonitorSetting('logDirectory', picked[0].fsPath);
-    this.postMessage({
-      type: 'state',
-      state: 'idle',
-      message: `Log directory: ${picked[0].fsPath} — each session writes a new .log file`,
-    });
+    for (const s of this.sessions.values()) {
+      if (s.kind === 'port') {
+        this.sendLoggingState(s);
+      }
+    }
+    this.postMessageStatus(`Log directory: ${picked[0].fsPath} — each session writes a new .log file`);
   }
 
-  /** 📤 Exports the current buffer: the webview hands us its lines, then we
+  /** 📤 Exports a session's buffer: the webview hands us its lines, then we
    * ask where to put them. */
-  private async completeExport(entries: readonly { text: string; ts?: number }[]): Promise<void> {
+  private async completeExport(sessionId: number, entries: readonly { text: string; ts?: number }[]): Promise<void> {
     if (entries.length === 0) {
-      this.postMessage({ type: 'state', state: 'idle', message: 'Nothing to export.' });
+      this.postMessageStatus('Nothing to export.');
       return;
     }
     const folder = vscode.workspace.workspaceFolders?.[0]?.uri;
@@ -424,28 +617,20 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
     if (!target) {
       return; // user cancelled the dialog
     }
-    const withTimestamps = vscode.workspace.getConfiguration('serialMonitor').get<boolean>('timestamps', false);
+    const withTimestamps = readTimestamps();
     const text = entries
       .map((e) => (withTimestamps ? `[${formatTimestamp(e.ts ?? Date.now())}] ${e.text}` : e.text))
       .join('\n') + '\n';
     try {
       await fs.writeFile(target.fsPath, text, 'utf-8');
-      this.postMessage({
-        type: 'state',
-        state: 'idle',
-        message: `Exported ${entries.length} lines to ${path.basename(target.fsPath)}`,
-      });
+      this.postMessageStatus(`Exported ${entries.length} lines to ${path.basename(target.fsPath)}`);
     } catch (err) {
-      this.postMessage({
-        type: 'state',
-        state: 'idle',
-        message: `Export failed: ${err instanceof Error ? err.message : String(err)}`,
-      });
+      this.postMessageStatus(`Export failed: ${describe(err)}`);
     }
   }
 
-  private logEntries(entries: readonly TimedLine[], withTimestamps: boolean): void {
-    const file = this.sessionLogFile;
+  private logEntries(session: PortSession, entries: readonly TimedLine[], withTimestamps: boolean): void {
+    const file = session.sessionLogFile;
     if (!file || entries.length === 0) {
       return;
     }
@@ -453,34 +638,34 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
       .map((e) => (withTimestamps ? `[${formatTimestamp(e.ts)}] ${e.text}` : e.text))
       .join('\n') + '\n';
     fs.appendFile(file, text, 'utf-8').catch((err: unknown) => {
-      this.sessionLogFile = undefined;
-      this.sendLoggingState(() =>
-        vscode.workspace.getConfiguration('serialMonitor').get<string>('logDirectory', ''),
-      );
-      this.postMessage({
-        type: 'state',
-        state: 'idle',
-        message: `Logging stopped: ${err instanceof Error ? err.message : String(err)}`,
-      });
+      session.sessionLogFile = undefined;
+      this.sendLoggingState(session);
+      this.postMessageStatus(`Logging stopped: ${describe(err)}`);
     });
   }
 
-  private pendingExport = false;
+  /** Status-line ping without a session (dialog results, export outcomes). */
+  private postMessageStatus(message: string): void {
+    this.post({ type: 'status', message });
+  }
 
-  private async ensureController(): Promise<MonitorController> {
-    if (this.controller) {
-      return this.controller;
+  private async ensureView(): Promise<void> {
+    if (this.view) {
+      return;
     }
     await vscode.commands.executeCommand(`${MonitorViewProvider.viewId}.focus`);
     const deadline = Date.now() + 5000;
-    while (!this.controller && Date.now() < deadline) {
+    while (!this.view && Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
-    if (!this.controller) {
+    if (!this.view) {
       throw new Error('The serial monitor view did not initialize.');
     }
-    return this.controller;
   }
+}
+
+function describe(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 function workspaceTagStorage(): TagStorage {
@@ -526,7 +711,7 @@ function apiLineEndingToUi(le: ApiLineEnding): string {
   }
 }
 
-/** The SerialMonitorApi implementation over the monitor view's controller. */
+/** The SerialMonitorApi implementation over the monitor view's sessions. */
 class MonitorApi implements SerialMonitorApi {
   constructor(private readonly provider: MonitorViewProvider) {}
 
