@@ -4,9 +4,10 @@ Serial-port monitoring inside VS Code, rebuilt from scratch under MIT — an
 open alternative to Microsoft's archived (closed-source) Serial Monitor, with
 features no surveyed serial monitor offers:
 
-- **Monitor tabs** — monitor several ports side by side: each tab is its own
+- **Split view** — monitor several ports side by side: each pane is its own
   session with an independent buffer, scroll position, and log-to-file state.
-  The **+** tab opens another monitor while the rest keep streaming.
+  Press **＋** (or Start another port) and the console area splits; click a
+  pane to focus it for the toolbar and send box.
 - **Open log files** — open a saved `.log`/`.txt` file as a read-only tab and
   use the same tags, filtering, and export on recorded data.
 - **Tags** — select text, press **+ Tag**, and every matching line is
@@ -63,10 +64,10 @@ resolves this extension after the original one.
 
 ## Architecture
 
-- [GLOSSARY.md](GLOSSARY.md) — the domain vocabulary (Session/Tab, Tag,
+- [GLOSSARY.md](GLOSSARY.md) — the domain vocabulary (Session/Pane, Tag,
   Highlight, Filter, Scroll Lock, Follow); use these terms in issues and code
 - [docs/adr/](docs/adr/) — build-from-scratch, API alignment, unified Tag
-  model, display-layer filter + ring buffer, one session per tab
+  model, display-layer filter + ring buffer, one split-view pane per session
 - Spec and tickets live in the GitHub issue tracker (spec: issue #1)
 - Test seams: data (chunks → lines → buffer), matching (lines + tags + filter
   mode → visibility/highlight), UI state (scroll events → Follow/locked)

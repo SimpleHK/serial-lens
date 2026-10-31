@@ -478,16 +478,10 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
   // --- Public-API surface -----------------------------------------------------
 
   /** Starts monitoring through a new port session; resolves to a Port whose
-   * onClosed fires when the connection drops for any reason. */
+   * onClosed fires when the connection drops for any reason. Several API
+   * monitors may run side by side, mirroring the split view. */
   async startMonitoringPort(settings: MonitorPortSettings): Promise<Port> {
     await this.ensureView();
-    for (const s of this.sessions.values()) {
-      if (s.kind === 'port' && s.controller.state !== 'idle') {
-        throw new Error(
-          'A monitor is already active; multiple simultaneous monitors are not supported in this version.',
-        );
-      }
-    }
     const apiSettings = toApiSettings(settings);
     const session = this.createPortSession(settings.port);
     const closed = new vscode.EventEmitter<void>();
