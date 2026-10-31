@@ -338,7 +338,7 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private createPortSession(portPath: string): PortSession {
+  private createPortSession(portPath: string, settings: SerialPortSettings): PortSession {
     const id = this.nextId++;
     const controller = new MonitorController(
       new NodeSerialPortBackend(),
@@ -369,13 +369,27 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
         this.sendLoggingState(session);
       }
     });
-    this.post({ type: 'sessionCreated', sessionId: id, kind: 'port', title: portPath, state: 'connecting' });
+    // The pane keeps its settings so it can restart independently of the
+    // hardware row's current selection.
+    this.post({
+      type: 'sessionCreated',
+      sessionId: id,
+      kind: 'port',
+      title: portPath,
+      state: 'connecting',
+      settings: {
+        baudRate: settings.baudRate,
+        dataBits: settings.dataBits,
+        stopBits: settings.stopBits,
+        parity: settings.parity,
+      },
+    });
     this.sendLoggingState(session);
     return session;
   }
 
   private async handleConnect(settings: SerialPortSettings): Promise<void> {
-    const session = this.createPortSession(settings.path);
+    const session = this.createPortSession(settings.path, settings);
     await session.controller.connect(settings);
     if (session.controller.state === 'connected') {
       void this.pushRecentBaud(settings.baudRate);
@@ -483,7 +497,7 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
   async startMonitoringPort(settings: MonitorPortSettings): Promise<Port> {
     await this.ensureView();
     const apiSettings = toApiSettings(settings);
-    const session = this.createPortSession(settings.port);
+    const session = this.createPortSession(settings.port, apiSettings);
     const closed = new vscode.EventEmitter<void>();
     const unsub = session.controller.onStateChange((s) => {
       if (s === 'idle') {

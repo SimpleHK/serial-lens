@@ -16,22 +16,16 @@ const stopBitsSelect = document.getElementById('stop-bits') as HTMLSelectElement
 const lineEndingSelect = document.getElementById('line-ending') as HTMLSelectElement;
 const connectBtn = document.getElementById('connect') as HTMLButtonElement;
 const addMonitorBtn = document.getElementById('add-monitor') as HTMLButtonElement;
-const clearBtn = document.getElementById('clear') as HTMLButtonElement;
 const tagBtn = document.getElementById('create-tag') as HTMLButtonElement;
 const refreshBtn = document.getElementById('refresh') as HTMLButtonElement;
 const statusEl = document.getElementById('status') as HTMLSpanElement;
 const tagsRow = document.getElementById('tags-row') as HTMLDivElement;
 const panesArea = document.getElementById('panes') as HTMLDivElement;
-const sendInput = document.getElementById('send-input') as HTMLInputElement;
-const sendBtn = document.getElementById('send') as HTMLButtonElement;
-const scrollStateBtn = document.getElementById('scroll-state') as HTMLButtonElement;
-const exportBtn = document.getElementById('export-log') as HTMLButtonElement;
-const logDirBtn = document.getElementById('log-dir') as HTMLButtonElement;
 const openLogFileBtn = document.getElementById('open-log-file') as HTMLButtonElement;
+const logDirBtn = document.getElementById('log-dir') as HTMLButtonElement;
 const baudToggleBtn = document.getElementById('baud-toggle') as HTMLButtonElement;
 const baudMenu = document.getElementById('baud-menu') as HTMLDivElement;
 const timestampsBtn = document.getElementById('timestamps') as HTMLButtonElement;
-const logSessionBtn = document.getElementById('log-session') as HTMLButtonElement;
 const filterToggleBtn = document.getElementById('filter-toggle') as HTMLButtonElement;
 const filterMenu = document.getElementById('filter-menu') as HTMLDivElement;
 const collapseHwBtn = document.getElementById('collapse-hw') as HTMLButtonElement;
@@ -39,23 +33,71 @@ const hwRow = document.getElementById('hw-row') as HTMLDivElement;
 const manageToggleBtn = document.getElementById('manage-toggle') as HTMLButtonElement;
 const managePanel = document.getElementById('manage-panel') as HTMLDivElement;
 
-/** Per-pane DOM owned by a session. The pane lives in #panes; the log and
- * the highlight-marks strip are per pane so every session renders on its own. */
+/** Per-pane DOM. Every pane is self-contained: header actions, console with
+ * find widget and marks strip, and a port-local send bar. */
 interface PaneDom {
   root: HTMLDivElement;
   dot: HTMLSpanElement;
   title: HTMLSpanElement;
+  play: HTMLButtonElement;
+  clearBtn: HTMLButtonElement;
+  logBtn: HTMLButtonElement;
+  exportBtn: HTMLButtonElement;
+  scrollBtn: HTMLButtonElement;
+  findBtn: HTMLButtonElement;
   close: HTMLSpanElement;
   log: HTMLDivElement;
   marks: HTMLDivElement;
+  findBar: HTMLDivElement;
+  findInput: HTMLInputElement;
+  findCase: HTMLButtonElement;
+  findWord: HTMLButtonElement;
+  findRegex: HTMLButtonElement;
+  findCount: HTMLSpanElement;
+  findPrev: HTMLButtonElement;
+  findNext: HTMLButtonElement;
+  findClose: HTMLButtonElement;
+  sendRow: HTMLDivElement;
+  sendInput: HTMLInputElement;
+  sendBtn: HTMLButtonElement;
+}
+
+/** One occurrence of the find query inside a line's rendered text. */
+interface FindOccurrence {
+  lineIndex: number;
+  start: number;
+  end: number;
+}
+
+interface FindState {
+  open: boolean;
+  query: string;
+  matchCase: boolean;
+  wholeWord: boolean;
+  regex: boolean;
+  error: boolean;
+  occurrences: FindOccurrence[];
+  /** occurrence index → line, for the current-match highlight and jumps */
+  current: number;
+  byLine: Map<number, FindOccurrence[]>;
+  debounce: number | undefined;
+}
+
+/** Per-pane port settings captured at creation, so a stopped pane can be
+ * restarted independently of whatever the hardware row currently shows. */
+interface PortSettings {
+  baudRate: number;
+  dataBits: number;
+  stopBits: number;
+  parity: string;
 }
 
 /**
  * One split-view pane's worth of state. Ports and opened log files are both
  * sessions: a port session streams from its controller, a file session is a
- * read-only snapshot. Buffers, scroll position, connection state, and
- * log-to-file are per session; tags, filter mode, and timestamps are global
- * display choices. The focused pane receives the toolbar's actions.
+ * read-only snapshot. Buffers, scroll position, connection state,
+ * log-to-file, send bar, and find are per session; tags, filter mode, and
+ * timestamps are global display choices.
  */
 interface TabSession {
   id: number;
@@ -63,6 +105,7 @@ interface TabSession {
   title: string;
   state: 'idle' | 'connecting' | 'connected';
   message?: string;
+  settings?: PortSettings;
   lineStore: { text: string; ts?: number }[];
   decisions: LineDecision[];
   visibleIndexes: number[];
@@ -71,6 +114,7 @@ interface TabSession {
   logDesired: boolean;
   logFile?: string;
   logDirectory?: string;
+  find: FindState;
   dom: PaneDom;
   lastRender?: { topPx: number; bottomPx: number; rows: RenderedRow[] };
   marksDirty: boolean;
@@ -103,6 +147,12 @@ const spacerTop = document.createElement('div');
 const spacerBottom = document.createElement('div');
 spacerTop.className = 'log-spacer';
 spacerBottom.className = 'log-spacer';
+
+// CSS Custom Highlight API (Chromium ≥105, guaranteed in VS Code's webview);
+// guarded lookups keep TypeScript's DOM lib happy.
+type HighlightLike = { new (...ranges: Range[]): unknown };
+const highlightCtor = (window as unknown as { Highlight?: HighlightLike }).Highlight;
+const highlightRegistry = (CSS as unknown as { highlights?: Map<string, unknown> }).highlights;
 
 function measureRowHeight(logEl: HTMLElement): void {
   const probe = document.createElement('div');
@@ -161,6 +211,7 @@ function renderWindowFor(s: TabSession): void {
     )
   ) {
     renderMarksFor(s);
+    refreshFindHighlights();
     return;
   }
 
@@ -182,6 +233,7 @@ function renderWindowFor(s: TabSession): void {
   restoreSelection(savedSelection);
   s.lastRender = { topPx, bottomPx, rows };
   renderMarksFor(s);
+  refreshFindHighlights();
 }
 
 /** Multi-match color bar: one 5px segment per matching tag, so overlapping
@@ -236,6 +288,171 @@ function renderMarksFor(s: TabSession): void {
     s.dom.marks.appendChild(mark);
   }
   s.dom.marks.style.display = 'block';
+}
+
+// --- Find (editor-style widget, per pane) ------------------------------------
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function buildFindRegex(f: FindState): RegExp | undefined {
+  try {
+    let source = f.regex ? f.query : escapeRegExp(f.query);
+    if (f.wholeWord) {
+      source = `\\b(?:${source})\\b`;
+    }
+    return new RegExp(source, f.matchCase ? 'g' : 'gi');
+  } catch {
+    return undefined; // invalid regex source: reported as "Bad pattern"
+  }
+}
+
+/** Recomputes a pane's find occurrences over its VISIBLE lines (filter is
+ * respected) in rendered-text coordinates, so ranges land on the row text
+ * nodes exactly as displayed. */
+function recomputeOccurrences(s: TabSession): void {
+  const f = s.find;
+  f.occurrences = [];
+  f.byLine = new Map();
+  f.error = false;
+  if (f.open && f.query) {
+    const re = buildFindRegex(f);
+    if (!re) {
+      f.error = true;
+    } else {
+      for (const lineIndex of s.visibleIndexes) {
+        const text = renderText(s.lineStore[lineIndex]);
+        let m: RegExpExecArray | null;
+        let guard = 0;
+        while ((m = re.exec(text)) !== null && guard++ < 1000) {
+          if (m[0].length === 0) {
+            re.lastIndex++; // never let an empty match loop forever
+            continue;
+          }
+          const occ: FindOccurrence = { lineIndex, start: m.index, end: m.index + m[0].length };
+          f.occurrences.push(occ);
+          let list = f.byLine.get(lineIndex);
+          if (!list) {
+            list = [];
+            f.byLine.set(lineIndex, list);
+          }
+          list.push(occ);
+        }
+      }
+      if (f.current >= f.occurrences.length) {
+        f.current = f.occurrences.length ? f.occurrences.length - 1 : 0;
+      }
+    }
+  }
+  renderFindCount(s);
+  refreshFindHighlights();
+}
+
+function renderFindCount(s: TabSession): void {
+  const f = s.find;
+  const el = s.dom.findCount;
+  el.classList.toggle('error', f.error);
+  if (f.error) {
+    el.textContent = 'Bad pattern';
+  } else if (!f.query) {
+    el.textContent = '';
+  } else if (!f.occurrences.length) {
+    el.textContent = 'No results';
+  } else {
+    el.textContent = `${Math.min(f.current + 1, f.occurrences.length)} of ${f.occurrences.length}`;
+  }
+}
+
+/** Scrolls the pane so the current occurrence's row sits mid-viewport. */
+function jumpToCurrent(s: TabSession): void {
+  const f = s.find;
+  const occ = f.occurrences[f.current];
+  if (!occ) {
+    return;
+  }
+  const p = s.visibleIndexes.indexOf(occ.lineIndex);
+  if (p >= 0) {
+    s.dom.log.scrollTop = Math.max(0, p * rowHeightPx - s.dom.log.clientHeight / 2);
+  }
+}
+
+function navigateFind(s: TabSession, dir: 1 | -1): void {
+  const f = s.find;
+  if (!f.occurrences.length) {
+    return;
+  }
+  f.current = (f.current + dir + f.occurrences.length) % f.occurrences.length;
+  jumpToCurrent(s);
+  renderFindCount(s);
+  refreshFindHighlights();
+}
+
+/** Rebuilds the document-level match highlights from every pane's rendered
+ * rows. Text-level ranges mean the selection machinery stays untouched. */
+function refreshFindHighlights(): void {
+  if (!highlightCtor || !highlightRegistry) {
+    return;
+  }
+  const ranges: Range[] = [];
+  const current: Range[] = [];
+  for (const s of sessions) {
+    if (!s.find.open || !s.find.occurrences.length) {
+      continue;
+    }
+    for (const row of Array.from(s.dom.log.querySelectorAll('.row-line'))) {
+      const lineIndex = Number((row as HTMLElement).dataset.lineIndex);
+      const textNode = row.firstChild;
+      if (!textNode || textNode.nodeType !== Node.TEXT_NODE) {
+        continue;
+      }
+      for (const occ of s.find.byLine.get(lineIndex) ?? []) {
+        const range = document.createRange();
+        range.setStart(textNode, occ.start);
+        range.setEnd(textNode, occ.end);
+        ranges.push(range);
+        if (s.find.occurrences[s.find.current] === occ) {
+          current.push(range);
+        }
+      }
+    }
+  }
+  if (ranges.length) {
+    highlightRegistry.set('sm-find', new highlightCtor(...ranges));
+  } else {
+    highlightRegistry.delete('sm-find');
+  }
+  if (current.length) {
+    highlightRegistry.set('sm-find-cur', new highlightCtor(...current));
+  } else {
+    highlightRegistry.delete('sm-find-cur');
+  }
+}
+
+function openFind(s: TabSession): void {
+  s.find.open = true;
+  s.dom.findBar.classList.add('visible');
+  s.dom.findInput.focus();
+  s.dom.findInput.select();
+  recomputeOccurrences(s);
+}
+
+function closeFind(s: TabSession): void {
+  s.find.open = false;
+  s.find.query = '';
+  s.dom.findInput.value = '';
+  s.dom.findBar.classList.remove('visible');
+  recomputeOccurrences(s);
+}
+
+function scheduleFindRecompute(s: TabSession): void {
+  if (s.find.debounce !== undefined) {
+    clearTimeout(s.find.debounce);
+  }
+  s.find.debounce = setTimeout(() => {
+    s.find.debounce = undefined;
+    recomputeOccurrences(s);
+  }, 150) as unknown as number;
 }
 
 interface SelectionPoint {
@@ -327,15 +544,16 @@ function appendToSession(s: TabSession, entries: { text: string; ts?: number }[]
   }
   s.marksDirty = true;
   scheduleRender(s);
+  if (s.find.open) {
+    scheduleFindRecompute(s); // keep counts and highlights fresh while streaming
+  }
   if (s.scroll === 'follow') {
     // Pin to the bottom after the window re-renders with the new content.
     requestAnimationFrame(() => {
       s.dom.log.scrollTop = s.dom.log.scrollHeight;
     });
   }
-  if (s.id === focusedId) {
-    updateButtons();
-  }
+  refreshPaneControls(s);
 }
 
 /** Tags, filter mode, and timestamps are global: a change re-decides every
@@ -348,6 +566,9 @@ function restyleAllRows(): void {
     rebuildVisibleIndexes(s);
     s.marksDirty = true;
     scheduleRender(s);
+    if (s.find.open) {
+      scheduleFindRecompute(s);
+    }
   }
 }
 
@@ -371,50 +592,17 @@ function fillPorts(ports: { path: string; description?: string }[]): void {
 }
 
 function updateButtons(): void {
-  const f = focusedSession();
-  const isConnected = f?.kind === 'port' && f.state === 'connected';
-  const isConnecting = f?.kind === 'port' && f.state === 'connecting';
-  connectBtn.innerHTML = isConnected ? '&#9632; Stop Monitoring' : '&#9654; Start Monitoring';
-  connectBtn.title = isConnected
-    ? `Stop monitoring ${f?.title}`
-    : isConnecting
-      ? 'Connecting...'
-      : 'Start monitoring the selected port in a new pane';
-  connectBtn.disabled = Boolean(isConnecting) || (!isConnected && portSelect.value === '');
+  connectBtn.innerHTML = '&#9654; Start Monitoring';
+  connectBtn.title = 'Start monitoring the selected port in a new pane';
+  connectBtn.disabled = portSelect.value === '';
   portSelect.disabled = false;
   refreshBtn.disabled = false;
-  clearBtn.disabled = !f || (f.lineStore.length === 0 && !isConnected);
-  sendBtn.disabled = !isConnected;
-  sendInput.disabled = !isConnected;
-  sendInput.placeholder = isConnected
-    ? `To ${f?.title}: type in a message to send to the serial port...`
-    : f?.kind === 'file'
-      ? `Read-only log file: ${f.title}`
-      : 'Type in a message to send to the serial port...';
-  exportBtn.disabled = f === undefined || f.lineStore.length === 0;
-  logSessionBtn.disabled = !f || f.kind !== 'port' || f.state === 'connecting';
-  renderLogSessionControl();
   updateTagButton();
 }
 
 function renderTimestampsControl(): void {
   timestampsBtn.classList.toggle('on', showTimestamps);
   timestampsBtn.title = `Timestamps: ${showTimestamps ? 'on' : 'off'} — click to ${showTimestamps ? 'hide' : 'show'} them`;
-}
-
-function renderLogSessionControl(): void {
-  const f = focusedSession();
-  const on = Boolean(f && f.kind === 'port' && f.logDesired);
-  logSessionBtn.classList.toggle('on', on);
-  logSessionBtn.innerHTML = on ? '&#128308;&#65039;' : '&#9898;&#65039;';
-  if (!f || f.kind !== 'port') {
-    logSessionBtn.title = 'Log to file — focus a port pane first';
-  } else if (on) {
-    const where = f.logFile ? ` (now: ${f.logFile})` : f.logDirectory ? ` into ${f.logDirectory}` : '';
-    logSessionBtn.title = `Log to file: on${where} — click to stop`;
-  } else {
-    logSessionBtn.title = 'Log to file: off — click to log this session to a .log file';
-  }
 }
 
 function updateTagButton(): void {
@@ -453,26 +641,86 @@ function syncEmptyState(): void {
   }
 }
 
+/** Refreshes one pane's self-contained controls from its session state. */
+function refreshPaneControls(s: TabSession): void {
+  const d = s.dom;
+  const isPort = s.kind === 'port';
+  const isConnected = isPort && s.state === 'connected';
+
+  d.dot.className = 'tab-dot' + (s.state === 'connected' ? ' live' : s.state === 'connecting' ? ' pending' : '');
+  d.title.textContent = (s.kind === 'file' ? '\u{1F4C4} ' : '') + s.title;
+  d.title.title = s.kind === 'file' ? `${s.title} (read-only log file)` : `${s.title} — ${s.state}`;
+  d.root.title = d.title.title;
+
+  d.play.style.display = isPort ? '' : 'none';
+  d.play.innerHTML = isConnected ? '&#9632;' : '&#9654;';
+  d.play.classList.toggle('on', isConnected);
+  d.play.title = isConnected ? `Stop monitoring ${s.title}` : `Start monitoring ${s.title}`;
+  d.play.disabled = s.state === 'connecting';
+
+  d.clearBtn.disabled = s.lineStore.length === 0 && !isConnected;
+  d.clearBtn.title = `Clear ${s.title}`;
+  d.exportBtn.disabled = s.lineStore.length === 0;
+  d.exportBtn.title = `Export ${s.title}'s buffered log to a file`;
+
+  d.logBtn.style.display = isPort ? '' : 'none';
+  const logOn = isPort && s.logDesired;
+  d.logBtn.classList.toggle('on', logOn);
+  d.logBtn.classList.toggle('rec', logOn);
+  d.logBtn.innerHTML = logOn ? '&#128308;&#65039;' : '&#9898;&#65039;';
+  if (!isPort) {
+    d.logBtn.title = '';
+  } else if (logOn) {
+    const where = s.logFile ? ` (now: ${s.logFile})` : s.logDirectory ? ` into ${s.logDirectory}` : '';
+    d.logBtn.title = `Log to file: on${where} — click to stop`;
+  } else {
+    d.logBtn.title = 'Log to file: off — click to log this session to a .log file';
+  }
+
+  d.scrollBtn.innerHTML = s.scroll === 'follow' ? '&#8681;' : '&#128274;';
+  d.scrollBtn.classList.toggle('locked', s.scroll === 'locked');
+  d.scrollBtn.title =
+    s.scroll === 'follow'
+      ? 'Viewport follows new lines — click to lock'
+      : 'Scroll locked, data keeps arriving — click to rejoin';
+
+  d.sendRow.style.display = isPort ? 'flex' : 'none';
+  d.sendInput.disabled = !isConnected;
+  d.sendBtn.disabled = !isConnected;
+  d.sendInput.placeholder = isConnected ? `To ${s.title}: type a message to send...` : 'Start monitoring to send';
+}
+
 function buildPane(s: TabSession): PaneDom {
   const root = document.createElement('div');
   root.className = 'pane';
+
+  // Header: status dot, title, port-local actions, close.
   const header = document.createElement('div');
   header.className = 'pane-header';
   const dot = document.createElement('span');
   dot.className = 'tab-dot';
   const title = document.createElement('span');
   title.className = 'pane-title';
-  title.textContent = (s.kind === 'file' ? '\u{1F4C4} ' : '') + s.title;
+  const mkBtn = (glyph: string, cls = '') => {
+    const b = document.createElement('button');
+    b.className = ('pbtn ' + cls).trim();
+    b.innerHTML = glyph;
+    return b;
+  };
+  const play = mkBtn('&#9654;');
+  const clearBtn = mkBtn('&#129529;');
+  const logBtn = mkBtn('&#9898;&#65039;');
+  const exportBtn = mkBtn('&#128228;');
+  const scrollBtn = mkBtn('&#8681;');
+  const findBtn = mkBtn('&#128269;');
+  findBtn.title = 'Find in this pane (Ctrl+F)';
   const close = document.createElement('span');
   close.className = 'pane-close';
   close.textContent = '\u00d7';
   close.title = 'Close this pane';
-  close.addEventListener('click', (e) => {
-    e.stopPropagation();
-    closeSessionLocal(s.id);
-  });
-  header.append(dot, title, close);
+  header.append(dot, title, play, clearBtn, logBtn, exportBtn, scrollBtn, findBtn, close);
 
+  // Body: console + marks strip + floating find widget.
   const body = document.createElement('div');
   body.className = 'pane-body';
   const logEl = document.createElement('div');
@@ -480,10 +728,109 @@ function buildPane(s: TabSession): PaneDom {
   const marks = document.createElement('div');
   marks.className = 'log-marks';
   marks.title = 'Highlighted lines — click to jump';
-  body.append(logEl, marks);
 
-  root.append(header, body);
+  const findBar = document.createElement('div');
+  findBar.className = 'find-bar';
+  const findInput = document.createElement('input');
+  findInput.placeholder = 'Find';
+  findInput.spellcheck = false;
+  const findCase = document.createElement('button');
+  findCase.className = 'fbtn';
+  findCase.textContent = 'Aa';
+  findCase.title = 'Match case';
+  const findWord = document.createElement('button');
+  findWord.className = 'fbtn';
+  findWord.textContent = 'ab';
+  findWord.title = 'Match whole word';
+  const findRegex = document.createElement('button');
+  findRegex.className = 'fbtn';
+  findRegex.textContent = '.*';
+  findRegex.title = 'Use regular expression';
+  const findCount = document.createElement('span');
+  findCount.className = 'find-count';
+  const findPrev = document.createElement('button');
+  findPrev.className = 'fbtn';
+  findPrev.innerHTML = '&#8593;';
+  findPrev.title = 'Previous match (Shift+Enter)';
+  const findNext = document.createElement('button');
+  findNext.className = 'fbtn';
+  findNext.innerHTML = '&#8595;';
+  findNext.title = 'Next match (Enter)';
+  const findClose = document.createElement('button');
+  findClose.className = 'fbtn';
+  findClose.innerHTML = '&#10005;';
+  findClose.title = 'Close find (Escape)';
+  findBar.append(findInput, findCase, findWord, findRegex, findCount, findPrev, findNext, findClose);
+  body.append(logEl, marks, findBar);
+
+  // Port-local send bar.
+  const sendRow = document.createElement('div');
+  sendRow.className = 'pane-send';
+  const sendInput = document.createElement('input');
+  const sendBtn = document.createElement('button');
+  sendBtn.textContent = 'Send';
+  sendRow.append(sendInput, sendBtn);
+
+  root.append(header, body, sendRow);
+  panesArea.appendChild(root);
+
   root.addEventListener('click', () => setFocused(s.id));
+
+  close.addEventListener('click', (e) => {
+    e.stopPropagation();
+    vscode.postMessage({ type: 'closeSession', sessionId: s.id });
+    removeSession(s.id);
+  });
+
+  play.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (s.state === 'connected') {
+      vscode.postMessage({ type: 'disconnect', sessionId: s.id });
+    } else if (s.state !== 'connecting') {
+      startPane(s);
+    }
+  });
+
+  clearBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (s.kind === 'port') {
+      vscode.postMessage({ type: 'clear', sessionId: s.id }); // host resets its ring count too
+    }
+    clearBuffer(s);
+  });
+
+  logBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (s.kind !== 'port' || s.state === 'connecting') {
+      return;
+    }
+    vscode.postMessage({ type: 'setLogSession', sessionId: s.id, enabled: !s.logDesired });
+  });
+
+  exportBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    vscode.postMessage({ type: 'export', sessionId: s.id });
+  });
+
+  scrollBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    s.scroll = scrollReducer(s.scroll, { type: 'toggle' });
+    if (s.scroll === 'follow') {
+      logEl.scrollTop = logEl.scrollHeight; // rejoining the stream snaps to the bottom
+    }
+    refreshPaneControls(s);
+  });
+
+  findBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (s.find.open) {
+      closeFind(s);
+    } else {
+      setFocused(s.id);
+      openFind(s);
+    }
+  });
+
   // The strip squashes the whole buffer to the viewport; clicking at a height
   // fraction jumps to the same fraction of the document.
   marks.addEventListener('click', (e) => {
@@ -492,6 +839,7 @@ function buildPane(s: TabSession): PaneDom {
     const frac = Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height));
     logEl.scrollTop = frac * (logEl.scrollHeight - logEl.clientHeight);
   });
+
   // Scroll Lock: user scrolls drive the follow/locked reducer; programmatic
   // pinning only ever scrolls to the bottom, which keeps Follow.
   logEl.addEventListener('scroll', () => {
@@ -500,14 +848,67 @@ function buildPane(s: TabSession): PaneDom {
     const next = scrollReducer(s.scroll, { type: 'scrolled', atBottom });
     if (next !== s.scroll) {
       s.scroll = next;
-      if (s.id === focusedId) {
-        renderScrollIndicator();
-      }
+      refreshPaneControls(s);
     }
     scheduleRender(s);
   });
-  panesArea.appendChild(root);
-  return { root, dot, title, close, log: logEl, marks };
+
+  // Find widget wiring.
+  findInput.addEventListener('input', () => {
+    s.find.query = findInput.value;
+    s.find.current = 0;
+    scheduleFindRecompute(s);
+  });
+  findInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      navigateFind(s, e.shiftKey ? -1 : 1);
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      navigateFind(s, 1);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      navigateFind(s, -1);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      closeFind(s);
+      logEl.focus();
+    }
+    e.stopPropagation();
+  });
+  const wireToggle = (btn: HTMLButtonElement, key: 'matchCase' | 'wholeWord' | 'regex') => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      s.find[key] = !s.find[key];
+      btn.classList.toggle('on', s.find[key]);
+      s.find.current = 0;
+      recomputeOccurrences(s);
+    });
+  };
+  wireToggle(findCase, 'matchCase');
+  wireToggle(findWord, 'wholeWord');
+  wireToggle(findRegex, 'regex');
+  findPrev.addEventListener('click', (e) => {
+    e.stopPropagation();
+    navigateFind(s, -1);
+  });
+  findNext.addEventListener('click', (e) => {
+    e.stopPropagation();
+    navigateFind(s, 1);
+  });
+  findClose.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeFind(s);
+  });
+
+  sendBtn.addEventListener('click', () => sendCurrent(s));
+  sendInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      sendCurrent(s);
+    }
+  });
+
+  return { root, dot, title, play, clearBtn, logBtn, exportBtn, scrollBtn, findBtn, close, log: logEl, marks, findBar, findInput, findCase, findWord, findRegex, findCount, findPrev, findNext, findClose, sendRow, sendInput, sendBtn };
 }
 
 function createSession(m: {
@@ -515,18 +916,32 @@ function createSession(m: {
   kind: 'port' | 'file';
   title: string;
   state: 'idle' | 'connecting' | 'connected';
+  settings?: PortSettings;
 }): TabSession {
   const s: TabSession = {
     id: m.sessionId,
     kind: m.kind,
     title: m.title,
     state: m.state,
+    settings: m.settings,
     lineStore: [],
     decisions: [],
     visibleIndexes: [],
     scroll: 'follow',
     scrollTop: 0,
     logDesired: false,
+    find: {
+      open: false,
+      query: '',
+      matchCase: false,
+      wholeWord: false,
+      regex: false,
+      error: false,
+      occurrences: [],
+      current: 0,
+      byLine: new Map(),
+      debounce: undefined,
+    },
     marksDirty: true,
     dom: undefined as unknown as PaneDom,
   };
@@ -534,6 +949,7 @@ function createSession(m: {
   syncEmptyState();
   s.dom = buildPane(s);
   measureRowHeight(s.dom.log);
+  refreshPaneControls(s);
   setFocused(s.id);
   return s;
 }
@@ -543,9 +959,7 @@ function setFocused(id: number | undefined): void {
   for (const s of sessions) {
     s.dom.root.classList.toggle('focused', s.id === focusedId);
   }
-  updateButtons();
   setStatus();
-  renderScrollIndicator();
 }
 
 function removeSession(id: number): void {
@@ -554,6 +968,9 @@ function removeSession(id: number): void {
     return;
   }
   const [gone] = sessions.splice(idx, 1);
+  if (gone.find.debounce !== undefined) {
+    clearTimeout(gone.find.debounce);
+  }
   gone.dom.root.remove();
   pendingRenders.delete(gone);
   if (pendingReplaceId === id) {
@@ -562,19 +979,48 @@ function removeSession(id: number): void {
   if (focusedId === id) {
     const next = sessions[idx] ?? sessions[idx - 1];
     setFocused(next?.id);
-    if (!next) {
-      syncEmptyState();
-    }
   }
   if (sessions.length === 0) {
     syncEmptyState();
   }
+  refreshFindHighlights();
 }
 
-/** Closes a pane and tells the host to tear the session down. */
-function closeSessionLocal(id: number): void {
-  vscode.postMessage({ type: 'closeSession', sessionId: id });
-  removeSession(id);
+/** Restarts (or starts) this pane's port using the settings captured at
+ * creation — independent of the hardware row's current selection. */
+function startPane(s: TabSession): void {
+  const cfg = s.settings;
+  pendingReplaceId = s.state === 'idle' && s.kind === 'port' ? s.id : undefined;
+  vscode.postMessage({
+    type: 'connect',
+    port: s.title,
+    baudRate: cfg?.baudRate ?? (Number(baudInput.value) || 115200),
+    dataBits: cfg?.dataBits ?? Number(dataBitsSelect.value),
+    stopBits: cfg?.stopBits ?? Number(stopBitsSelect.value),
+    parity: cfg?.parity ?? paritySelect.value,
+  });
+}
+
+function sendCurrent(s: TabSession): void {
+  if (s.kind !== 'port' || s.state !== 'connected') {
+    return;
+  }
+  const text = s.dom.sendInput.value;
+  s.dom.sendInput.value = '';
+  vscode.postMessage({ type: 'send', sessionId: s.id, text, lineEnding: lineEndingSelect.value });
+}
+
+function clearBuffer(s: TabSession): void {
+  s.lineStore.length = 0;
+  s.decisions.length = 0;
+  s.visibleIndexes = [];
+  s.scroll = scrollReducer(s.scroll, { type: 'reset' });
+  s.marksDirty = true;
+  scheduleRender(s);
+  if (s.find.open) {
+    recomputeOccurrences(s);
+  }
+  refreshPaneControls(s);
 }
 
 function renderChips(): void {
@@ -754,16 +1200,12 @@ window.addEventListener('message', (e) => {
       // The new session went live on the same port: close the idle pane it replaces.
       if (replaced && replaced.title === s.title) {
         pendingReplaceId = undefined;
-        closeSessionLocal(replaced.id);
+        vscode.postMessage({ type: 'closeSession', sessionId: replaced.id });
+        removeSession(replaced.id);
       }
     }
-    s.dom.dot.className = 'tab-dot' + (s.state === 'connected' ? ' live' : s.state === 'connecting' ? ' pending' : '');
-    s.dom.root.title =
-      s.kind === 'file'
-        ? `Log file ${s.title} (read-only)`
-        : `${s.title} — ${s.state === 'connected' ? 'monitoring' : s.state === 'connecting' ? 'connecting' : 'stopped'}`;
+    refreshPaneControls(s);
     if (s.id === focusedId) {
-      updateButtons();
       setStatus();
     }
   } else if (m.type === 'append') {
@@ -777,6 +1219,9 @@ window.addEventListener('message', (e) => {
     for (const s of sessions) {
       s.marksDirty = true; // rows re-render with/without the [hh:mm:ss] prefix
       scheduleRender(s);
+      if (s.find.open) {
+        recomputeOccurrences(s); // the rendered text changed under the query
+      }
     }
   } else if (m.type === 'logging') {
     const s = sessions.find((x) => x.id === m.sessionId);
@@ -790,9 +1235,7 @@ window.addEventListener('message', (e) => {
     logDirBtn.title = m.directory
       ? `Logging each session into ${m.directory} — right-click to clear`
       : 'Choose a log directory: every logged session writes a new .log file (right-click to clear)';
-    if (s.id === focusedId) {
-      renderLogSessionControl();
-    }
+    refreshPaneControls(s);
   } else if (m.type === 'recentBauds') {
     recentBauds = m.values;
   } else if (m.type === 'exportRequest') {
@@ -803,8 +1246,8 @@ window.addEventListener('message', (e) => {
   } else if (m.type === 'status') {
     setStatus(m.message);
   } else if (m.type === 'clear') {
-    // API-triggered clear targets the focused pane; the button path sends
-    // its own message with a sessionId.
+    // API-triggered clear targets the focused pane; pane buttons send their
+    // own message with a sessionId.
     const f = focusedSession();
     if (f) {
       if (f.kind === 'port') {
@@ -831,7 +1274,7 @@ window.addEventListener('message', (e) => {
   }
 });
 
-// --- Connect / disconnect ----------------------------------------------------
+// --- Starting monitors ---------------------------------------------------------
 
 function startMonitoring(): void {
   const path = portSelect.value;
@@ -854,112 +1297,30 @@ function startMonitoring(): void {
   });
 }
 
-connectBtn.addEventListener('click', () => {
-  const f = focusedSession();
-  if (f?.kind === 'port' && f.state === 'connecting') {
-    return;
-  }
-  if (f?.kind === 'port' && f.state === 'connected') {
-    vscode.postMessage({ type: 'disconnect', sessionId: f.id });
-    return;
-  }
-  startMonitoring();
-});
+connectBtn.addEventListener('click', startMonitoring);
 
 // ＋ opens another monitor: a new pane splits the view while the existing
 // ones keep streaming.
 addMonitorBtn.addEventListener('click', startMonitoring);
 
-function sendCurrent(): void {
-  const f = focusedSession();
-  if (!f || f.kind !== 'port' || f.state !== 'connected') {
-    return;
-  }
-  const text = sendInput.value;
-  sendInput.value = '';
-  vscode.postMessage({ type: 'send', sessionId: f.id, text, lineEnding: lineEndingSelect.value });
-}
-
-sendBtn.addEventListener('click', sendCurrent);
-sendInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') {
-    sendCurrent();
-  }
-});
-
 timestampsBtn.addEventListener('click', () => {
   vscode.postMessage({ type: 'setTimestamps', enabled: !showTimestamps });
-});
-
-logSessionBtn.addEventListener('click', () => {
-  const f = focusedSession();
-  if (!f || f.kind !== 'port' || f.state === 'connecting') {
-    return;
-  }
-  vscode.postMessage({ type: 'setLogSession', sessionId: f.id, enabled: !f.logDesired });
 });
 
 openLogFileBtn.addEventListener('click', () => {
   vscode.postMessage({ type: 'openLogFile' });
 });
 
-function clearBuffer(s: TabSession): void {
-  s.lineStore.length = 0;
-  s.decisions.length = 0;
-  s.visibleIndexes = [];
-  s.scroll = scrollReducer(s.scroll, { type: 'reset' });
-  s.marksDirty = true;
-  scheduleRender(s);
-  if (s.id === focusedId) {
-    renderScrollIndicator();
+// Ctrl+F finds in the focused pane, like the editor's find widget.
+document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+    const f = focusedSession();
+    if (f) {
+      e.preventDefault();
+      openFind(f);
+    }
   }
-  updateButtons();
-}
-
-function clearMonitor(): void {
-  const f = focusedSession();
-  if (!f) {
-    return;
-  }
-  if (f.kind === 'port') {
-    vscode.postMessage({ type: 'clear', sessionId: f.id }); // host resets its ring count too
-  }
-  clearBuffer(f);
-}
-
-clearBtn.addEventListener('click', clearMonitor);
-
-scrollStateBtn.addEventListener('click', () => {
-  const f = focusedSession();
-  if (!f) {
-    return;
-  }
-  f.scroll = scrollReducer(f.scroll, { type: 'toggle' });
-  if (f.scroll === 'follow') {
-    f.dom.log.scrollTop = f.dom.log.scrollHeight; // rejoining the stream snaps to the bottom
-  }
-  renderScrollIndicator();
 });
-
-function renderScrollIndicator(): void {
-  const mode = focusedSession()?.scroll ?? 'follow';
-  scrollStateBtn.innerHTML = mode === 'follow' ? '&#8681; Following' : '&#128274; Locked';
-  scrollStateBtn.title =
-    mode === 'follow'
-      ? 'Focused pane follows new lines — click to lock'
-      : 'Scroll locked, data keeps arriving — click to rejoin';
-  scrollStateBtn.classList.toggle('locked', mode === 'locked');
-}
-
-tagBtn.addEventListener('click', () => {
-  const selected = window.getSelection()?.toString().trim() ?? '';
-  if (!selected) {
-    return;
-  }
-  vscode.postMessage({ type: 'createTag', pattern: selected });
-});
-// Keep the selection alive: clicking the button must not collapse it.
-tagBtn.addEventListener('mousedown', (e) => e.preventDefault());
 
 // --- Filter menu -------------------------------------------------------------
 
@@ -981,7 +1342,7 @@ function renderFilterMenu(): void {
   ];
   for (const o of options) {
     const item = document.createElement('div');
-    item.className = 'baud-item' + (o.mode === filterMode ? ' current' : '');
+    item.className = 'menu-item' + (o.mode === filterMode ? ' current' : '');
     item.textContent = (o.mode === filterMode ? '\u2714\uFE0E ' : '') + o.label;
     item.title = o.hint;
     item.addEventListener('click', () => {
@@ -1013,7 +1374,7 @@ function renderBaudMenu(): void {
   const current = baudInput.value.trim();
   const pushItem = (b: number, recent: boolean) => {
     const item = document.createElement('div');
-    item.className = 'baud-item' + (recent ? ' recent' : '');
+    item.className = 'menu-item' + (recent ? ' recent' : '');
     item.textContent = (String(b) === current ? '\u2714\uFE0E ' : '') + String(b);
     item.title = recent ? 'Recently used' : '';
     item.addEventListener('click', () => {
@@ -1024,7 +1385,7 @@ function renderBaudMenu(): void {
   };
   const header = (label: string) => {
     const h = document.createElement('div');
-    h.className = 'baud-menu-header';
+    h.className = 'menu-header';
     h.textContent = label;
     baudMenu.appendChild(h);
   };
@@ -1072,22 +1433,14 @@ logDirBtn.addEventListener('contextmenu', (e) => {
   vscode.postMessage({ type: 'clearLogDirectory' });
 });
 
-// Quick collapse: hide the hardware row once connected — content controls
-// stay at hand while the consoles take the full panel height.
+// Quick collapse: hide the hardware row — content controls stay at hand
+// while the consoles take the full panel height.
 let hwVisible = true;
 collapseHwBtn.addEventListener('click', () => {
   hwVisible = !hwVisible;
   hwRow.style.display = hwVisible ? 'flex' : 'none';
   collapseHwBtn.innerHTML = hwVisible ? '&#9652;' : '&#9662;';
   collapseHwBtn.title = hwVisible ? 'Hide the hardware row' : 'Show the hardware row';
-});
-
-exportBtn.addEventListener('click', () => {
-  const f = focusedSession();
-  if (!f) {
-    return;
-  }
-  vscode.postMessage({ type: 'export', sessionId: f.id });
 });
 
 document.addEventListener('selectionchange', updateTagButton);
@@ -1099,9 +1452,7 @@ window.addEventListener('resize', () => {
 });
 
 syncEmptyState();
-renderScrollIndicator();
 renderTimestampsControl();
-renderLogSessionControl();
 setFilterMode('off');
 updateButtons();
 vscode.postMessage({ type: 'ready' });
