@@ -60,6 +60,11 @@ interface PaneDom {
   sendRow: HTMLDivElement;
   sendInput: HTMLInputElement;
   sendBtn: HTMLButtonElement;
+  /** Per-pane virtualization spacers. They MUST NOT be shared: replaceChildren
+   * moves nodes, so a module-level pair would be stolen by whichever pane
+   * rendered last, collapsing the other pane's scrollable height. */
+  spacerTop: HTMLDivElement;
+  spacerBottom: HTMLDivElement;
 }
 
 /** One occurrence of the find query inside a line's rendered text. */
@@ -143,11 +148,6 @@ let rowHeightPx = 20;
 const pendingRenders = new Set<TabSession>();
 let renderScheduled = false;
 
-const spacerTop = document.createElement('div');
-const spacerBottom = document.createElement('div');
-spacerTop.className = 'log-spacer';
-spacerBottom.className = 'log-spacer';
-
 // CSS Custom Highlight API (Chromium ≥105, guaranteed in VS Code's webview);
 // guarded lookups keep TypeScript's DOM lib happy.
 type HighlightLike = { new (...ranges: Range[]): unknown };
@@ -227,9 +227,9 @@ function renderWindowFor(s: TabSession): void {
     row.style.textIndent = r.textIndent;
     frag.appendChild(row);
   }
-  spacerTop.style.height = `${topPx}px`;
-  spacerBottom.style.height = `${bottomPx}px`;
-  logEl.replaceChildren(spacerTop, frag, spacerBottom);
+  s.dom.spacerTop.style.height = `${topPx}px`;
+  s.dom.spacerBottom.style.height = `${bottomPx}px`;
+  s.dom.log.replaceChildren(s.dom.spacerTop, frag, s.dom.spacerBottom);
   restoreSelection(savedSelection);
   s.lastRender = { topPx, bottomPx, rows };
   renderMarksFor(s);
@@ -613,6 +613,16 @@ function updateTagButton(): void {
     : 'Create a tag from the selected text (or type one in the ⚙ panel)';
 }
 
+tagBtn.addEventListener('click', () => {
+  const selected = window.getSelection()?.toString().trim() ?? '';
+  if (!selected) {
+    return;
+  }
+  vscode.postMessage({ type: 'createTag', pattern: selected });
+});
+// Keep the selection alive: clicking the button must not collapse it.
+tagBtn.addEventListener('mousedown', (e) => e.preventDefault());
+
 function setStatus(message?: string): void {
   if (message) {
     statusEl.textContent = message;
@@ -908,7 +918,12 @@ function buildPane(s: TabSession): PaneDom {
     }
   });
 
-  return { root, dot, title, play, clearBtn, logBtn, exportBtn, scrollBtn, findBtn, close, log: logEl, marks, findBar, findInput, findCase, findWord, findRegex, findCount, findPrev, findNext, findClose, sendRow, sendInput, sendBtn };
+  const spacerTop = document.createElement('div');
+  spacerTop.className = 'log-spacer';
+  const spacerBottom = document.createElement('div');
+  spacerBottom.className = 'log-spacer';
+
+  return { root, dot, title, play, clearBtn, logBtn, exportBtn, scrollBtn, findBtn, close, log: logEl, marks, findBar, findInput, findCase, findWord, findRegex, findCount, findPrev, findNext, findClose, sendRow, sendInput, sendBtn, spacerTop, spacerBottom };
 }
 
 function createSession(m: {

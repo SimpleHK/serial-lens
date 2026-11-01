@@ -78,16 +78,48 @@
           "markdownDescription": "Tags: named row-matching rules (pattern + color + highlight/filter flags) consumed by highlighting and filtering. Usually managed from the monitor UI.",
           "items": {
             "type": "object",
-            "required": ["name", "pattern", "isRegex", "color", "highlight", "filter"],
+            "required": [
+              "name",
+              "pattern",
+              "isRegex",
+              "color",
+              "highlight",
+              "filter"
+            ],
             "properties": {
-              "id": { "type": "string", "description": "Stable identity used by the UI (assigned automatically)." },
-              "name": { "type": "string", "description": "Display name." },
-              "pattern": { "type": "string", "description": "Literal substring, or regex source when isRegex is true." },
-              "isRegex": { "type": "boolean", "description": "Whether pattern is a regular expression instead of a substring." },
-              "color": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Hex color used for the full-line highlight and the chip." },
-              "highlight": { "type": "boolean", "description": "Participates in full-line highlighting." },
-              "filter": { "type": "boolean", "description": "Participates in filtering (with the global filter mode)." },
-              "enabled": { "type": "boolean", "description": "Legacy single switch; migrated to highlight/filter on load." }
+              "id": {
+                "type": "string",
+                "description": "Stable identity used by the UI (assigned automatically)."
+              },
+              "name": {
+                "type": "string",
+                "description": "Display name."
+              },
+              "pattern": {
+                "type": "string",
+                "description": "Literal substring, or regex source when isRegex is true."
+              },
+              "isRegex": {
+                "type": "boolean",
+                "description": "Whether pattern is a regular expression instead of a substring."
+              },
+              "color": {
+                "type": "string",
+                "pattern": "^#[0-9a-fA-F]{6}$",
+                "description": "Hex color used for the full-line highlight and the chip."
+              },
+              "highlight": {
+                "type": "boolean",
+                "description": "Participates in full-line highlighting."
+              },
+              "filter": {
+                "type": "boolean",
+                "description": "Participates in filtering (with the global filter mode)."
+              },
+              "enabled": {
+                "type": "boolean",
+                "description": "Legacy single switch; migrated to highlight/filter on load."
+              }
             }
           }
         }
@@ -117,6 +149,7 @@
     "@types/vscode": "^1.90.0",
     "@vscode/test-electron": "^2.5.2",
     "esbuild": "^0.24.0",
+    "happy-dom": "^21.0.4",
     "mocha": "^11.8.0",
     "typescript": "^5.6.0",
     "vitest": "^2.1.0"
