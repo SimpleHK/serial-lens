@@ -90,7 +90,7 @@ describe('split-view panes', () => {
     selection?.addRange(range);
     document.dispatchEvent(new Event('selectionchange'));
 
-    const tagBtn = document.getElementById('create-tag') as HTMLButtonElement;
+    const tagBtn = document.querySelector('.create-tag') as HTMLButtonElement;
     expect(tagBtn.disabled).toBe(false);
     tagBtn.click();
     expect(posted).toContainEqual(expect.objectContaining({ type: 'createTag', pattern: 'error line one' }));
@@ -106,9 +106,11 @@ describe('split-view panes', () => {
       settings: { baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' },
     });
     fire({ type: 'ports', ports: [{ path: 'COM90' }] });
-    (document.getElementById('add-monitor') as HTMLButtonElement).click();
+    const addBtn = document.querySelector('.add-monitor') as HTMLButtonElement;
+    expect(addBtn).toBeTruthy();
+    addBtn.click();
     // Variant B: ＋ opens a port menu; picking one starts a monitor.
-    const item = document.querySelector('#add-menu .menu-item[data-path="COM90"]') as HTMLElement;
+    const item = document.querySelector('.add-menu .menu-item[data-path="COM90"]') as HTMLElement;
     expect(item).toBeTruthy();
     posted.length = 0;
     item.click();
@@ -310,8 +312,8 @@ describe('variant B: per-pane config, focused global actions', () => {
       settings: { baudRate: 19200, dataBits: 8, stopBits: 1, parity: 'none' },
     });
     fire({ type: 'ports', ports: [{ path: 'COM97' }, { path: 'COM101' }] });
-    (document.getElementById('add-monitor') as HTMLButtonElement).click();
-    const item = document.querySelector('#add-menu .menu-item[data-path="COM97"]') as HTMLElement;
+    (document.querySelector('.add-monitor') as HTMLButtonElement).click();
+    const item = document.querySelector('.add-menu .menu-item[data-path="COM97"]') as HTMLElement;
     expect(item).toBeTruthy();
     posted.length = 0;
     item.click();
@@ -344,40 +346,47 @@ describe('variant B: per-pane config, focused global actions', () => {
     expect(sendRow.style.display).toBe('flex');
   });
 
-  it('rides the global actions on the focused pane bar', async () => {
+  it('doubles every control across panes instead of moving one segment', async () => {
     const S = { baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' };
     fire({ type: 'sessionCreated', sessionId: 45, kind: 'port', title: 'COM102', state: 'connected', settings: { ...S } });
     fire({ type: 'sessionCreated', sessionId: 46, kind: 'port', title: 'COM103', state: 'connected', settings: { ...S } });
-    // the newest pane is focused by default
-    let focused = document.querySelector('.pane.focused') as HTMLElement;
-    expect(focused.querySelector('.pane-title')?.textContent).toContain('COM103');
-    expect((focused.querySelector('#global-seg') as HTMLElement).querySelector('#add-monitor')).toBeTruthy();
-    // clicking another pane moves the global segment with the focus
-    const other = Array.from(document.querySelectorAll('.pane')).find(
-      (p) => p.querySelector('.pane-title')?.textContent?.includes('COM102'),
-    ) as HTMLElement;
-    other.click();
-    focused = document.querySelector('.pane.focused') as HTMLElement;
-    expect(focused.querySelector('.pane-title')?.textContent).toContain('COM102');
-    expect(focused.querySelector('#global-seg')).toBeTruthy();
+    // EVERY pane carries its OWN global controls (add/refresh/filter/...),
+    // whatever other panes are already open.
+    const panes = Array.from(document.querySelectorAll('.pane'));
+    expect(panes.length).toBeGreaterThan(1);
+    for (const pane of panes) {
+      expect(pane.querySelectorAll('.global-seg').length).toBe(1);
+      expect(pane.querySelectorAll('.add-monitor').length).toBe(1);
+    }
+    expect(document.querySelectorAll('.pane .add-monitor').length).toBe(panes.length);
+    // the filter control is a funnel glyph, labeled for a11y and tests
+    const filter = document.querySelector('.pane .filter-toggle[aria-label="Filter"]') as HTMLElement;
+    expect(filter).toBeTruthy();
+    expect(filter.querySelector('.filter-glyph')).toBeTruthy();
+    // focusing either pane must NOT re-parent anything
+    const before = panes.map((p) => p.querySelector('.global-seg'));
+    (panes[0] as HTMLElement).click();
+    const after = panes.map((p) => p.querySelector('.global-seg'));
+    expect(after[0]).toBe(before[0]);
+    expect(after[1]).toBe(before[1]);
   });
 
-  it('pins the empty-state row to the top, actions leading', () => {
+  it('renders bigger controls than the previous 22/26px set', () => {
     const html = monitorPageHtml({ scriptUri: 'x', cspSource: 'y' });
-    // A stretched flex item would center the row mid-panel and draw the
-    // segment's border-left as a full-height vertical line (seen in the wild).
-    expect(html).toMatch(/\.empty-row\s*\{[^}]*flex:\s*none/);
-    expect(html).toMatch(/\.empty-row\s*\{[^}]*align-self:\s*flex-start/);
+    expect(html).toMatch(/\.pbtn\s*\{[^}]*width:\s*26px/);
+    expect(html).toMatch(/\.icon-btn\s*\{[^}]*width:\s*30px/);
+    expect(html).toMatch(/\.filter-glyph\s*\{[^}]*-webkit-mask:\s*url\("data:image\/svg\+xml/);
   });
 
-  it('returns the global segment to a top empty row when all panes close', () => {
+  it('keeps a full controls row in the empty state', async () => {
     for (const id of [1, 2, 3, 20, 21, 22, 23, 30, 40, 41, 42, 43, 44, 45, 46]) {
       fire({ type: 'sessionClosed', sessionId: id });
     }
     expect(document.querySelectorAll('.pane').length).toBe(0);
     const row = document.querySelector('#panes .empty-row') as HTMLElement;
     expect(row).toBeTruthy();
-    expect(row.firstElementChild?.id).toBe('global-seg'); // actions lead, hint follows
-    expect(document.getElementById('add-monitor')).toBeTruthy(); // still reachable
+    expect(row.querySelector('.add-monitor')).toBeTruthy();
+    expect(row.querySelector('.global-seg')).toBeTruthy();
+    expect(row.textContent).toContain('No monitors open');
   });
 });

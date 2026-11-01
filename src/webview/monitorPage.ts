@@ -30,9 +30,11 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   button:hover:enabled { background: var(--vscode-toolbar-hoverBackground); }
   button:disabled { opacity: 0.4; cursor: default; }
   button:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
-  .icon-btn { width: 26px; min-width: 26px; height: 24px; padding: 0; font-size: 15px; display: inline-flex; align-items: center; justify-content: center; }
+  .icon-btn { width: 30px; min-width: 30px; height: 26px; padding: 0; font-size: 17px; display: inline-flex; align-items: center; justify-content: center; }
   .icon-btn.on { color: var(--vscode-focusBorder); background: var(--vscode-toolbar-hoverBackground); }
-  #log-dir.logging { color: var(--vscode-charts-red, #f14c4c); }
+  #log-dir.logging, .log-dir.logging { color: var(--vscode-charts-red, #f14c4c); }
+  /* Funnel glyph for the tag-filter control (inline mask, tints via currentColor). */
+  .filter-glyph { width: 16px; height: 16px; display: inline-block; background: currentColor; -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M3 4h18l-7 8.5V19l-4 2.5v-8.5L3 4z'/%3E%3C/svg%3E") center / contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M3 4h18l-7 8.5V19l-4 2.5v-8.5L3 4z'/%3E%3C/svg%3E") center / contain no-repeat; }
   .menu-wrap { position: relative; display: inline-flex; }
   .menu {
     display: none; position: absolute; top: calc(100% + 3px); left: 0; z-index: 10;
@@ -70,31 +72,32 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   .pane-divider { flex: 0 0 1px; background: var(--vscode-panel-border); cursor: col-resize; position: relative; z-index: 6; }
   .pane-divider::after { content: ''; position: absolute; top: 0; bottom: 0; left: -3px; right: -3px; }
   body.pane-dragging { cursor: col-resize; user-select: none; }
-  .pane-header { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; min-height: 26px; padding: 2px 4px 2px 8px; border-bottom: 1px solid var(--vscode-panel-border); user-select: none; }
+  .pane-header { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; min-height: 30px; padding: 2px 4px 2px 8px; border-bottom: 1px solid var(--vscode-panel-border); user-select: none; }
   .pane-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 2px; color: var(--vscode-descriptionForeground); }
   .tab-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--vscode-descriptionForeground); opacity: 0.5; flex: none; margin-right: 3px; }
   .tab-dot.live { background: var(--vscode-charts-green, #89d185); opacity: 1; }
   .tab-dot.pending { background: var(--vscode-charts-yellow, #ddb100); opacity: 1; }
   /* Per-pane serial config, embedded in the pane bar. */
-  .ph-ctl { height: 20px; font-size: 12px; background: var(--vscode-dropdown-background); color: var(--vscode-dropdown-foreground); border: 1px solid transparent; border-radius: 3px; padding: 0 4px; outline: none; font-family: inherit; }
+  .ph-ctl { height: 24px; font-size: 13px; background: var(--vscode-dropdown-background); color: var(--vscode-dropdown-foreground); border: 1px solid transparent; border-radius: 3px; padding: 0 5px; outline: none; font-family: inherit; }
   .ph-ctl:hover:enabled { border-color: var(--vscode-dropdown-border); }
   .ph-ctl:focus:enabled { border-color: var(--vscode-focusBorder); }
   select.ph-ctl { cursor: pointer; }
-  .ph-port { flex: 0 1 130px; min-width: 88px; }
-  .ph-baud { width: 62px; text-align: right; font-variant-numeric: tabular-nums; }
-  .ph-db { width: 42px; } .ph-parity { width: 62px; } .ph-sb { width: 42px; } .ph-le { width: 54px; }
-  .pbtn { width: 22px; min-width: 22px; height: 22px; padding: 0; font-size: 13px; border-radius: 3px; flex: none; display: inline-flex; align-items: center; justify-content: center; }
+  .ph-port { flex: 0 1 140px; min-width: 92px; }
+  .ph-baud { width: 70px; text-align: right; font-variant-numeric: tabular-nums; }
+  .ph-db { width: 46px; } .ph-parity { width: 68px; } .ph-sb { width: 46px; } .ph-le { width: 58px; }
+  .pbtn { width: 26px; min-width: 26px; height: 26px; padding: 0; font-size: 15px; border-radius: 3px; flex: none; display: inline-flex; align-items: center; justify-content: center; }
   .pbtn.on { color: var(--vscode-focusBorder); }
   .pbtn.rec { color: var(--vscode-charts-red, #f14c4c); }
   .pbtn.locked { color: var(--vscode-charts-yellow, #ddb100); }
-  .pane-close { width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; border-radius: 3px; font-size: 13px; color: inherit; opacity: 0.7; cursor: pointer; flex: none; }
+  .pane-close { width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; border-radius: 3px; font-size: 14px; color: inherit; opacity: 0.7; cursor: pointer; flex: none; }
   .pane-close:hover { background: rgba(128, 128, 128, 0.35); opacity: 1; }
-  /* Variant B: the global actions ride the focused pane's bar. */
-  #global-seg { display: flex; align-items: center; gap: 2px; margin-left: auto; padding-left: 6px; border-left: 1px solid var(--vscode-panel-border); align-self: stretch; }
-  #status { font-size: 11px; color: var(--vscode-descriptionForeground); padding: 0 4px; white-space: nowrap; }
+  /* Variant B: the global actions exist on EVERY pane's bar (all controls
+   * doubled) plus the empty-state row. */
+  .global-seg { display: flex; align-items: center; gap: 2px; margin-left: auto; padding-left: 6px; border-left: 1px solid var(--vscode-panel-border); align-self: stretch; }
+  .pane-status { font-size: 11px; color: var(--vscode-descriptionForeground); padding: 0 4px; white-space: nowrap; }
   .empty-row { display: flex; flex: none; align-self: flex-start; width: 100%; flex-wrap: wrap; align-items: center; gap: 10px; min-height: 30px; padding: 2px 10px; border-bottom: 1px solid var(--vscode-panel-border); color: var(--vscode-descriptionForeground); font-size: 12px; }
   /* The segment loses its pane-bar divider styling inside the empty row. */
-  .empty-row #global-seg { margin-left: 0; border-left: none; align-self: center; }
+  .empty-row .global-seg { margin-left: 0; border-left: none; align-self: center; }
   .pane-body { position: relative; flex: 1; min-height: 0; display: flex; }
   /* Microsoft-terminal gray for received data in both dark and light themes. */
   .pane-log { flex: 1; overflow-y: auto; overflow-x: auto; padding: 4px 14px 4px 10px; background: var(--vscode-editor-background); font-family: var(--vscode-editor-font-family, monospace); font-size: var(--vscode-editor-font-size, 13px); user-select: text; scrollbar-width: thin; color: #cccccc; }
@@ -125,7 +128,7 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
     background: var(--vscode-input-background); color: var(--vscode-input-foreground);
     border: 1px solid var(--vscode-input-border, var(--vscode-panel-border)); border-radius: 3px; outline: none; }
   .find-bar input:focus { border-color: var(--vscode-focusBorder); }
-  .fbtn { width: 22px; min-width: 22px; height: 22px; padding: 0; font-size: 12px; border-radius: 3px; flex: none; }
+  .fbtn { width: 24px; min-width: 24px; height: 24px; padding: 0; font-size: 13px; border-radius: 3px; flex: none; }
   .fbtn.on { background: var(--vscode-inputOption-activeBackground, rgba(255, 255, 255, 0.15)); color: var(--vscode-inputOption-activeForeground, var(--vscode-focusBorder)); outline: 1px solid var(--vscode-inputOption-activeBorder, transparent); }
   .find-count { font-size: 11px; color: var(--vscode-descriptionForeground); white-space: nowrap; min-width: 64px; text-align: center; user-select: none; }
   .find-count.error { color: var(--vscode-errorForeground, #f14c4c); }

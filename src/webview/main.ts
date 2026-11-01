@@ -56,6 +56,15 @@ interface PaneDom {
   sendInput: HTMLInputElement;
   sendBtn: HTMLButtonElement;
   hint: HTMLDivElement;
+  /** This pane's own copy of the global controls and its status readout. */
+  globalSeg: HTMLDivElement;
+  status: HTMLSpanElement;
+  ctlRefs: {
+    tagBtn: HTMLButtonElement;
+    filterToggleBtn: HTMLButtonElement;
+    timestampsBtn: HTMLButtonElement;
+    logDirBtn: HTMLButtonElement;
+  };
   /** Per-pane virtualization spacers. They MUST NOT be shared: replaceChildren
    * moves nodes, so a module-level pair would be stolen by whichever pane
    * rendered last, collapsing the other pane's scrollable height. */
@@ -134,23 +143,184 @@ let tags: Tag[] = [];
 let recentBauds: number[] = [];
 let lastPorts: { path: string; description?: string }[] = [];
 
-// The single global-actions segment (Variant B) and its elements.
-let globalSeg: HTMLDivElement;
-let addMonitorBtn: HTMLButtonElement;
-let addMenu: HTMLDivElement;
-let addMenuOpen = false;
-let refreshBtn: HTMLButtonElement;
-let filterToggleBtn: HTMLButtonElement;
-let filterMenu: HTMLDivElement;
-let timestampsBtn: HTMLButtonElement;
-let logDirBtn: HTMLButtonElement;
-let openLogFileBtn: HTMLButtonElement;
-let tagBtn: HTMLButtonElement;
-let manageToggleBtn: HTMLButtonElement;
-let statusEl: HTMLSpanElement;
-
 function focusedSession(): TabSession | undefined {
   return sessions.find((s) => s.id === focusedId);
+}
+
+// Every pane (and the empty row) carries its OWN copy of the global
+// controls; the registries let state changes restyle all copies at once.
+const controlRegistry = {
+  tagButtons: new Set<HTMLButtonElement>(),
+  filterToggles: new Set<HTMLButtonElement>(),
+  timestampsButtons: new Set<HTMLButtonElement>(),
+  logDirButtons: new Set<HTMLButtonElement>(),
+};
+let emptyStatus: HTMLSpanElement | undefined;
+let emptyAddMenu: HTMLDivElement | undefined;
+
+function unregisterControls(ctlRefs?: PaneDom['ctlRefs']): void {
+  if (!ctlRefs) {
+    return;
+  }
+  controlRegistry.tagButtons.delete(ctlRefs.tagBtn);
+  controlRegistry.filterToggles.delete(ctlRefs.filterToggleBtn);
+  controlRegistry.timestampsButtons.delete(ctlRefs.timestampsBtn);
+  controlRegistry.logDirButtons.delete(ctlRefs.logDirBtn);
+}
+
+/** Builds one copy of the global controls: ＋ port menu, refresh, filter,
+ * timestamps, log dir, open file, tag, manage, and a status readout. */
+function buildGlobalControls(): {
+  seg: HTMLDivElement;
+  status: HTMLSpanElement;
+  addMonitorBtn: HTMLButtonElement;
+  filterToggleBtn: HTMLButtonElement;
+  timestampsBtn: HTMLButtonElement;
+  logDirBtn: HTMLButtonElement;
+  tagBtn: HTMLButtonElement;
+} {
+  const seg = document.createElement('div');
+  seg.className = 'global-seg';
+  const mkBtn = (cls: string, glyph: string, title: string) => {
+    const b = document.createElement('button');
+    b.className = cls;
+    b.innerHTML = glyph;
+    b.title = title;
+    seg.appendChild(b);
+    return b;
+  };
+
+  // ＋ with its own port quick-pick.
+  const addWrap = document.createElement('span');
+  addWrap.className = 'menu-wrap';
+  const addMonitorBtn = document.createElement('button');
+  addMonitorBtn.className = 'icon-btn add-monitor';
+  addMonitorBtn.innerHTML = '&#65291;';
+  addMonitorBtn.title = 'Add a monitor — pick a port';
+  const addMenu = document.createElement('div');
+  addMenu.className = 'menu add-menu';
+  addWrap.append(addMonitorBtn, addMenu);
+  seg.appendChild(addWrap);
+  addMonitorBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleAddMenu(addMenu);
+  });
+
+  const refreshBtn = mkBtn('icon-btn refresh-btn', '&#128260;', 'Refresh port list');
+  refreshBtn.addEventListener('click', () => {
+    vscode.postMessage({ type: 'refreshPorts' });
+  });
+
+  // Filter mode menu (funnel glyph).
+  const filterWrap = document.createElement('span');
+  filterWrap.className = 'menu-wrap';
+  const filterToggleBtn = document.createElement('button');
+  filterToggleBtn.className = 'icon-btn filter-toggle';
+  filterToggleBtn.setAttribute('aria-label', 'Filter');
+  filterToggleBtn.title = 'Filter';
+  const glyph = document.createElement('span');
+  glyph.className = 'filter-glyph';
+  filterToggleBtn.appendChild(glyph);
+  const filterMenu = document.createElement('div');
+  filterMenu.className = 'menu filter-menu';
+  filterWrap.append(filterToggleBtn, filterMenu);
+  seg.appendChild(filterWrap);
+  filterToggleBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (filterMenu.style.display === 'block') {
+      filterMenu.style.display = 'none';
+      return;
+    }
+    renderFilterMenu(filterMenu);
+    filterMenu.style.display = 'block';
+  });
+
+  const timestampsBtn = mkBtn('icon-btn timestamps', '&#9201;&#65039;', 'Timestamps: off');
+  timestampsBtn.addEventListener('click', () => {
+    vscode.postMessage({ type: 'setTimestamps', enabled: !showTimestamps });
+  });
+
+  const logDirBtn = mkBtn('icon-btn log-dir', '&#128193;', 'Choose a log directory: every logged session writes a new .log file (right-click to clear)');
+  logDirBtn.addEventListener('click', () => {
+    vscode.postMessage({ type: 'chooseLogDirectory' });
+  });
+  logDirBtn.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    vscode.postMessage({ type: 'clearLogDirectory' });
+  });
+
+  const openLogFileBtn = mkBtn('icon-btn open-log-file', '&#128194;', 'Open a log file in a read-only pane');
+  openLogFileBtn.addEventListener('click', () => {
+    vscode.postMessage({ type: 'openLogFile' });
+  });
+
+  const tagBtn = mkBtn('icon-btn create-tag', '&#127991;&#65039;', 'Create a tag from the selected text');
+  tagBtn.disabled = true;
+  tagBtn.addEventListener('click', () => {
+    const selected = window.getSelection()?.toString().trim() ?? '';
+    if (!selected) {
+      return;
+    }
+    vscode.postMessage({ type: 'createTag', pattern: selected });
+  });
+  // Keep the selection alive: clicking the button must not collapse it.
+  tagBtn.addEventListener('mousedown', (e) => e.preventDefault());
+
+  const manageToggleBtn = mkBtn('icon-btn manage-toggle', '&#9881;&#65039;', 'Manage tags');
+  manageToggleBtn.addEventListener('click', () => {
+    manageOpen = !manageOpen;
+    renderManagePanel();
+  });
+
+  const status = document.createElement('span');
+  status.className = 'pane-status';
+  status.textContent = 'Idle';
+  seg.appendChild(status);
+
+  controlRegistry.tagButtons.add(tagBtn);
+  controlRegistry.filterToggles.add(filterToggleBtn);
+  controlRegistry.timestampsButtons.add(timestampsBtn);
+  controlRegistry.logDirButtons.add(logDirBtn);
+
+  return { seg, status, addMonitorBtn, filterToggleBtn, timestampsBtn, logDirBtn, tagBtn };
+}
+
+function toggleAddMenu(menu: HTMLDivElement): void {
+  if (menu.style.display === 'block') {
+    menu.style.display = 'none';
+    return;
+  }
+  renderAddMenu(menu);
+  menu.style.display = 'block';
+  // Refresh the cached list in the background; reopening shows it.
+  vscode.postMessage({ type: 'refreshPorts' });
+}
+
+function renderAddMenu(menu: HTMLDivElement): void {
+  menu.textContent = '';
+  const header = document.createElement('div');
+  header.className = 'menu-header';
+  header.textContent = 'Add monitor — pick a port';
+  menu.appendChild(header);
+  if (!lastPorts.length) {
+    const hint = document.createElement('div');
+    hint.className = 'menu-item hint';
+    hint.textContent = 'No ports detected — press 🔄 to refresh';
+    menu.appendChild(hint);
+    return;
+  }
+  for (const p of lastPorts) {
+    const item = document.createElement('div');
+    item.className = 'menu-item';
+    item.dataset.path = p.path;
+    item.textContent = p.description ? `${p.path} — ${p.description}` : p.path;
+    item.addEventListener('click', (e) => {
+      e.stopPropagation();
+      menu.style.display = 'none';
+      startFromMenu(p.path);
+    });
+    menu.appendChild(item);
+  }
 }
 
 // Virtualized rendering: fixed-height rows, spacer divs hold the scrolled
@@ -619,10 +789,12 @@ function restyleAllRows(): void {
 
 function updateTagButton(): void {
   const selected = window.getSelection()?.toString().trim() ?? '';
-  tagBtn.disabled = selected.length === 0;
-  tagBtn.title = selected
-    ? `Create a tag from "${selected.length > 24 ? selected.slice(0, 24) + '…' : selected}"`
-    : 'Create a tag from the selected text (or type one in the ⚙ panel)';
+  for (const btn of controlRegistry.tagButtons) {
+    btn.disabled = selected.length === 0;
+    btn.title = selected
+      ? `Create a tag from "${selected.length > 24 ? selected.slice(0, 24) + '…' : selected}"`
+      : 'Create a tag from the selected text (or type one in the ⚙ panel)';
+  }
 }
 
 function updateButtons(): void {
@@ -630,177 +802,27 @@ function updateButtons(): void {
 }
 
 function renderTimestampsControl(): void {
-  timestampsBtn.classList.toggle('on', showTimestamps);
-  timestampsBtn.title = `Timestamps: ${showTimestamps ? 'on' : 'off'} — click to ${showTimestamps ? 'hide' : 'show'} them`;
+  for (const btn of controlRegistry.timestampsButtons) {
+    btn.classList.toggle('on', showTimestamps);
+    btn.title = `Timestamps: ${showTimestamps ? 'on' : 'off'} — click to ${showTimestamps ? 'hide' : 'show'} them`;
+  }
 }
 
+function stateText(s: TabSession): string {
+  return s.state === 'connected' ? 'Connected' : s.state === 'connecting' ? 'Connecting...' : 'Idle';
+}
+
+/** Transient messages go to the focused pane's status; otherwise the empty
+ * row's status shows the summary. */
 function setStatus(message?: string): void {
-  if (message) {
-    statusEl.textContent = message;
-    return;
-  }
   const f = focusedSession();
   if (f) {
-    statusEl.textContent =
-      f.message || (f.state === 'connected' ? 'Connected' : f.state === 'connecting' ? 'Connecting...' : 'Idle');
+    f.dom.status.textContent = message || f.message || stateText(f);
     return;
   }
-  const live = sessions.filter((s) => s.kind === 'port' && s.state === 'connected').length;
-  statusEl.textContent = live ? `${live} monitor${live > 1 ? 's' : ''} running` : 'Idle';
-}
-
-// --- Global actions segment (Variant B) --------------------------------------
-
-function buildGlobalSeg(): void {
-  globalSeg = document.createElement('div');
-  globalSeg.id = 'global-seg';
-
-  const mkBtn = (id: string, glyph: string, title: string): HTMLButtonElement => {
-    const b = document.createElement('button');
-    b.id = id;
-    b.className = 'icon-btn';
-    b.innerHTML = glyph;
-    b.title = title;
-    globalSeg.appendChild(b);
-    return b;
-  };
-
-  // ＋ with its port quick-pick.
-  const addWrap = document.createElement('span');
-  addWrap.className = 'menu-wrap';
-  addMonitorBtn = document.createElement('button');
-  addMonitorBtn.id = 'add-monitor';
-  addMonitorBtn.className = 'icon-btn';
-  addMonitorBtn.innerHTML = '&#65291;';
-  addMonitorBtn.title = 'Add a monitor — pick a port';
-  addMenu = document.createElement('div');
-  addMenu.id = 'add-menu';
-  addMenu.className = 'menu';
-  addWrap.append(addMonitorBtn, addMenu);
-  globalSeg.appendChild(addWrap);
-  addMonitorBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    toggleAddMenu();
-  });
-
-  refreshBtn = mkBtn('refresh', '&#128260;', 'Refresh port list');
-  refreshBtn.addEventListener('click', () => {
-    vscode.postMessage({ type: 'refreshPorts' });
-  });
-
-  // Filter mode menu.
-  const filterWrap = document.createElement('span');
-  filterWrap.className = 'menu-wrap';
-  filterToggleBtn = document.createElement('button');
-  filterToggleBtn.id = 'filter-toggle';
-  filterToggleBtn.className = 'icon-btn';
-  filterToggleBtn.innerHTML = '&#128269;';
-  filterMenu = document.createElement('div');
-  filterMenu.id = 'filter-menu';
-  filterMenu.className = 'menu';
-  filterWrap.append(filterToggleBtn, filterMenu);
-  globalSeg.appendChild(filterWrap);
-  filterToggleBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    if (filterMenu.style.display === 'block') {
-      filterMenu.style.display = 'none';
-      return;
-    }
-    renderFilterMenu();
-    filterMenu.style.display = 'block';
-  });
-
-  timestampsBtn = mkBtn('timestamps', '&#9201;&#65039;', 'Timestamps: off');
-  timestampsBtn.addEventListener('click', () => {
-    vscode.postMessage({ type: 'setTimestamps', enabled: !showTimestamps });
-  });
-
-  logDirBtn = mkBtn('log-dir', '&#128193;', 'Choose a log directory: every logged session writes a new .log file (right-click to clear)');
-  logDirBtn.addEventListener('click', () => {
-    vscode.postMessage({ type: 'chooseLogDirectory' });
-  });
-  logDirBtn.addEventListener('contextmenu', (e) => {
-    e.preventDefault();
-    vscode.postMessage({ type: 'clearLogDirectory' });
-  });
-
-  openLogFileBtn = mkBtn('open-log-file', '&#128194;', 'Open a log file in a read-only pane');
-  openLogFileBtn.addEventListener('click', () => {
-    vscode.postMessage({ type: 'openLogFile' });
-  });
-
-  tagBtn = mkBtn('create-tag', '&#127991;&#65039;', 'Create a tag from the selected text');
-  tagBtn.disabled = true;
-  tagBtn.addEventListener('click', () => {
-    const selected = window.getSelection()?.toString().trim() ?? '';
-    if (!selected) {
-      return;
-    }
-    vscode.postMessage({ type: 'createTag', pattern: selected });
-  });
-  // Keep the selection alive: clicking the button must not collapse it.
-  tagBtn.addEventListener('mousedown', (e) => e.preventDefault());
-
-  manageToggleBtn = mkBtn('manage-toggle', '&#9881;&#65039;', 'Manage tags');
-  manageToggleBtn.addEventListener('click', () => {
-    manageOpen = !manageOpen;
-    renderManagePanel();
-  });
-
-  statusEl = document.createElement('span');
-  statusEl.id = 'status';
-  statusEl.textContent = 'Idle';
-  globalSeg.appendChild(statusEl);
-}
-
-/** The segment lives in the focused pane's bar, or the empty-state row. */
-function moveGlobalSeg(): void {
-  const host = focusedSession()?.dom.bar ?? (sessions.length ? sessions[0].dom.bar : undefined);
-  if (host) {
-    host.appendChild(globalSeg);
-  }
-}
-
-// --- ＋ port quick-pick --------------------------------------------------------
-
-function toggleAddMenu(): void {
-  if (addMenuOpen) {
-    addMenu.style.display = 'none';
-    addMenuOpen = false;
-    return;
-  }
-  renderAddMenu();
-  addMenu.style.display = 'block';
-  addMenuOpen = true;
-  // Refresh the cached list in the background; the menu re-renders on arrival.
-  vscode.postMessage({ type: 'refreshPorts' });
-}
-
-function renderAddMenu(): void {
-  addMenu.textContent = '';
-  const header = document.createElement('div');
-  header.className = 'menu-header';
-  header.textContent = 'Add monitor — pick a port';
-  addMenu.appendChild(header);
-  if (!lastPorts.length) {
-    const hint = document.createElement('div');
-    hint.className = 'menu-item hint';
-    hint.textContent = 'No ports detected — press 🔄 to refresh';
-    addMenu.appendChild(hint);
-    return;
-  }
-  for (const p of lastPorts) {
-    const item = document.createElement('div');
-    item.className = 'menu-item';
-    item.dataset.path = p.path;
-    item.textContent = p.description ? `${p.path} — ${p.description}` : p.path;
-    item.addEventListener('click', (e) => {
-      e.stopPropagation();
-      addMenu.style.display = 'none';
-      addMenuOpen = false;
-      startFromMenu(p.path);
-    });
-    addMenu.appendChild(item);
+  if (emptyStatus) {
+    const live = sessions.filter((s) => s.kind === 'port' && s.state === 'connected').length;
+    emptyStatus.textContent = message || (live ? `${live} monitor${live > 1 ? 's' : ''} running` : 'Idle');
   }
 }
 
@@ -846,11 +868,20 @@ function syncEmptyState(): void {
   if (sessions.length === 0) {
     const row = document.createElement('div');
     row.className = 'empty-row';
+    const controls = buildGlobalControls();
     const hint = document.createElement('span');
     hint.textContent = 'No monitors open — press ＋ to add one, or open a saved log file.';
     panesArea.appendChild(row);
-    row.appendChild(globalSeg); // actions lead, hint follows
+    row.appendChild(controls.seg); // actions lead, hint follows
     row.appendChild(hint);
+    emptyStatus = controls.status;
+    emptyAddMenu = controls.seg.querySelector<HTMLDivElement>('.add-menu') ?? undefined;
+    updateTagButton();
+    renderTimestampsControl();
+    setStatus(); // summary into the empty row's status
+  } else {
+    emptyStatus = undefined;
+    emptyAddMenu = undefined;
   }
 }
 
@@ -941,6 +972,9 @@ function refreshPaneControls(s: TabSession): void {
   if (hintText) {
     d.hint.textContent = hintText;
   }
+
+  // This pane's own status readout (end of its controls segment).
+  d.status.textContent = s.message || stateText(s);
 }
 
 function buildPane(s: TabSession): PaneDom {
@@ -1298,7 +1332,11 @@ function buildPane(s: TabSession): PaneDom {
   const spacerBottom = document.createElement('div');
   spacerBottom.className = 'log-spacer';
 
-  return { root, bar, dot, title, play, sendToggle, clearBtn, logBtn, exportBtn, scrollBtn, findBtn, close, portSelect, baudInput, dbSel, paritySel, sbSel, leSel, log: logEl, marks, findMarks, findBar, findInput, findCase, findWord, findRegex, findCount, findPrev, findNext, findClose, sendRow, sendInput, sendBtn, hint, spacerTop, spacerBottom };
+  // This pane's own copy of the global controls, at the end of its bar.
+  const controls = buildGlobalControls();
+  bar.appendChild(controls.seg);
+
+  return { root, bar, dot, title, play, sendToggle, clearBtn, logBtn, exportBtn, scrollBtn, findBtn, close, portSelect, baudInput, dbSel, paritySel, sbSel, leSel, log: logEl, marks, findMarks, findBar, findInput, findCase, findWord, findRegex, findCount, findPrev, findNext, findClose, sendRow, sendInput, sendBtn, hint, spacerTop, spacerBottom, globalSeg: controls.seg, status: controls.status, ctlRefs: { tagBtn: controls.tagBtn, filterToggleBtn: controls.filterToggleBtn, timestampsBtn: controls.timestampsBtn, logDirBtn: controls.logDirBtn } };
 }
 
 function createSession(m: {
@@ -1386,7 +1424,8 @@ function setFocused(id: number | undefined): void {
   for (const s of sessions) {
     s.dom.root.classList.toggle('focused', s.id === focusedId);
   }
-  moveGlobalSeg();
+  // With doubled controls there is nothing to move; focus only steers
+  // Ctrl+F, the API clear, and transient status messages.
   setStatus();
 }
 
@@ -1399,6 +1438,7 @@ function removeSession(id: number): void {
   if (gone.find.debounce !== undefined) {
     clearTimeout(gone.find.debounce);
   }
+  unregisterControls(gone.dom.ctlRefs);
   gone.dom.root.remove();
   gone.dividerLeft?.remove();
   if (idx === 0 && sessions.length > 0) {
@@ -1414,7 +1454,7 @@ function removeSession(id: number): void {
     setFocused(next?.id);
   }
   if (sessions.length === 0) {
-    syncEmptyState(); // rebuilds the empty row and re-homes the global segment
+    syncEmptyState(); // rebuilds the empty row with its own controls
   }
   refreshFindHighlights();
 }
@@ -1633,9 +1673,6 @@ window.addEventListener('message', (e) => {
         rebuildPortOptions(s);
       }
     }
-    if (addMenuOpen) {
-      renderAddMenu();
-    }
     updateButtons();
   } else if (m.type === 'state') {
     const s = sessions.find((x) => x.id === m.sessionId);
@@ -1679,10 +1716,12 @@ window.addEventListener('message', (e) => {
     s.logDesired = Boolean(m.desired);
     s.logFile = m.fileName;
     s.logDirectory = m.directory;
-    logDirBtn.classList.toggle('logging', Boolean(m.directory));
-    logDirBtn.title = m.directory
-      ? `Logging each session into ${m.directory} — right-click to clear`
-      : 'Choose a log directory: every logged session writes a new .log file (right-click to clear)';
+    for (const btn of controlRegistry.logDirButtons) {
+      btn.classList.toggle('logging', Boolean(m.directory));
+      btn.title = m.directory
+        ? `Logging each session into ${m.directory} — right-click to clear`
+        : 'Choose a log directory: every logged session writes a new .log file (right-click to clear)';
+    }
     refreshPaneControls(s);
   } else if (m.type === 'recentBauds') {
     recentBauds = m.values;
@@ -1778,12 +1817,14 @@ document.addEventListener('keydown', (e) => {
 // visibility for every pane and never changes Follow/locked state.
 function setFilterMode(mode: FilterMode): void {
   filterMode = mode;
-  filterToggleBtn.classList.toggle('on', mode !== 'off');
-  filterToggleBtn.title = `Filter: ${mode === 'off' ? 'off' : mode} — click to choose`;
+  for (const btn of controlRegistry.filterToggles) {
+    btn.classList.toggle('on', mode !== 'off');
+    btn.title = `Filter: ${mode === 'off' ? 'off' : mode} — click to choose`;
+  }
   restyleAllRows();
 }
 
-function renderFilterMenu(): void {
+function renderFilterMenu(filterMenu: HTMLDivElement): void {
   filterMenu.textContent = '';
   const options: { mode: FilterMode; label: string; hint: string }[] = [
     { mode: 'off', label: 'Off', hint: 'Show every line' },
@@ -1811,14 +1852,17 @@ window.addEventListener('resize', () => {
   }
 });
 
+// Click-away: close any open menu whose toggle was not the click target
+// (menus now exist per pane).
 document.addEventListener('click', (e) => {
   const target = e.target as Node;
-  if (filterMenu.style.display === 'block' && target !== filterToggleBtn && !filterMenu.contains(target)) {
-    filterMenu.style.display = 'none';
-  }
-  if (addMenuOpen && target !== addMonitorBtn && !addMenu.contains(target)) {
-    addMenu.style.display = 'none';
-    addMenuOpen = false;
+  for (const menu of Array.from(document.querySelectorAll<HTMLDivElement>('.menu'))) {
+    if (menu.style.display === 'block') {
+      const wrap = menu.parentElement;
+      if (!wrap || !wrap.contains(target)) {
+        menu.style.display = 'none';
+      }
+    }
   }
 });
 
@@ -1828,7 +1872,6 @@ tagsRow = document.createElement('div');
 tagsRow.id = 'tags-row';
 managePanel = document.createElement('div');
 managePanel.id = 'manage-panel';
-buildGlobalSeg();
 document.body.insertBefore(tagsRow, panesArea);
 document.body.insertBefore(managePanel, panesArea);
 syncEmptyState();
