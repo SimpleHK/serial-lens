@@ -10,7 +10,6 @@ import { rowHeightFor } from './rowHeight';
 const vscode = acquireVsCodeApi();
 
 const panesArea = document.getElementById('panes') as HTMLDivElement;
-const baudOptions = document.getElementById('baud-options') as HTMLDataListElement;
 
 /**
  * Layout: there is no global toolbar. Every pane carries its own serial
@@ -121,6 +120,11 @@ interface PaneSession {
   logFile?: string;
   logDirectory?: string;
   find: FindState;
+  /** Transient status text (export results etc.): shown for a few seconds,
+   * then the iconized state returns. */
+  transientMessage?: string;
+  transientUntil?: number;
+  transientTimer?: number;
   dom: PaneDom;
   lastRender?: { topPx: number; bottomPx: number; rows: RenderedRow[] };
   marksDirty: boolean;
@@ -222,6 +226,8 @@ function buildGlobalControls(): {
   filterToggleBtn.title = 'Filter';
   const glyph = document.createElement('span');
   glyph.className = 'filter-glyph';
+  glyph.innerHTML =
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h18l-7 8.5V19l-4 2.5v-8.5L3 4z" fill="currentColor"/></svg>';
   filterToggleBtn.appendChild(glyph);
   const filterMenu = document.createElement('div');
   filterMenu.className = 'menu filter-menu';
@@ -296,6 +302,49 @@ function toggleAddMenu(menu: HTMLDivElement): void {
   menu.style.display = 'block';
   // Refresh the cached list in the background; reopening shows it.
   vscode.postMessage({ type: 'refreshPorts' });
+}
+
+/** Baud quick-pick content: recently used rates first, then every preset. */
+function renderBaudMenuInto(menu: HTMLDivElement, input: HTMLInputElement): void {
+  menu.textContent = '';
+  const push = (b: number, recent: boolean) => {
+    const item = document.createElement('div');
+    item.className = 'menu-item' + (recent ? ' recent' : '');
+    item.textContent = (String(b) === input.value.trim() ? '✔︎ ' : '') + String(b);
+    item.title = recent ? 'Recently used' : '';
+    item.addEventListener('click', (e) => {
+      e.stopPropagation();
+      input.value = String(b);
+      input.dispatchEvent(new Event('change'));
+      menu.classList.remove('visible');
+    });
+    menu.appendChild(item);
+  };
+  const header = (label: string) => {
+    const h = document.createElement('div');
+    h.className = 'menu-header';
+    h.textContent = label;
+    menu.appendChild(h);
+  };
+  let shown = 0;
+  if (recentBauds.length) {
+    header('Recent');
+    for (const b of recentBauds) {
+      push(b, true);
+      shown++;
+    }
+    header('Presets');
+  }
+  for (const b of BAUD_RATE_PRESETS) {
+    if (recentBauds.includes(b)) {
+      continue;
+    }
+    push(b, false);
+    shown++;
+  }
+  if (shown === 0) {
+    header('No presets');
+  }
 }
 
 function renderAddMenu(menu: HTMLDivElement): void {
@@ -810,18 +859,66 @@ function stateText(s: PaneSession): string {
   return s.state === 'connected' ? 'Connected' : s.state === 'connecting' ? 'Connecting...' : 'Idle';
 }
 
-/** Transient messages go to the focused pane's status; otherwise the empty
- * row's status shows the summary. */
+/** The pane's status readout: an iconized connection state (✔/⌛/○, title
+ * carries the full text) unless a transient message is on display. */
+function renderPaneStatus(s: PaneSession): void {
+  const el = s.dom.status;
+  const text = s.message || stateText(s);
+  el.title = text;
+  if (s.transientMessage && s.transientUntil !== undefined && Date.now() < s.transientUntil) {
+    el.textContent = s.transientMessage;
+    return;
+  }
+  s.transientMessage = undefined;
+  el.textContent = '';
+  const icon = document.createElement('span');
+  icon.className = 'status-icon';
+  icon.dataset.state = s.state;
+  icon.textContent = s.state === 'connected' ? '✔' : s.state === 'connecting' ? '⌛' : '○';
+  el.appendChild(icon);
+}
+
+function renderEmptyStatus(message?: string): void {
+  if (!emptyStatus) {
+    return;
+  }
+  if (message) {
+    emptyStatus.textContent = message;
+    emptyStatus.title = message;
+    return;
+  }
+  const live = sessions.filter((s) => s.kind === 'port' && s.state === 'connected').length;
+  const text = live ? `${live} monitor${live > 1 ? 's' : ''} running` : 'Idle';
+  emptyStatus.textContent = '';
+  const icon = document.createElement('span');
+  icon.className = 'status-icon';
+  icon.dataset.state = 'idle';
+  icon.textContent = '○';
+  emptyStatus.appendChild(icon);
+  emptyStatus.title = text;
+}
+
+/** Transient messages go to the focused pane's status for a few seconds,
+ * then the iconized state returns; otherwise the empty row's status shows
+ * the summary. */
 function setStatus(message?: string): void {
   const f = focusedSession();
   if (f) {
-    f.dom.status.textContent = message || f.message || stateText(f);
+    if (message) {
+      f.transientMessage = message;
+      f.transientUntil = Date.now() + 4000;
+      if (f.transientTimer !== undefined) {
+        clearTimeout(f.transientTimer);
+      }
+      f.transientTimer = setTimeout(() => {
+        f.transientTimer = undefined;
+        renderPaneStatus(f);
+      }, 4100) as unknown as number;
+    }
+    renderPaneStatus(f);
     return;
   }
-  if (emptyStatus) {
-    const live = sessions.filter((s) => s.kind === 'port' && s.state === 'connected').length;
-    emptyStatus.textContent = message || (live ? `${live} monitor${live > 1 ? 's' : ''} running` : 'Idle');
-  }
+  renderEmptyStatus(message);
 }
 
 function startFromMenu(path: string): void {
@@ -846,20 +943,6 @@ function startFromMenu(path: string): void {
   });
 }
 
-function renderBaudDatalist(): void {
-  baudOptions.textContent = '';
-  const seen = new Set<number>();
-  for (const b of [...recentBauds, ...BAUD_RATE_PRESETS]) {
-    if (seen.has(b)) {
-      continue;
-    }
-    seen.add(b);
-    const o = document.createElement('option');
-    o.value = String(b);
-    baudOptions.appendChild(o);
-  }
-}
-
 // --- Split-view panes --------------------------------------------------------
 
 function syncEmptyState(): void {
@@ -877,7 +960,7 @@ function syncEmptyState(): void {
     emptyAddMenu = controls.seg.querySelector<HTMLDivElement>('.add-menu') ?? undefined;
     updateTagButton();
     renderTimestampsControl();
-    setStatus(); // summary into the empty row's status
+    renderEmptyStatus(); // iconized summary into the empty row's status
   } else {
     emptyStatus = undefined;
     emptyAddMenu = undefined;
@@ -973,7 +1056,7 @@ function refreshPaneControls(s: PaneSession): void {
   }
 
   // This pane's own status readout (end of its controls segment).
-  d.status.textContent = s.message || stateText(s);
+  renderPaneStatus(s);
 }
 
 function buildPane(s: PaneSession): PaneDom {
@@ -1039,11 +1122,30 @@ function buildPane(s: PaneSession): PaneDom {
     portSelect.value = s.title;
 
     const cfg = s.settings ?? DEFAULT_PORT_SETTINGS;
+    // Baud keeps a VISIBLE quick-pick (▾ menu with recents + presets) — a
+    // bare native datalist regressed to an invisible single-option picker.
+    const baudWrap = document.createElement('span');
+    baudWrap.className = 'menu-wrap';
     baudInput = document.createElement('input');
     baudInput.className = 'ph-ctl ph-baud';
     baudInput.value = String(cfg.baudRate);
     baudInput.title = 'Baud rate';
-    baudInput.setAttribute('list', 'baud-options');
+    const baudToggle = document.createElement('button');
+    baudToggle.className = 'pbtn baud-toggle';
+    baudToggle.innerHTML = '&#9662;';
+    baudToggle.title = 'Quick-pick baud rate';
+    const baudMenu = document.createElement('div');
+    baudMenu.className = 'menu baud-menu';
+    baudWrap.append(baudInput, baudToggle, baudMenu);
+    baudToggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (baudMenu.classList.contains('visible')) {
+        baudMenu.classList.remove('visible');
+        return;
+      }
+      renderBaudMenuInto(baudMenu, baudInput!);
+      baudMenu.classList.add('visible');
+    });
     dbSel = mkSelect(['8', '7', '6', '5'], String(cfg.dataBits), 'ph-db', 'Data bits');
     paritySel = mkSelect(['none', 'even', 'odd', 'mark', 'space'], cfg.parity, 'ph-parity', 'Parity');
     sbSel = mkSelect(['1', '1.5', '2'], String(cfg.stopBits), 'ph-sb', 'Stop bits');
@@ -1084,7 +1186,7 @@ function buildPane(s: PaneSession): PaneDom {
       s.lineEnding = leSel!.value;
     });
 
-    bar.append(dot, title, portSelect, baudInput, dbSel, paritySel, sbSel, leSel);
+    bar.append(dot, title, portSelect, baudWrap, dbSel, paritySel, sbSel, leSel);
   } else {
     bar.append(dot, title);
   }
@@ -1370,6 +1472,9 @@ function createSession(m: {
       byLine: new Map(),
       debounce: undefined,
     },
+    transientMessage: undefined,
+    transientUntil: undefined,
+    transientTimer: undefined,
     marksDirty: true,
     dom: undefined as unknown as PaneDom,
     sendHistory: [],
@@ -1727,8 +1832,7 @@ window.addEventListener('message', (e) => {
     }
     refreshPaneControls(s);
   } else if (m.type === 'recentBauds') {
-    recentBauds = m.values;
-    renderBaudDatalist();
+    recentBauds = m.values; // baud menus render from this when opened
   } else if (m.type === 'exportRequest') {
     const s = sessionFor(m.sessionId);
     if (s) {
@@ -1868,10 +1972,12 @@ window.addEventListener('resize', () => {
 document.addEventListener('click', (e) => {
   const target = e.target as Node;
   for (const menu of Array.from(document.querySelectorAll<HTMLDivElement>('.menu'))) {
-    if (menu.style.display === 'block') {
+    const open = menu.style.display === 'block' || menu.classList.contains('visible');
+    if (open) {
       const wrap = menu.parentElement;
       if (!wrap || !wrap.contains(target)) {
         menu.style.display = 'none';
+        menu.classList.remove('visible');
       }
     }
   }
@@ -1887,7 +1993,6 @@ document.body.insertBefore(tagsRow, panesArea);
 document.body.insertBefore(managePanel, panesArea);
 syncEmptyState();
 renderTimestampsControl();
-renderBaudDatalist();
 setFilterMode('off');
 updateTagButton();
 vscode.postMessage({ type: 'ready' });

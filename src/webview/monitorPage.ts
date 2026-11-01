@@ -34,7 +34,12 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   .icon-btn.on { color: var(--vscode-focusBorder); background: var(--vscode-toolbar-hoverBackground); }
   #log-dir.logging, .log-dir.logging { color: var(--vscode-charts-red, #f14c4c); }
   /* Funnel glyph for the tag-filter control (inline mask, tints via currentColor). */
-  .filter-glyph { width: 16px; height: 16px; display: inline-block; background: currentColor; -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M3 4h18l-7 8.5V19l-4 2.5v-8.5L3 4z'/%3E%3C/svg%3E") center / contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M3 4h18l-7 8.5V19l-4 2.5v-8.5L3 4z'/%3E%3C/svg%3E") center / contain no-repeat; }
+  /* Funnel glyph for the tag-filter control: an INLINE svg — a CSS mask
+   * url(data:) is blocked by the webview CSP and renders blank. */
+  .filter-glyph { display: inline-flex; color: inherit; }
+  .filter-glyph svg { width: 16px; height: 16px; display: block; }
+  .baud-menu { display: none; }
+  .baud-menu.visible { display: block; }
   .menu-wrap { position: relative; display: inline-flex; }
   .menu {
     display: none; position: absolute; top: calc(100% + 3px); left: 0; z-index: 10;
@@ -94,7 +99,11 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   /* Variant B: the global actions exist on EVERY pane's bar (all controls
    * doubled) plus the empty-state row. */
   .global-seg { display: flex; align-items: center; gap: 2px; margin-left: auto; padding-left: 6px; border-left: 1px solid var(--vscode-panel-border); align-self: stretch; }
-  .pane-status { font-size: 11px; color: var(--vscode-descriptionForeground); padding: 0 4px; white-space: nowrap; }
+  .pane-status { display: inline-flex; align-items: center; font-size: 11px; color: var(--vscode-descriptionForeground); padding: 0 4px; white-space: nowrap; }
+  /* Iconized connection state: ✔ connected, ⌛ connecting, ○ idle. */
+  .pane-status .status-icon { font-size: 13px; line-height: 1; }
+  .pane-status .status-icon[data-state='connected'] { color: var(--vscode-charts-green, #89d185); }
+  .pane-status .status-icon[data-state='connecting'] { color: var(--vscode-charts-yellow, #ddb100); }
   .empty-row { display: flex; flex: none; align-self: flex-start; width: 100%; flex-wrap: wrap; align-items: center; gap: 10px; min-height: 30px; padding: 2px 10px; border-bottom: 1px solid var(--vscode-panel-border); color: var(--vscode-descriptionForeground); font-size: 12px; }
   /* The segment loses its pane-bar divider styling inside the empty row. */
   .empty-row .global-seg { margin-left: 0; border-left: none; align-self: center; }
@@ -147,7 +156,6 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
 </head>
 <body>
   <div id="panes"></div>
-  <datalist id="baud-options"></datalist>
   <script src="${scriptUri}"></script>
 </body>
 </html>`;

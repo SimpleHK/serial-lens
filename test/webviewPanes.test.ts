@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { monitorPageHtml } from '../src/webview/monitorPage';
 import { rowHeightFor } from '../src/webview/rowHeight';
+import { BAUD_RATE_PRESETS } from '../src/shared/baudPresets';
 
 /**
  * Regression tests for the split-view webview wiring. These run the REAL
@@ -375,7 +376,6 @@ describe('per-pane config and doubled controls', () => {
     const html = monitorPageHtml({ scriptUri: 'x', cspSource: 'y' });
     expect(html).toMatch(/\.pbtn\s*\{[^}]*width:\s*26px/);
     expect(html).toMatch(/\.icon-btn\s*\{[^}]*width:\s*30px/);
-    expect(html).toMatch(/\.filter-glyph\s*\{[^}]*-webkit-mask:\s*url\("data:image\/svg\+xml/);
   });
 
   it('keeps a full controls row in the empty state', async () => {
@@ -388,5 +388,74 @@ describe('per-pane config and doubled controls', () => {
     expect(row.querySelector('.add-monitor')).toBeTruthy();
     expect(row.querySelector('.global-seg')).toBeTruthy();
     expect(row.textContent).toContain('No monitors open');
+  });
+
+  it('gives baud a visible quick-pick with recents and presets', async () => {
+    // REGRESSION: the quick-pick was once swapped for a bare native datalist,
+    // leaving a single-option invisible picker with no affordance.
+    fire({
+      type: 'sessionCreated',
+      sessionId: 50,
+      kind: 'port',
+      title: 'COM110',
+      state: 'connected',
+      settings: { baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' },
+    });
+    fire({ type: 'recentBauds', values: [9600] });
+    const pane = Array.from(document.querySelectorAll('.pane')).find(
+      (p) => p.querySelector('.pane-title')?.textContent?.includes('COM110'),
+    ) as HTMLElement;
+    posted.length = 0;
+    (pane.querySelector('.baud-toggle') as HTMLButtonElement).click();
+    const items = Array.from(pane.querySelectorAll('.baud-menu .menu-item')) as HTMLElement[];
+    const labels = items.map((i) => i.textContent ?? '');
+    // recents first, then the full preset list
+    expect(labels[0]).toContain('9600');
+    for (const preset of BAUD_RATE_PRESETS) {
+      expect(labels.some((l) => l.includes(String(preset)))).toBe(true);
+    }
+    // 9600 is both a recent and a preset: deduped, so one entry per rate
+    expect(labels.length).toBe(BAUD_RATE_PRESETS.length);
+    // picking an item fills the input and closes the menu
+    const target = items.find((i) => (i.textContent ?? '').includes('921600')) as HTMLElement;
+    target.click();
+    expect((pane.querySelector('input.ph-baud') as HTMLInputElement).value).toBe('921600');
+    expect(pane.querySelector('.baud-menu')?.classList.contains('visible')).toBe(false);
+  });
+
+  it('renders the funnel as an inline svg, not a masked data uri', () => {
+    // REGRESSION: a CSS mask url(data:image/svg+xml) was silently blocked by
+    // the webview CSP (default-src 'none'), leaving the filter icon blank.
+    const filter = document.querySelector('.filter-toggle[aria-label="Filter"]') as HTMLElement;
+    expect(filter.querySelector('.filter-glyph svg')).toBeTruthy();
+    expect(monitorPageHtml({ scriptUri: 'x', cspSource: 'y' })).not.toMatch(/mask:\s*url/);
+  });
+
+  it('iconizes the pane status with transient messages falling back', async () => {
+    vi.useFakeTimers();
+    try {
+      fire({
+        type: 'sessionCreated',
+        sessionId: 51,
+        kind: 'port',
+        title: 'COM111',
+        state: 'connecting',
+      });
+      const pane = Array.from(document.querySelectorAll('.pane')).find(
+        (p) => p.querySelector('.pane-title')?.textContent?.includes('COM111'),
+      ) as HTMLElement;
+      const status = pane.querySelector('.pane-status') as HTMLElement;
+      fire({ type: 'state', sessionId: 51, state: 'connected' });
+      expect(status.querySelector('.status-icon')?.getAttribute('data-state')).toBe('connected');
+      expect(status.title).toContain('Connected');
+
+      // a transient message shows as text, then the icon returns
+      fire({ type: 'status', message: 'Exported 12 lines to x.log' });
+      expect(status.textContent).toContain('Exported 12 lines');
+      vi.advanceTimersByTime(4100);
+      expect(status.querySelector('.status-icon')?.getAttribute('data-state')).toBe('connected');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
