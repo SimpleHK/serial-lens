@@ -1,89 +1,119 @@
 # Serial Monitor (OSS)
 
 [![CI](https://github.com/SimpleHK/vscode-serial-monitor-oss/actions/workflows/ci.yml/badge.svg)](https://github.com/SimpleHK/vscode-serial-monitor-oss/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/version-0.2.0-blue.svg)](CHANGELOG.md)
 
-Serial-port monitoring inside VS Code, rebuilt from scratch under MIT — an
-open alternative to Microsoft's archived (closed-source) Serial Monitor, with
-features no surveyed serial monitor offers:
+**Monitor serial ports inside VS Code — several at once, side by side.** An
+open-source (MIT) rebuild of the archived Microsoft Serial Monitor, with the
+features no other serial monitor has: tag highlighting, a display-layer
+filter, per-pane search with an editor-style find widget, and a console that
+stays smooth at 2000 lines/second.
 
-- **Split view, self-contained panes** — monitor several ports side by side.
-  Each pane owns its FULL serial config (port, baud, data bits, parity, stop
-  bits, line ending) and actions (start/stop, clear, log-to-file, export,
-  follow/lock, find, collapsible send bar), plus its own copy of the global
-  actions and a per-pane status readout — every control exists once per pane,
-  nothing moves when you switch panes. Press **＋** and pick a port (settings
-  clone the newest pane) and the view splits.
-- **Find per pane** — Ctrl+F opens an editor-style find widget: match case,
-  whole word, and regex toggles with an occurrence counter and prev/next
-  navigation, highlighted in place without disturbing text selection.
-- **Open log files** — open a saved `.log`/`.txt` file as a read-only tab and
-  use the same tags, filtering, and export on recorded data.
-- **Tags** — select text, press the **tag** button, and every matching line is
-  Highlighted across the full line. Each tag is a colored chip in the tags
-  row; one click silences it everywhere (highlight *and* filter).
-- **Filter** — a global three-state control (off / include / exclude) over tag
-  matches. Purely display-layer: nothing is discarded, so switching filters
-  back recovers every line still in the buffer.
-- **Overview marks** — highlighted lines leave colored blocks along the
-  scrollbar (like the editor's overview ruler); click a block to jump there.
-- **Scroll Lock** — scroll up and the viewport stops while data keeps
-  streaming; scroll back to the bottom (or click the indicator) to rejoin.
+![Split view: two ports streaming side by side with tag highlighting and overview marks](docs/media/demo-split-view.gif)
 
-Plus the complete base monitor: a port picker with friendly names, custom baud
-rates, data bits / stop bits / parity, a send input with line-ending choice,
-per-line receive timestamps (on by default), and a capped receive buffer
-(10,000 lines by default) behind a virtualized console that stays smooth at
-high line rates.
+## Why this one
 
-## Getting started (development)
+- **Multiple ports, one view.** Open COM10 and COM12 simultaneously — each
+  pane keeps its own buffer, serial settings, log file, and scroll position
+  while the other keeps streaming.
+- **Nothing is ever lost.** The filter is display-layer only: include or
+  exclude tag matches and every line is still in the buffer when you switch
+  back.
+- **Search that feels like your editor.** Ctrl+F in any pane: match case,
+  whole word, regex, occurrence counter, F3 navigation — highlights don't
+  break text selection.
+- **Open and honest.** MIT-licensed, from-scratch, architecture decisions and
+  a domain glossary checked in; no telemetry, no closed blobs.
+
+## Features
+
+### Split view, self-contained panes
+
+Every pane is a full monitor: its own serial config (port, baud, data bits,
+parity, stop bits, line ending), start/stop, clear, log-to-file, export,
+follow/lock, find, and a send bar with arrow-key history. Click **＋**, pick a
+port, and the view splits — settings clone from the newest pane so a second
+device is two clicks away. Change baud **while connected** and the port
+reopens live, keeping the pane, its buffer, and its log file.
+
+### Tags: highlight and filter
+
+Select text → tag it. Every matching line is highlighted across the full line
+with that tag's color (multiple tags stack), marked on the overview strip
+beside the scrollbar, and can drive the include/exclude filter. Chips toggle
+highlight and filter independently; the funnel menu switches the filter mode.
+Nothing is discarded — switching the filter back recovers every line still in
+the buffer.
+
+### Find per pane
+
+![Find widget: regex mode, live counter, and highlighted matches](docs/media/demo-find.gif)
+
+Ctrl+F opens an editor-style find widget with **Aa** match-case, **ab**
+whole-word, and **.*** regex toggles, a live occurrence counter, and F3 /
+Shift+F3 navigation. Matches are highlighted in place and pinned on the
+overview strip; clicking the strip jumps to the nearest match.
+
+### Display-layer filter
+
+![Funnel filter: include collapses the view to matching lines, off restores](docs/media/demo-filter.gif)
+
+Three states — off / include / exclude — over tag matches. Toggling is
+instant and reversible for as long as lines stay in the capped ring buffer
+(10,000 lines by default).
+
+### The rest of a real monitor
+
+- Per-line receive timestamps (on by default), send bar with line-ending
+  choice and arrow-key history
+- Per-session log-to-file (one timestamped `.log` per connection) and
+  one-shot export
+- Open a saved `.log`/`.txt` as a read-only pane — find, filter, and export
+  work on recorded data
+- Follow/Lock scrolling per pane; overview marks for highlights and find
+  hits; draggable split
+- Baud quick-pick with recently-used list; 300 baud → 2 Mbaud; live serial
+  parameter reconfiguration
+
+## Quick start
 
 ```bash
-npm install
-npm run build
+git clone https://github.com/SimpleHK/vscode-serial-monitor-oss.git
+cd vscode-serial-monitor-oss
+npm install && npm run package
 ```
 
-Then press **F5** in VS Code ("Launch Serial Monitor") or launch:
+Install the generated `.vsix` (`Extensions: Install from VSIX…`) or press
+**F5** to run it from source. The monitor appears in the bottom panel as
+**SERIAL MONITOR**.
 
-```bash
-code --extensionDevelopmentPath=<this repo>
-```
-
-Open the monitor from the bottom panel's **SERIAL MONITOR** tab or the
-`Serial Monitor: Open Monitor` command.
-
-## Testing without hardware
-
-```bash
-npm run smoke:check                       # verify a virtual port pair
-npm run smoke:device -- --scenario lines  # feed one end (lines|crlf|split|utf8|burst)
-npm test                                  # unit tests (pure seams)
-npm run test:integration                  # real VS Code + virtual COM pair
-npm run preview:webview                   # drive the real webview UI in a plain browser
-```
-
-The webview preview (`http://localhost:8231/`) serves the real page and real
-client bundle with a stubbed VS Code API: `__host(msg)` fires host→webview
-messages (sessionCreated, append, ports, …) and `__posted` collects the
-webview's messages — used for screenshot-based UI checks without the
-extension host.
-
-Integration tests need a com0com pair (`COM10 ↔ COM11`); see
-[docs/smoke-checklist.md](docs/smoke-checklist.md) for the full manual pass.
+No hardware? A com0com virtual pair works: `npm run smoke:check`, then feed
+it with `npm run smoke:device -- --scenario lines`.
 
 ## Public API
 
-The extension implements the `@microsoft/vscode-serial-monitor-api` contract
-(`startMonitoringPort`, `Port`, `onClosed`, version negotiation; TCP reports
-unsupported). The vendored surface lives in `src/api/serialMonitorApi.ts` and
-resolves this extension after the original one.
+Other extensions can drive it through the vendored
+`@microsoft/vscode-serial-monitor-api` surface: `getSerialMonitorApi`,
+`listAvailablePorts`, `startMonitoringPort` (multiple sessions), `Port.onClosed`,
+version negotiation. TCP monitoring reports unsupported.
 
-## Architecture
+## Testing & architecture
 
-- [GLOSSARY.md](GLOSSARY.md) — the domain vocabulary (Session/Pane, Tag,
-  Highlight, Filter, Scroll Lock, Follow); use these terms in issues and code
-- [docs/adr/](docs/adr/) — build-from-scratch, API alignment, unified Tag
-  model, display-layer filter + ring buffer, one split-view pane per session
-- Spec and tickets live in the GitHub issue tracker (spec: issue #1)
+```bash
+npm test                # 126 unit tests (pure seams + webview DOM via happy-dom)
+npm run test:integration   # 10 tests on a real VS Code host + com0com pair
+npm run preview:webview # drive the real webview UI in a plain browser
+```
+
+- [GLOSSARY.md](GLOSSARY.md) — domain vocabulary (Session/Pane, Tag,
+  Highlight, Filter, Find, Scroll Lock, Follow); use these terms in issues
+  and code
+- [docs/adr/](docs/adr/) — architecture decisions (build-from-scratch, API
+  alignment, unified Tag model, display-layer filter + ring buffer, one
+  session per pane)
+- [CHANGELOG.md](CHANGELOG.md) — what shipped in each version
+- [docs/smoke-checklist.md](docs/smoke-checklist.md) — manual verification pass
 - Test seams: data (chunks → lines → buffer), matching (lines + tags + filter
   mode → visibility/highlight), UI state (scroll events → Follow/locked)
 

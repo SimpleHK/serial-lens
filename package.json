@@ -152,8 +152,10 @@
     "@vitest/coverage-v8": "^2.1.9",
     "@vscode/test-electron": "^2.5.2",
     "esbuild": "^0.24.0",
+    "gifenc": "^1.0.3",
     "happy-dom": "^21.0.4",
     "mocha": "^11.8.0",
+    "pngjs": "^7.0.0",
     "typescript": "^5.6.0",
     "vitest": "^2.1.0"
   }

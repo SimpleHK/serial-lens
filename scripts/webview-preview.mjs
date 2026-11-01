@@ -78,6 +78,47 @@ window.__host = (msg) => window.dispatchEvent(new MessageEvent('message', { data
     );
 };
 
+const DEMO_SCRIPT = `<script>
+// Self-running demo: two streaming ports, preset tags, periodic bursts.
+window.addEventListener('load', () => {
+  const host = window.__host;
+  const S = { baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' };
+  host({ type: 'ports', ports: [{ path: 'COM10', description: 'USB Serial' }, { path: 'COM12' }] });
+  host({ type: 'timestamps', enabled: true });
+  host({
+    type: 'tags',
+    tags: [
+      { id: 't1', name: 'ERROR', pattern: '[ERROR]', isRegex: false, color: '#ff5f56', highlight: true, filter: true },
+      { id: 't2', name: 'WARN', pattern: '[WARN]', isRegex: false, color: '#e5c07b', highlight: true, filter: false },
+    ],
+  });
+  host({ type: 'sessionCreated', sessionId: 1, kind: 'port', title: 'COM10', state: 'connecting', settings: { ...S } });
+  host({ type: 'state', sessionId: 1, state: 'connected', path: 'COM10' });
+  host({ type: 'sessionCreated', sessionId: 2, kind: 'port', title: 'COM12', state: 'connecting', settings: { ...S } });
+  host({ type: 'state', sessionId: 2, state: 'connected', path: 'COM12' });
+
+  let n = 0;
+  const rich = (i) => [
+    '[BOOT] firmware v1.2.3 starting (cycle ' + (131150 + i) + ')',
+    '[SENSOR] temp=' + (22 + (i % 9) * 0.7).toFixed(1) + 'C humidity=' + (40 + (i % 20)) + '%',
+    '[ERROR] checksum mismatch on packet ' + (132150 + i),
+    '[GPS] fix acquired, sats=' + (4 + (i % 8)),
+    '[WARN] rssi low: -' + (80 + (i % 15)) + ' dBm',
+    '[INFO] heartbeat ' + (131150 + i),
+  ][i % 6];
+  setInterval(() => {
+    n++;
+    host({ type: 'append', sessionId: 1, dropCount: 0, lines: [rich(n)], timestamps: [Date.now()] });
+    if (n % 2 === 0) {
+      host({ type: 'append', sessionId: 2, dropCount: 0, lines: [n % 4 === 0 ? 'hello world ' + (75100 + n) : 'abc ' + (75100 + n)], timestamps: [Date.now()] });
+    }
+    if (n % 12 === 0) {
+      host({ type: 'append', sessionId: 1, dropCount: 0, lines: ['[ERROR] burst: 3 packets lost (' + n + ')'], timestamps: [Date.now()] });
+    }
+  }, 220);
+});
+</script>`;
+
 const server = http.createServer(async (req, res) => {
   try {
     if (req.url === '/main.js') {
@@ -86,7 +127,11 @@ const server = http.createServer(async (req, res) => {
       res.end(body);
       return;
     }
-    const body = await pageHtml();
+    let body = await pageHtml();
+    const demo = new URL(req.url, 'http://x').searchParams.get('demo');
+    if (demo) {
+      body = body.replace('<script src="/main.js"></script>', '<script src="/main.js"></script>' + DEMO_SCRIPT);
+    }
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
     res.end(body);
   } catch (err) {
