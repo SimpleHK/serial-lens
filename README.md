@@ -4,11 +4,13 @@ Serial-port monitoring inside VS Code, rebuilt from scratch under MIT — an
 open alternative to Microsoft's archived (closed-source) Serial Monitor, with
 features no surveyed serial monitor offers:
 
-- **Split view, self-contained panes** — monitor several ports side by side:
-  each pane carries its own start/stop, clear, log-to-file, export,
-  follow/lock, find, and send bar, so ports never share controls. Press **＋**
-  (or Start another port) and the console area splits; narrow viewports
-  scroll horizontally.
+- **Split view, self-contained panes** — monitor several ports side by side.
+  Each pane owns its FULL serial config (port, baud, data bits, parity, stop
+  bits, line ending) and actions (start/stop, clear, log-to-file, export,
+  follow/lock, find, collapsible send bar), so ports never share controls.
+  Press **＋** and pick a port (settings clone the newest pane) — the view
+  splits; the global actions (filter, timestamps, log dir, tags…) ride the
+  focused pane's bar, VS Code editor-title style.
 - **Find per pane** — Ctrl+F opens an editor-style find widget: match case,
   whole word, and regex toggles with an occurrence counter and prev/next
   navigation, highlighted in place without disturbing text selection.

@@ -9,46 +9,40 @@ import { rowHeightFor } from './rowHeight';
 
 const vscode = acquireVsCodeApi();
 
-const portSelect = document.getElementById('port') as HTMLSelectElement;
-const baudInput = document.getElementById('baud') as HTMLInputElement;
-const dataBitsSelect = document.getElementById('data-bits') as HTMLSelectElement;
-const paritySelect = document.getElementById('parity') as HTMLSelectElement;
-const stopBitsSelect = document.getElementById('stop-bits') as HTMLSelectElement;
-const lineEndingSelect = document.getElementById('line-ending') as HTMLSelectElement;
-const connectBtn = document.getElementById('connect') as HTMLButtonElement;
-const addMonitorBtn = document.getElementById('add-monitor') as HTMLButtonElement;
-const tagBtn = document.getElementById('create-tag') as HTMLButtonElement;
-const refreshBtn = document.getElementById('refresh') as HTMLButtonElement;
-const statusEl = document.getElementById('status') as HTMLSpanElement;
-const tagsRow = document.getElementById('tags-row') as HTMLDivElement;
 const panesArea = document.getElementById('panes') as HTMLDivElement;
-const openLogFileBtn = document.getElementById('open-log-file') as HTMLButtonElement;
-const logDirBtn = document.getElementById('log-dir') as HTMLButtonElement;
-const baudToggleBtn = document.getElementById('baud-toggle') as HTMLButtonElement;
-const baudMenu = document.getElementById('baud-menu') as HTMLDivElement;
-const timestampsBtn = document.getElementById('timestamps') as HTMLButtonElement;
-const filterToggleBtn = document.getElementById('filter-toggle') as HTMLButtonElement;
-const filterMenu = document.getElementById('filter-menu') as HTMLDivElement;
-const collapseHwBtn = document.getElementById('collapse-hw') as HTMLButtonElement;
-const hwRow = document.getElementById('hw-row') as HTMLDivElement;
-const manageToggleBtn = document.getElementById('manage-toggle') as HTMLButtonElement;
-const managePanel = document.getElementById('manage-panel') as HTMLDivElement;
+const baudOptions = document.getElementById('baud-options') as HTMLDataListElement;
 
-/** Per-pane DOM. Every pane is self-contained: header actions, console with
- * find widget and marks strip, and a port-local send bar. */
+/**
+ * Variant B layout: there is no global toolbar. Every pane carries its own
+ * serial config and actions in its bar; the single #global-seg segment (add
+ * monitor, refresh, filter, timestamps, log dir, open file, tags, manage,
+ * status) rides the FOCUSED pane's bar, or the empty-state row when no panes
+ * are open. ＋ opens a port quick-pick instead of reading a global picker.
+ */
+
+/** Per-pane DOM. Config controls exist only on port panes. */
 interface PaneDom {
   root: HTMLDivElement;
+  bar: HTMLDivElement;
   dot: HTMLSpanElement;
   title: HTMLSpanElement;
-  play: HTMLButtonElement;
+  play?: HTMLButtonElement;
+  sendToggle?: HTMLButtonElement;
   clearBtn: HTMLButtonElement;
-  logBtn: HTMLButtonElement;
+  logBtn?: HTMLButtonElement;
   exportBtn: HTMLButtonElement;
   scrollBtn: HTMLButtonElement;
   findBtn: HTMLButtonElement;
   close: HTMLSpanElement;
+  portSelect?: HTMLSelectElement;
+  baudInput?: HTMLInputElement;
+  dbSel?: HTMLSelectElement;
+  paritySel?: HTMLSelectElement;
+  sbSel?: HTMLSelectElement;
+  leSel?: HTMLSelectElement;
   log: HTMLDivElement;
   marks: HTMLDivElement;
+  findMarks: HTMLDivElement;
   findBar: HTMLDivElement;
   findInput: HTMLInputElement;
   findCase: HTMLButtonElement;
@@ -61,15 +55,12 @@ interface PaneDom {
   sendRow: HTMLDivElement;
   sendInput: HTMLInputElement;
   sendBtn: HTMLButtonElement;
+  hint: HTMLDivElement;
   /** Per-pane virtualization spacers. They MUST NOT be shared: replaceChildren
    * moves nodes, so a module-level pair would be stolen by whichever pane
    * rendered last, collapsing the other pane's scrollable height. */
   spacerTop: HTMLDivElement;
   spacerBottom: HTMLDivElement;
-  /** Overlay hint shown when the pane has no lines yet (connecting/waiting/stopped). */
-  hint: HTMLDivElement;
-  /** Secondary overview strip showing where find matches sit in the buffer. */
-  findMarks: HTMLDivElement;
 }
 
 /** One occurrence of the find query inside a line's rendered text. */
@@ -87,14 +78,13 @@ interface FindState {
   regex: boolean;
   error: boolean;
   occurrences: FindOccurrence[];
-  /** occurrence index → line, for the current-match highlight and jumps */
   current: number;
   byLine: Map<number, FindOccurrence[]>;
   debounce: number | undefined;
 }
 
-/** Per-pane port settings captured at creation, so a stopped pane can be
- * restarted independently of whatever the hardware row currently shows. */
+/** Per-pane serial settings: captured at creation, edited through the pane's
+ * own controls, and used verbatim when the pane (re)starts. */
 interface PortSettings {
   baudRate: number;
   dataBits: number;
@@ -102,13 +92,8 @@ interface PortSettings {
   parity: string;
 }
 
-/**
- * One split-view pane's worth of state. Ports and opened log files are both
- * sessions: a port session streams from its controller, a file session is a
- * read-only snapshot. Buffers, scroll position, connection state,
- * log-to-file, send bar, and find are per session; tags, filter mode, and
- * timestamps are global display choices.
- */
+const DEFAULT_PORT_SETTINGS: PortSettings = { baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' };
+
 interface TabSession {
   id: number;
   kind: 'port' | 'file';
@@ -116,6 +101,8 @@ interface TabSession {
   state: 'idle' | 'connecting' | 'connected';
   message?: string;
   settings?: PortSettings;
+  lineEnding: string;
+  sendCollapsed: boolean;
   lineStore: { text: string; ts?: number }[];
   decisions: LineDecision[];
   visibleIndexes: number[];
@@ -128,10 +115,7 @@ interface TabSession {
   dom: PaneDom;
   lastRender?: { topPx: number; bottomPx: number; rows: RenderedRow[] };
   marksDirty: boolean;
-  /** Divider element on this pane's left edge (undefined for the first pane);
-   * dragging it resizes the pane. */
   dividerLeft?: HTMLDivElement;
-  /** Per-pane send history for ArrowUp/ArrowDown recall. */
   sendHistory: string[];
   sendIndex: number;
   sendDraft: string;
@@ -139,8 +123,8 @@ interface TabSession {
 
 const sessions: TabSession[] = [];
 let focusedId: number | undefined;
-// When Start replaces an idle session on the same port, the old pane closes
-// only after the new session actually connects (a failed open keeps it).
+// A pane's ▶ restarts itself: the old pane closes only after the new session
+// actually connects (a failed open keeps the old pane and its buffer).
 let pendingReplaceId: number | undefined;
 
 // Display-layer globals shared by every pane.
@@ -148,6 +132,22 @@ let filterMode: FilterMode = 'off';
 let showTimestamps = false;
 let tags: Tag[] = [];
 let recentBauds: number[] = [];
+let lastPorts: { path: string; description?: string }[] = [];
+
+// The single global-actions segment (Variant B) and its elements.
+let globalSeg: HTMLDivElement;
+let addMonitorBtn: HTMLButtonElement;
+let addMenu: HTMLDivElement;
+let addMenuOpen = false;
+let refreshBtn: HTMLButtonElement;
+let filterToggleBtn: HTMLButtonElement;
+let filterMenu: HTMLDivElement;
+let timestampsBtn: HTMLButtonElement;
+let logDirBtn: HTMLButtonElement;
+let openLogFileBtn: HTMLButtonElement;
+let tagBtn: HTMLButtonElement;
+let manageToggleBtn: HTMLButtonElement;
+let statusEl: HTMLSpanElement;
 
 function focusedSession(): TabSession | undefined {
   return sessions.find((s) => s.id === focusedId);
@@ -274,16 +274,14 @@ interface RenderedRow {
 }
 
 /** Overview strip beside a pane's scrollbar: one block per tag-highlighted
- * line, squashed to the viewport like the editor's overview ruler.
- * Positions live in filtered (visible) row space so they track what the
- * scrollbar shows. */
+ * line, squashed to the viewport like the editor's overview ruler. */
 function renderMarksFor(s: TabSession): void {
   if (!s.marksDirty) {
     return;
   }
   s.marksDirty = false;
   const total = s.visibleIndexes.length;
-  const height = Math.max(1, s.dom.log.clientHeight - 8); // the strip insets 4px top/bottom
+  const height = Math.max(1, s.dom.log.clientHeight - 8);
   const buckets = new Map<number, string>();
   for (let p = 0; p < total; p++) {
     const colors = s.decisions[s.visibleIndexes[p]].highlightColors;
@@ -309,8 +307,7 @@ function renderMarksFor(s: TabSession): void {
   s.dom.marks.style.display = 'block';
 }
 
-/** Find-match ticks in the secondary overview strip: where the current
- * query hits sit inside the buffer, squashed like the tag marks. */
+/** Find-match ticks in the secondary overview strip. */
 function renderFindMarksFor(s: TabSession): void {
   const f = s.find;
   const strip = s.dom.findMarks;
@@ -325,7 +322,7 @@ function renderFindMarksFor(s: TabSession): void {
   for (let p = 0; p < total; p++) {
     posOf.set(s.visibleIndexes[p], p);
   }
-  const buckets = new Map<number, number>(); // row → first occurrence index
+  const buckets = new Map<number, number>();
   for (let i = 0; i < f.occurrences.length; i++) {
     const p = posOf.get(f.occurrences[i].lineIndex);
     if (p === undefined) {
@@ -361,13 +358,10 @@ function buildFindRegex(f: FindState): RegExp | undefined {
     }
     return new RegExp(source, f.matchCase ? 'g' : 'gi');
   } catch {
-    return undefined; // invalid regex source: reported as "Bad pattern"
+    return undefined;
   }
 }
 
-/** Recomputes a pane's find occurrences over its VISIBLE lines (filter is
- * respected) in rendered-text coordinates, so ranges land on the row text
- * nodes exactly as displayed. */
 function recomputeOccurrences(s: TabSession): void {
   const f = s.find;
   f.occurrences = [];
@@ -384,7 +378,7 @@ function recomputeOccurrences(s: TabSession): void {
         let guard = 0;
         while ((m = re.exec(text)) !== null && guard++ < 1000) {
           if (m[0].length === 0) {
-            re.lastIndex++; // never let an empty match loop forever
+            re.lastIndex++;
             continue;
           }
           const occ: FindOccurrence = { lineIndex, start: m.index, end: m.index + m[0].length };
@@ -422,10 +416,8 @@ function renderFindCount(s: TabSession): void {
   }
 }
 
-/** Scrolls the pane so the current occurrence's row sits mid-viewport. */
 function jumpToCurrent(s: TabSession): void {
-  const f = s.find;
-  const occ = f.occurrences[f.current];
+  const occ = s.find.occurrences[s.find.current];
   if (!occ) {
     return;
   }
@@ -446,8 +438,6 @@ function navigateFind(s: TabSession, dir: 1 | -1): void {
   refreshFindHighlights();
 }
 
-/** Rebuilds the document-level match highlights from every pane's rendered
- * rows. Text-level ranges mean the selection machinery stays untouched. */
 function refreshFindHighlights(): void {
   if (!highlightCtor || !highlightRegistry) {
     return;
@@ -546,7 +536,7 @@ function restoreSelection(saved?: { start: SelectionPoint; end: SelectionPoint }
   const startRow = findRow(saved.start.line);
   const endRow = findRow(saved.end.line);
   if (!startRow || !endRow) {
-    return; // the selection scrolled out of the rendered window
+    return;
   }
   const range = new Range();
   const startText = startRow.childNodes[0] ?? startRow;
@@ -603,10 +593,9 @@ function appendToSession(s: TabSession, entries: { text: string; ts?: number }[]
   s.marksDirty = true;
   scheduleRender(s);
   if (s.find.open) {
-    scheduleFindRecompute(s); // keep counts and highlights fresh while streaming
+    scheduleFindRecompute(s);
   }
   if (s.scroll === 'follow') {
-    // Pin to the bottom after the window re-renders with the new content.
     requestAnimationFrame(() => {
       s.dom.log.scrollTop = s.dom.log.scrollHeight;
     });
@@ -614,8 +603,6 @@ function appendToSession(s: TabSession, entries: { text: string; ts?: number }[]
   refreshPaneControls(s);
 }
 
-/** Tags, filter mode, and timestamps are global: a change re-decides every
- * pane's lines, not just the focused one. */
 function restyleAllRows(): void {
   for (const s of sessions) {
     for (let i = 0; i < s.lineStore.length; i++) {
@@ -630,39 +617,6 @@ function restyleAllRows(): void {
   }
 }
 
-function fillPorts(ports: { path: string; description?: string }[]): void {
-  portSelect.textContent = '';
-  if (!ports.length) {
-    const opt = document.createElement('option');
-    opt.value = '';
-    opt.textContent = 'No serial ports detected';
-    portSelect.appendChild(opt);
-    portSelect.disabled = true;
-    return;
-  }
-  portSelect.disabled = false; // several monitors can run; the picker stays open
-  for (const p of ports) {
-    const o = document.createElement('option');
-    o.value = p.path;
-    o.textContent = p.description ? `${p.path} - ${p.description}` : p.path;
-    portSelect.appendChild(o);
-  }
-}
-
-function updateButtons(): void {
-  connectBtn.innerHTML = '&#9654; Start Monitoring';
-  connectBtn.title = 'Start monitoring the selected port in a new pane';
-  connectBtn.disabled = portSelect.value === '';
-  portSelect.disabled = false;
-  refreshBtn.disabled = false;
-  updateTagButton();
-}
-
-function renderTimestampsControl(): void {
-  timestampsBtn.classList.toggle('on', showTimestamps);
-  timestampsBtn.title = `Timestamps: ${showTimestamps ? 'on' : 'off'} — click to ${showTimestamps ? 'hide' : 'show'} them`;
-}
-
 function updateTagButton(): void {
   const selected = window.getSelection()?.toString().trim() ?? '';
   tagBtn.disabled = selected.length === 0;
@@ -671,15 +625,14 @@ function updateTagButton(): void {
     : 'Create a tag from the selected text (or type one in the ⚙ panel)';
 }
 
-tagBtn.addEventListener('click', () => {
-  const selected = window.getSelection()?.toString().trim() ?? '';
-  if (!selected) {
-    return;
-  }
-  vscode.postMessage({ type: 'createTag', pattern: selected });
-});
-// Keep the selection alive: clicking the button must not collapse it.
-tagBtn.addEventListener('mousedown', (e) => e.preventDefault());
+function updateButtons(): void {
+  updateTagButton();
+}
+
+function renderTimestampsControl(): void {
+  timestampsBtn.classList.toggle('on', showTimestamps);
+  timestampsBtn.title = `Timestamps: ${showTimestamps ? 'on' : 'off'} — click to ${showTimestamps ? 'hide' : 'show'} them`;
+}
 
 function setStatus(message?: string): void {
   if (message) {
@@ -696,16 +649,208 @@ function setStatus(message?: string): void {
   statusEl.textContent = live ? `${live} monitor${live > 1 ? 's' : ''} running` : 'Idle';
 }
 
+// --- Global actions segment (Variant B) --------------------------------------
+
+function buildGlobalSeg(): void {
+  globalSeg = document.createElement('div');
+  globalSeg.id = 'global-seg';
+
+  const mkBtn = (id: string, glyph: string, title: string): HTMLButtonElement => {
+    const b = document.createElement('button');
+    b.id = id;
+    b.className = 'icon-btn';
+    b.innerHTML = glyph;
+    b.title = title;
+    globalSeg.appendChild(b);
+    return b;
+  };
+
+  // ＋ with its port quick-pick.
+  const addWrap = document.createElement('span');
+  addWrap.className = 'menu-wrap';
+  addMonitorBtn = document.createElement('button');
+  addMonitorBtn.id = 'add-monitor';
+  addMonitorBtn.className = 'icon-btn';
+  addMonitorBtn.innerHTML = '&#65291;';
+  addMonitorBtn.title = 'Add a monitor — pick a port';
+  addMenu = document.createElement('div');
+  addMenu.id = 'add-menu';
+  addMenu.className = 'menu';
+  addWrap.append(addMonitorBtn, addMenu);
+  globalSeg.appendChild(addWrap);
+  addMonitorBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleAddMenu();
+  });
+
+  refreshBtn = mkBtn('refresh', '&#128260;', 'Refresh port list');
+  refreshBtn.addEventListener('click', () => {
+    vscode.postMessage({ type: 'refreshPorts' });
+  });
+
+  // Filter mode menu.
+  const filterWrap = document.createElement('span');
+  filterWrap.className = 'menu-wrap';
+  filterToggleBtn = document.createElement('button');
+  filterToggleBtn.id = 'filter-toggle';
+  filterToggleBtn.className = 'icon-btn';
+  filterToggleBtn.innerHTML = '&#128269;';
+  filterMenu = document.createElement('div');
+  filterMenu.id = 'filter-menu';
+  filterMenu.className = 'menu';
+  filterWrap.append(filterToggleBtn, filterMenu);
+  globalSeg.appendChild(filterWrap);
+  filterToggleBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (filterMenu.style.display === 'block') {
+      filterMenu.style.display = 'none';
+      return;
+    }
+    renderFilterMenu();
+    filterMenu.style.display = 'block';
+  });
+
+  timestampsBtn = mkBtn('timestamps', '&#9201;&#65039;', 'Timestamps: off');
+  timestampsBtn.addEventListener('click', () => {
+    vscode.postMessage({ type: 'setTimestamps', enabled: !showTimestamps });
+  });
+
+  logDirBtn = mkBtn('log-dir', '&#128193;', 'Choose a log directory: every logged session writes a new .log file (right-click to clear)');
+  logDirBtn.addEventListener('click', () => {
+    vscode.postMessage({ type: 'chooseLogDirectory' });
+  });
+  logDirBtn.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    vscode.postMessage({ type: 'clearLogDirectory' });
+  });
+
+  openLogFileBtn = mkBtn('open-log-file', '&#128194;', 'Open a log file in a read-only pane');
+  openLogFileBtn.addEventListener('click', () => {
+    vscode.postMessage({ type: 'openLogFile' });
+  });
+
+  tagBtn = mkBtn('create-tag', '&#127991;&#65039;', 'Create a tag from the selected text');
+  tagBtn.disabled = true;
+  tagBtn.addEventListener('click', () => {
+    const selected = window.getSelection()?.toString().trim() ?? '';
+    if (!selected) {
+      return;
+    }
+    vscode.postMessage({ type: 'createTag', pattern: selected });
+  });
+  // Keep the selection alive: clicking the button must not collapse it.
+  tagBtn.addEventListener('mousedown', (e) => e.preventDefault());
+
+  manageToggleBtn = mkBtn('manage-toggle', '&#9881;&#65039;', 'Manage tags');
+  manageToggleBtn.addEventListener('click', () => {
+    manageOpen = !manageOpen;
+    renderManagePanel();
+  });
+
+  statusEl = document.createElement('span');
+  statusEl.id = 'status';
+  statusEl.textContent = 'Idle';
+  globalSeg.appendChild(statusEl);
+}
+
+/** The segment lives in the focused pane's bar, or the empty-state row. */
+function moveGlobalSeg(): void {
+  const host = focusedSession()?.dom.bar ?? (sessions.length ? sessions[0].dom.bar : undefined);
+  if (host) {
+    host.appendChild(globalSeg);
+  }
+}
+
+// --- ＋ port quick-pick --------------------------------------------------------
+
+function toggleAddMenu(): void {
+  if (addMenuOpen) {
+    addMenu.style.display = 'none';
+    addMenuOpen = false;
+    return;
+  }
+  renderAddMenu();
+  addMenu.style.display = 'block';
+  addMenuOpen = true;
+  // Refresh the cached list in the background; the menu re-renders on arrival.
+  vscode.postMessage({ type: 'refreshPorts' });
+}
+
+function renderAddMenu(): void {
+  addMenu.textContent = '';
+  const header = document.createElement('div');
+  header.className = 'menu-header';
+  header.textContent = 'Add monitor — pick a port';
+  addMenu.appendChild(header);
+  if (!lastPorts.length) {
+    const hint = document.createElement('div');
+    hint.className = 'menu-item hint';
+    hint.textContent = 'No ports detected — press 🔄 to refresh';
+    addMenu.appendChild(hint);
+    return;
+  }
+  for (const p of lastPorts) {
+    const item = document.createElement('div');
+    item.className = 'menu-item';
+    item.dataset.path = p.path;
+    item.textContent = p.description ? `${p.path} — ${p.description}` : p.path;
+    item.addEventListener('click', (e) => {
+      e.stopPropagation();
+      addMenu.style.display = 'none';
+      addMenuOpen = false;
+      startFromMenu(p.path);
+    });
+    addMenu.appendChild(item);
+  }
+}
+
+function startFromMenu(path: string): void {
+  // Already monitored: focus that pane instead of failing a second open.
+  const live = sessions.find((x) => x.kind === 'port' && x.state === 'connected' && x.title === path);
+  if (live) {
+    setFocused(live.id);
+    setStatus(`${path} is already being monitored`);
+    return;
+  }
+  // Clone the newest port pane's settings; defaults otherwise.
+  const last = [...sessions].reverse().find((x) => x.kind === 'port' && x.settings)?.settings;
+  const cfg = last ?? DEFAULT_PORT_SETTINGS;
+  vscode.postMessage({
+    type: 'connect',
+    port: path,
+    baudRate: cfg.baudRate,
+    dataBits: cfg.dataBits,
+    stopBits: cfg.stopBits,
+    parity: cfg.parity,
+  });
+}
+
+function renderBaudDatalist(): void {
+  baudOptions.textContent = '';
+  const seen = new Set<number>();
+  for (const b of [...recentBauds, ...BAUD_RATE_PRESETS]) {
+    if (seen.has(b)) {
+      continue;
+    }
+    seen.add(b);
+    const o = document.createElement('option');
+    o.value = String(b);
+    baudOptions.appendChild(o);
+  }
+}
+
 // --- Split-view panes --------------------------------------------------------
 
 function syncEmptyState(): void {
-  panesArea.querySelector('.log-empty')?.remove();
+  panesArea.querySelector('.empty-row')?.remove();
   if (sessions.length === 0) {
-    const hint = document.createElement('div');
-    hint.className = 'log-empty';
-    hint.textContent =
-      'No monitors open — pick a port above and press Start Monitoring, or open a saved log file.';
-    panesArea.appendChild(hint);
+    const row = document.createElement('div');
+    row.className = 'empty-row';
+    const hint = document.createElement('span');
+    hint.textContent = 'No monitors open — press ＋ to add one, or open a saved log file.';
+    row.appendChild(hint);
+    panesArea.appendChild(row);
+    row.appendChild(globalSeg); // the actions stay reachable with zero panes
   }
 }
 
@@ -720,29 +865,31 @@ function refreshPaneControls(s: TabSession): void {
   d.title.title = s.kind === 'file' ? `${s.title} (read-only log file)` : `${s.title} — ${s.state}`;
   d.root.title = d.title.title;
 
-  d.play.style.display = isPort ? '' : 'none';
-  d.play.innerHTML = isConnected ? '&#9632;' : '&#9654;';
-  d.play.classList.toggle('on', isConnected);
-  d.play.title = isConnected ? `Stop monitoring ${s.title}` : `Start monitoring ${s.title}`;
-  d.play.disabled = s.state === 'connecting';
+  if (d.play) {
+    d.play.style.display = isPort ? '' : 'none';
+    d.play.innerHTML = isConnected ? '&#9632;' : '&#9654;';
+    d.play.classList.toggle('on', isConnected);
+    d.play.title = isConnected ? `Stop monitoring ${s.title}` : `Start monitoring ${s.title}`;
+    d.play.disabled = s.state === 'connecting';
+  }
 
   d.clearBtn.disabled = s.lineStore.length === 0 && !isConnected;
   d.clearBtn.title = `Clear ${s.title}`;
   d.exportBtn.disabled = s.lineStore.length === 0;
   d.exportBtn.title = `Export ${s.title}'s buffered log to a file`;
 
-  d.logBtn.style.display = isPort ? '' : 'none';
-  const logOn = isPort && s.logDesired;
-  d.logBtn.classList.toggle('on', logOn);
-  d.logBtn.classList.toggle('rec', logOn);
-  d.logBtn.innerHTML = logOn ? '&#128308;&#65039;' : '&#9898;&#65039;';
-  if (!isPort) {
-    d.logBtn.title = '';
-  } else if (logOn) {
-    const where = s.logFile ? ` (now: ${s.logFile})` : s.logDirectory ? ` into ${s.logDirectory}` : '';
-    d.logBtn.title = `Log to file: on${where} — click to stop`;
-  } else {
-    d.logBtn.title = 'Log to file: off — click to log this session to a .log file';
+  if (d.logBtn) {
+    d.logBtn.style.display = isPort ? '' : 'none';
+    const logOn = isPort && s.logDesired;
+    d.logBtn.classList.toggle('on', logOn);
+    d.logBtn.classList.toggle('rec', logOn);
+    d.logBtn.innerHTML = logOn ? '&#128308;&#65039;' : '&#9898;&#65039;';
+    if (logOn) {
+      const where = s.logFile ? ` (now: ${s.logFile})` : s.logDirectory ? ` into ${s.logDirectory}` : '';
+      d.logBtn.title = `Log to file: on${where} — click to stop`;
+    } else {
+      d.logBtn.title = 'Log to file: off — click to log this session to a .log file';
+    }
   }
 
   d.scrollBtn.innerHTML = s.scroll === 'follow' ? '&#8681;' : '&#128274;';
@@ -752,7 +899,27 @@ function refreshPaneControls(s: TabSession): void {
       ? 'Viewport follows new lines — click to lock'
       : 'Scroll locked, data keeps arriving — click to rejoin';
 
-  d.sendRow.style.display = isPort ? 'flex' : 'none';
+  // Serial config: view-only unless the pane is idle (stopped). The line
+  // ending only affects sending, so it stays editable while connected.
+  const lock = s.state !== 'idle';
+  if (d.portSelect) {
+    d.portSelect.disabled = lock;
+    if (s.state === 'connected') {
+      d.portSelect.value = s.title;
+    }
+  }
+  if (d.baudInput) d.baudInput.disabled = lock;
+  if (d.dbSel) d.dbSel.disabled = lock;
+  if (d.paritySel) d.paritySel.disabled = lock;
+  if (d.sbSel) d.sbSel.disabled = lock;
+
+  // Send bar: collapsed by default, toggled per pane.
+  if (d.sendToggle) {
+    d.sendToggle.style.display = isPort ? '' : 'none';
+    d.sendToggle.classList.toggle('on', isPort && !s.sendCollapsed);
+    d.sendToggle.title = !isPort ? '' : s.sendCollapsed ? 'Show the send bar' : 'Hide the send bar';
+  }
+  d.sendRow.style.display = isPort && !s.sendCollapsed ? 'flex' : 'none';
   d.sendInput.disabled = !isConnected;
   d.sendBtn.disabled = !isConnected;
   d.sendInput.placeholder = isConnected ? `To ${s.title}: type a message to send...` : 'Start monitoring to send';
@@ -777,32 +944,100 @@ function refreshPaneControls(s: TabSession): void {
 function buildPane(s: TabSession): PaneDom {
   const root = document.createElement('div');
   root.className = 'pane';
+  const bar = document.createElement('div');
+  bar.className = 'pane-header';
 
-  // Header: status dot, title, port-local actions, close.
-  const header = document.createElement('div');
-  header.className = 'pane-header';
   const dot = document.createElement('span');
   dot.className = 'tab-dot';
   const title = document.createElement('span');
   title.className = 'pane-title';
-  const mkBtn = (glyph: string, cls = '') => {
+
+  const mkBtn = (glyph: string, title: string, cls = 'pbtn') => {
     const b = document.createElement('button');
-    b.className = ('pbtn ' + cls).trim();
+    b.className = cls;
     b.innerHTML = glyph;
+    b.title = title;
     return b;
   };
-  const play = mkBtn('&#9654;');
-  const clearBtn = mkBtn('&#128465;&#65039;');
-  const logBtn = mkBtn('&#9898;&#65039;');
-  const exportBtn = mkBtn('&#128228;');
-  const scrollBtn = mkBtn('&#8681;');
-  const findBtn = mkBtn('&#128269;');
-  findBtn.title = 'Find in this pane (Ctrl+F)';
+  const mkSelect = (options: string[], value: string, cls: string, ctlTitle: string) => {
+    const sel = document.createElement('select');
+    sel.className = `ph-ctl ${cls}`;
+    sel.title = ctlTitle;
+    for (const o of options) {
+      const e = document.createElement('option');
+      e.value = o;
+      e.textContent = o;
+      sel.appendChild(e);
+    }
+    sel.value = value;
+    return sel;
+  };
+
+  const play = mkBtn('&#9654;', `Start monitoring ${s.title}`);
+  const sendToggle = mkBtn('&#9000;&#65038;', 'Show the send bar');
+  const clearBtn = mkBtn('&#128465;&#65039;', `Clear ${s.title}`);
+  const logBtn = mkBtn('&#9898;&#65039;', 'Log to file: off');
+  const exportBtn = mkBtn('&#128228;', `Export ${s.title}'s buffered log to a file`);
+  const scrollBtn = mkBtn('&#8681;', 'Viewport follows new lines — click to lock');
+  const findBtn = mkBtn('&#128269;', 'Find in this pane (Ctrl+F)');
   const close = document.createElement('span');
   close.className = 'pane-close';
   close.textContent = '\u00d7';
   close.title = 'Close this pane';
-  header.append(dot, title, play, clearBtn, logBtn, exportBtn, scrollBtn, findBtn, close);
+
+  let portSelect: HTMLSelectElement | undefined;
+  let baudInput: HTMLInputElement | undefined;
+  let dbSel: HTMLSelectElement | undefined;
+  let paritySel: HTMLSelectElement | undefined;
+  let sbSel: HTMLSelectElement | undefined;
+  let leSel: HTMLSelectElement | undefined;
+
+  if (s.kind === 'port') {
+    title.style.display = 'none'; // the port select shows the identity
+    portSelect = document.createElement('select');
+    portSelect.className = 'ph-ctl ph-port';
+    portSelect.title = 'Port (stop to change)';
+    const opt = document.createElement('option');
+    opt.value = s.title;
+    opt.textContent = s.title;
+    portSelect.appendChild(opt);
+    portSelect.value = s.title;
+
+    const cfg = s.settings ?? DEFAULT_PORT_SETTINGS;
+    baudInput = document.createElement('input');
+    baudInput.className = 'ph-ctl ph-baud';
+    baudInput.value = String(cfg.baudRate);
+    baudInput.title = 'Baud rate';
+    baudInput.setAttribute('list', 'baud-options');
+    dbSel = mkSelect(['8', '7', '6', '5'], String(cfg.dataBits), 'ph-db', 'Data bits');
+    paritySel = mkSelect(['none', 'even', 'odd', 'mark', 'space'], cfg.parity, 'ph-parity', 'Parity');
+    sbSel = mkSelect(['1', '1.5', '2'], String(cfg.stopBits), 'ph-sb', 'Stop bits');
+    leSel = mkSelect(['LF', 'CRLF', 'CR', 'None'], s.lineEnding, 'ph-le', 'Line ending');
+
+    // Control edits become the pane's settings, used at its next start.
+    baudInput.addEventListener('change', () => {
+      if (s.settings) s.settings.baudRate = Number(baudInput!.value) || 115200;
+    });
+    dbSel.addEventListener('change', () => {
+      if (s.settings) s.settings.dataBits = Number(dbSel!.value) || 8;
+    });
+    paritySel.addEventListener('change', () => {
+      if (s.settings) s.settings.parity = paritySel!.value;
+    });
+    sbSel.addEventListener('change', () => {
+      if (s.settings) s.settings.stopBits = Number(sbSel!.value) || 1;
+    });
+    leSel.addEventListener('change', () => {
+      s.lineEnding = leSel!.value;
+    });
+
+    bar.append(dot, title, portSelect, baudInput, dbSel, paritySel, sbSel, leSel);
+  } else {
+    bar.append(dot, title);
+  }
+
+  bar.append(play, sendToggle, clearBtn, logBtn, exportBtn, scrollBtn, findBtn, close);
+  root.appendChild(bar);
 
   // Body: console + marks strips + floating find widget + state hint.
   const body = document.createElement('div');
@@ -852,32 +1087,7 @@ function buildPane(s: TabSession): PaneDom {
   findBar.append(findInput, findCase, findWord, findRegex, findCount, findPrev, findNext, findClose);
   body.append(logEl, marks, findMarks, findBar, hint);
 
-  // Find-match strip: clicking at a height fraction jumps to the nearest
-  // occurrence at or after that fraction of the buffer.
-  findMarks.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const rect = findMarks.getBoundingClientRect();
-    const frac = Math.min(1, Math.max(0, (e.clientY - rect.top) / Math.max(1, rect.height)));
-    const total = s.visibleIndexes.length;
-    if (!total || !s.find.occurrences.length) {
-      return;
-    }
-    const targetP = frac * total;
-    let chosen = s.find.occurrences.length - 1;
-    for (let i = 0; i < s.find.occurrences.length; i++) {
-      const p = s.visibleIndexes.indexOf(s.find.occurrences[i].lineIndex);
-      if (p >= targetP) {
-        chosen = i;
-        break;
-      }
-    }
-    s.find.current = chosen;
-    jumpToCurrent(s);
-    renderFindCount(s);
-    refreshFindHighlights();
-  });
-
-  // Port-local send bar.
+  // Port-local send bar (collapsed by default).
   const sendRow = document.createElement('div');
   sendRow.className = 'pane-send';
   const sendInput = document.createElement('input');
@@ -885,7 +1095,7 @@ function buildPane(s: TabSession): PaneDom {
   sendBtn.textContent = 'Send';
   sendRow.append(sendInput, sendBtn);
 
-  root.append(header, body, sendRow);
+  root.append(body, sendRow);
   panesArea.appendChild(root);
 
   root.addEventListener('click', () => setFocused(s.id));
@@ -903,6 +1113,12 @@ function buildPane(s: TabSession): PaneDom {
     } else if (s.state !== 'connecting') {
       startPane(s);
     }
+  });
+
+  sendToggle.addEventListener('click', (e) => {
+    e.stopPropagation();
+    s.sendCollapsed = !s.sendCollapsed;
+    refreshPaneControls(s);
   });
 
   clearBtn.addEventListener('click', (e) => {
@@ -930,7 +1146,7 @@ function buildPane(s: TabSession): PaneDom {
     e.stopPropagation();
     s.scroll = scrollReducer(s.scroll, { type: 'toggle' });
     if (s.scroll === 'follow') {
-      logEl.scrollTop = logEl.scrollHeight; // rejoining the stream snaps to the bottom
+      logEl.scrollTop = logEl.scrollHeight;
     }
     refreshPaneControls(s);
   });
@@ -945,8 +1161,6 @@ function buildPane(s: TabSession): PaneDom {
     }
   });
 
-  // The strip squashes the whole buffer to the viewport; clicking at a height
-  // fraction jumps to the same fraction of the document.
   marks.addEventListener('click', (e) => {
     e.stopPropagation();
     const rect = marks.getBoundingClientRect();
@@ -954,8 +1168,29 @@ function buildPane(s: TabSession): PaneDom {
     logEl.scrollTop = frac * (logEl.scrollHeight - logEl.clientHeight);
   });
 
-  // Scroll Lock: user scrolls drive the follow/locked reducer; programmatic
-  // pinning only ever scrolls to the bottom, which keeps Follow.
+  findMarks.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const rect = findMarks.getBoundingClientRect();
+    const frac = Math.min(1, Math.max(0, (e.clientY - rect.top) / Math.max(1, rect.height)));
+    const total = s.visibleIndexes.length;
+    if (!total || !s.find.occurrences.length) {
+      return;
+    }
+    const targetP = frac * total;
+    let chosen = s.find.occurrences.length - 1;
+    for (let i = 0; i < s.find.occurrences.length; i++) {
+      const p = s.visibleIndexes.indexOf(s.find.occurrences[i].lineIndex);
+      if (p >= targetP) {
+        chosen = i;
+        break;
+      }
+    }
+    s.find.current = chosen;
+    jumpToCurrent(s);
+    renderFindCount(s);
+    refreshFindHighlights();
+  });
+
   logEl.addEventListener('scroll', () => {
     s.scrollTop = logEl.scrollTop;
     const atBottom = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 40;
@@ -967,7 +1202,6 @@ function buildPane(s: TabSession): PaneDom {
     scheduleRender(s);
   });
 
-  // Find widget wiring.
   findInput.addEventListener('input', () => {
     s.find.query = findInput.value;
     s.find.current = 0;
@@ -1025,7 +1259,7 @@ function buildPane(s: TabSession): PaneDom {
         return;
       }
       if (s.sendIndex === s.sendHistory.length) {
-        s.sendDraft = sendInput.value; // remember the unsent draft
+        s.sendDraft = sendInput.value;
       }
       s.sendIndex = Math.max(0, s.sendIndex - 1);
       sendInput.value = s.sendHistory[s.sendIndex];
@@ -1044,7 +1278,7 @@ function buildPane(s: TabSession): PaneDom {
   const spacerBottom = document.createElement('div');
   spacerBottom.className = 'log-spacer';
 
-  return { root, dot, title, play, clearBtn, logBtn, exportBtn, scrollBtn, findBtn, close, log: logEl, marks, findBar, findInput, findCase, findWord, findRegex, findCount, findPrev, findNext, findClose, sendRow, sendInput, sendBtn, spacerTop, spacerBottom, hint, findMarks };
+  return { root, bar, dot, title, play, sendToggle, clearBtn, logBtn, exportBtn, scrollBtn, findBtn, close, portSelect, baudInput, dbSel, paritySel, sbSel, leSel, log: logEl, marks, findMarks, findBar, findInput, findCase, findWord, findRegex, findCount, findPrev, findNext, findClose, sendRow, sendInput, sendBtn, hint, spacerTop, spacerBottom };
 }
 
 function createSession(m: {
@@ -1061,6 +1295,8 @@ function createSession(m: {
     title: m.title,
     state: m.state,
     settings: m.settings,
+    lineEnding: 'LF',
+    sendCollapsed: true,
     lineStore: [],
     decisions: [],
     visibleIndexes: [],
@@ -1090,8 +1326,6 @@ function createSession(m: {
   s.dom = buildPane(s);
   measureRowHeight(s.dom.log);
   if (!isFirst) {
-    // Draggable divider on the pane's left edge; double-click resets to an
-    // equal share.
     const divider = document.createElement('div');
     divider.className = 'pane-divider';
     divider.addEventListener('mousedown', (e) => startPaneDrag(s, e));
@@ -1106,8 +1340,7 @@ function createSession(m: {
   return s;
 }
 
-/** Drag-resize: the divider adjusts the left pane's flex-grow weight 1:1
- * with the pointer. */
+/** Drag-resize: the divider adjusts the left pane's flex-grow weight 1:1. */
 function startPaneDrag(s: TabSession, e: MouseEvent): void {
   e.preventDefault();
   const startX = e.clientX;
@@ -1133,6 +1366,7 @@ function setFocused(id: number | undefined): void {
   for (const s of sessions) {
     s.dom.root.classList.toggle('focused', s.id === focusedId);
   }
+  moveGlobalSeg();
   setStatus();
 }
 
@@ -1148,7 +1382,6 @@ function removeSession(id: number): void {
   gone.dom.root.remove();
   gone.dividerLeft?.remove();
   if (idx === 0 && sessions.length > 0) {
-    // The next pane became the first: its left divider would dangle.
     sessions[0].dividerLeft?.remove();
     sessions[0].dividerLeft = undefined;
   }
@@ -1161,23 +1394,26 @@ function removeSession(id: number): void {
     setFocused(next?.id);
   }
   if (sessions.length === 0) {
-    syncEmptyState();
+    syncEmptyState(); // rebuilds the empty row and re-homes the global segment
   }
   refreshFindHighlights();
 }
 
-/** Restarts (or starts) this pane's port using the settings captured at
- * creation — independent of the hardware row's current selection. */
+/** Restarts this pane's port with its OWN controls and settings. */
 function startPane(s: TabSession): void {
-  const cfg = s.settings;
-  pendingReplaceId = s.state === 'idle' && s.kind === 'port' ? s.id : undefined;
+  if (s.kind !== 'port') {
+    return;
+  }
+  const port = (s.dom.portSelect?.value || s.title).trim();
+  pendingReplaceId = s.id; // this pane is replaced by the new session on success
+  const cfg = s.settings ?? DEFAULT_PORT_SETTINGS;
   vscode.postMessage({
     type: 'connect',
-    port: s.title,
-    baudRate: cfg?.baudRate ?? (Number(baudInput.value) || 115200),
-    dataBits: cfg?.dataBits ?? Number(dataBitsSelect.value),
-    stopBits: cfg?.stopBits ?? Number(stopBitsSelect.value),
-    parity: cfg?.parity ?? paritySelect.value,
+    port,
+    baudRate: cfg.baudRate,
+    dataBits: cfg.dataBits,
+    stopBits: cfg.stopBits,
+    parity: cfg.parity,
   });
 }
 
@@ -1195,7 +1431,7 @@ function sendCurrent(s: TabSession): void {
   }
   s.sendIndex = s.sendHistory.length;
   s.sendDraft = '';
-  vscode.postMessage({ type: 'send', sessionId: s.id, text, lineEnding: lineEndingSelect.value });
+  vscode.postMessage({ type: 'send', sessionId: s.id, text, lineEnding: s.lineEnding });
 }
 
 function clearBuffer(s: TabSession): void {
@@ -1246,6 +1482,8 @@ function renderChips(): void {
 }
 
 let manageOpen = false;
+let tagsRow: HTMLDivElement;
+let managePanel: HTMLDivElement;
 
 function renderManagePanel(): void {
   managePanel.style.display = manageOpen ? 'flex' : 'none';
@@ -1364,17 +1602,20 @@ function renderManagePanel(): void {
   }
 }
 
-manageToggleBtn.addEventListener('click', () => {
-  manageOpen = !manageOpen;
-  renderManagePanel();
-});
-
 // --- Host messages -----------------------------------------------------------
 
 window.addEventListener('message', (e) => {
   const m = e.data;
   if (m.type === 'ports') {
-    fillPorts(m.ports);
+    lastPorts = m.ports;
+    for (const s of sessions) {
+      if (s.kind === 'port') {
+        rebuildPortOptions(s);
+      }
+    }
+    if (addMenuOpen) {
+      renderAddMenu();
+    }
     updateButtons();
   } else if (m.type === 'state') {
     const s = sessions.find((x) => x.id === m.sessionId);
@@ -1384,13 +1625,12 @@ window.addEventListener('message', (e) => {
     s.state = m.state;
     s.message = m.message;
     if (m.state === 'connected' && pendingReplaceId !== undefined && m.sessionId !== pendingReplaceId) {
-      const replaced = sessions.find((x) => x.id === pendingReplaceId);
-      // The new session went live on the same port: close the idle pane it replaces.
-      if (replaced && replaced.title === s.title) {
-        pendingReplaceId = undefined;
-        vscode.postMessage({ type: 'closeSession', sessionId: replaced.id });
-        removeSession(replaced.id);
-      }
+      // The pane's ▶ restart went live: close the pane it replaces (intent-
+      // based, so a port change on a stopped pane works too).
+      const replacedId = pendingReplaceId;
+      pendingReplaceId = undefined;
+      vscode.postMessage({ type: 'closeSession', sessionId: replacedId });
+      removeSession(replacedId);
     }
     refreshPaneControls(s);
     if (s.id === focusedId) {
@@ -1403,12 +1643,12 @@ window.addEventListener('message', (e) => {
     }
   } else if (m.type === 'timestamps') {
     showTimestamps = m.enabled;
-    renderTimestampsControl(); // keep the toggle in sync with the setting
+    renderTimestampsControl();
     for (const s of sessions) {
-      s.marksDirty = true; // rows re-render with/without the [hh:mm:ss] prefix
+      s.marksDirty = true;
       scheduleRender(s);
       if (s.find.open) {
-        recomputeOccurrences(s); // the rendered text changed under the query
+        recomputeOccurrences(s);
       }
     }
   } else if (m.type === 'logging') {
@@ -1426,6 +1666,7 @@ window.addEventListener('message', (e) => {
     refreshPaneControls(s);
   } else if (m.type === 'recentBauds') {
     recentBauds = m.values;
+    renderBaudDatalist();
   } else if (m.type === 'exportRequest') {
     const s = sessions.find((x) => x.id === m.sessionId);
     if (s) {
@@ -1439,12 +1680,19 @@ window.addEventListener('message', (e) => {
     const f = focusedSession();
     if (f) {
       if (f.kind === 'port') {
-        vscode.postMessage({ type: 'clear', sessionId: f.id }); // host resets its ring count too
+        vscode.postMessage({ type: 'clear', sessionId: f.id });
       }
       clearBuffer(f);
     }
   } else if (m.type === 'lineEnding') {
-    lineEndingSelect.value = m.value;
+    // The public API set a line ending for the session it just started.
+    const f = focusedSession();
+    if (f && f.kind === 'port') {
+      f.lineEnding = m.value;
+      if (f.dom.leSel) {
+        f.dom.leSel.value = m.value;
+      }
+    }
   } else if (m.type === 'tags') {
     tags = m.tags;
     renderChips();
@@ -1462,53 +1710,32 @@ window.addEventListener('message', (e) => {
   }
 });
 
-// --- Starting monitors ---------------------------------------------------------
-
-function startMonitoring(): void {
-  const path = portSelect.value;
-  if (!path) {
+function rebuildPortOptions(s: TabSession): void {
+  const sel = s.dom.portSelect;
+  if (!sel) {
     return;
   }
-  // Already monitored: focus that pane instead of failing to open the port
-  // a second time.
-  const live = sessions.find((x) => x.kind === 'port' && x.state === 'connected' && x.title === path);
-  if (live) {
-    setFocused(live.id);
-    setStatus(`${path} is already being monitored`);
-    return;
+  const current = sel.value || s.title;
+  sel.textContent = '';
+  const paths = new Set(lastPorts.map((p) => p.path));
+  if (!paths.has(current)) {
+    // Keep the pane's identity visible even if the port vanished.
+    const o = document.createElement('option');
+    o.value = current;
+    o.textContent = current;
+    sel.appendChild(o);
   }
-  // Starting over a stopped pane on the same port reconnects in place: the
-  // old pane closes once the new session connects.
-  const stopped = sessions.find(
-    (s) => s.kind === 'port' && s.state === 'idle' && s.title === path,
-  );
-  pendingReplaceId = stopped?.id;
-  vscode.postMessage({
-    type: 'connect',
-    port: path,
-    baudRate: Number(baudInput.value) || 115200,
-    dataBits: Number(dataBitsSelect.value),
-    stopBits: Number(stopBitsSelect.value),
-    parity: paritySelect.value,
-  });
+  for (const p of lastPorts) {
+    const o = document.createElement('option');
+    o.value = p.path;
+    o.textContent = p.description ? `${p.path} — ${p.description}` : p.path;
+    sel.appendChild(o);
+  }
+  sel.value = current;
+  sel.disabled = s.state !== 'idle';
 }
 
-connectBtn.addEventListener('click', startMonitoring);
-
-// ＋ opens another monitor: a new pane splits the view while the existing
-// ones keep streaming.
-addMonitorBtn.addEventListener('click', startMonitoring);
-
-timestampsBtn.addEventListener('click', () => {
-  vscode.postMessage({ type: 'setTimestamps', enabled: !showTimestamps });
-});
-
-openLogFileBtn.addEventListener('click', () => {
-  vscode.postMessage({ type: 'openLogFile' });
-});
-
-// Ctrl+F finds in the focused pane, like the editor's find widget.
-// F3 / Shift+F3 walk the matches once find is open.
+// Ctrl+F finds in the focused pane; F3 / Shift+F3 walk the matches.
 document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
     const f = focusedSession();
@@ -1526,8 +1753,6 @@ document.addEventListener('keydown', (e) => {
     }
   }
 });
-
-// --- Filter menu -------------------------------------------------------------
 
 // Filtering is display-layer only (ADR-0004): switching modes recomputes
 // visibility for every pane and never changes Follow/locked state.
@@ -1558,96 +1783,6 @@ function renderFilterMenu(): void {
   }
 }
 
-filterToggleBtn.addEventListener('click', (e) => {
-  e.stopPropagation();
-  if (filterMenu.style.display === 'block') {
-    filterMenu.style.display = 'none';
-    return;
-  }
-  renderFilterMenu();
-  filterMenu.style.display = 'block';
-});
-
-refreshBtn.addEventListener('click', () => {
-  vscode.postMessage({ type: 'refreshPorts' });
-});
-
-// --- Baud quick-pick ---------------------------------------------------------
-
-function renderBaudMenu(): void {
-  baudMenu.textContent = '';
-  const current = baudInput.value.trim();
-  const pushItem = (b: number, recent: boolean) => {
-    const item = document.createElement('div');
-    item.className = 'menu-item' + (recent ? ' recent' : '');
-    item.textContent = (String(b) === current ? '\u2714\uFE0E ' : '') + String(b);
-    item.title = recent ? 'Recently used' : '';
-    item.addEventListener('click', () => {
-      baudInput.value = String(b);
-      baudMenu.style.display = 'none';
-    });
-    baudMenu.appendChild(item);
-  };
-  const header = (label: string) => {
-    const h = document.createElement('div');
-    h.className = 'menu-header';
-    h.textContent = label;
-    baudMenu.appendChild(h);
-  };
-  const used = new Set<number>();
-  if (recentBauds.length) {
-    header('Recent');
-    for (const b of recentBauds) {
-      used.add(b);
-      pushItem(b, true);
-    }
-    header('Presets');
-  }
-  for (const b of BAUD_RATE_PRESETS) {
-    if (!used.has(b)) {
-      pushItem(b, false);
-    }
-  }
-}
-
-baudToggleBtn.addEventListener('click', (e) => {
-  e.stopPropagation();
-  if (baudMenu.style.display === 'block') {
-    baudMenu.style.display = 'none';
-    return;
-  }
-  renderBaudMenu();
-  baudMenu.style.display = 'block';
-});
-
-document.addEventListener('click', (e) => {
-  const target = e.target as Node;
-  if (baudMenu.style.display === 'block' && target !== baudToggleBtn && !baudMenu.contains(target)) {
-    baudMenu.style.display = 'none';
-  }
-  if (filterMenu.style.display === 'block' && target !== filterToggleBtn && !filterMenu.contains(target)) {
-    filterMenu.style.display = 'none';
-  }
-});
-
-logDirBtn.addEventListener('click', () => {
-  vscode.postMessage({ type: 'chooseLogDirectory' });
-});
-logDirBtn.addEventListener('contextmenu', (e) => {
-  e.preventDefault();
-  vscode.postMessage({ type: 'clearLogDirectory' });
-});
-
-// Quick collapse: hide the hardware row — content controls stay at hand
-// while the consoles take the full panel height.
-let hwVisible = true;
-collapseHwBtn.addEventListener('click', () => {
-  hwVisible = !hwVisible;
-  hwRow.style.display = hwVisible ? 'flex' : 'none';
-  collapseHwBtn.innerHTML = hwVisible ? '&#9652;' : '&#9662;';
-  collapseHwBtn.title = hwVisible ? 'Hide the hardware row' : 'Show the hardware row';
-});
-
 document.addEventListener('selectionchange', updateTagButton);
 window.addEventListener('resize', () => {
   for (const s of sessions) {
@@ -1656,8 +1791,29 @@ window.addEventListener('resize', () => {
   }
 });
 
+document.addEventListener('click', (e) => {
+  const target = e.target as Node;
+  if (filterMenu.style.display === 'block' && target !== filterToggleBtn && !filterMenu.contains(target)) {
+    filterMenu.style.display = 'none';
+  }
+  if (addMenuOpen && target !== addMonitorBtn && !addMenu.contains(target)) {
+    addMenu.style.display = 'none';
+    addMenuOpen = false;
+  }
+});
+
+// --- Init ----------------------------------------------------------------------
+
+tagsRow = document.createElement('div');
+tagsRow.id = 'tags-row';
+managePanel = document.createElement('div');
+managePanel.id = 'manage-panel';
+buildGlobalSeg();
+document.body.insertBefore(tagsRow, panesArea);
+document.body.insertBefore(managePanel, panesArea);
 syncEmptyState();
 renderTimestampsControl();
+renderBaudDatalist();
 setFilterMode('off');
 updateButtons();
 vscode.postMessage({ type: 'ready' });

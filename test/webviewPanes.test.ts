@@ -106,13 +106,12 @@ describe('split-view panes', () => {
       settings: { baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' },
     });
     fire({ type: 'ports', ports: [{ path: 'COM90' }] });
-    const connectBtn = document.getElementById('connect') as HTMLButtonElement;
-    const portSelect = document.getElementById('port') as HTMLSelectElement;
-    // happy-dom does not auto-select the first option like a browser does,
-    // so pick it explicitly before starting.
-    portSelect.value = 'COM90';
+    (document.getElementById('add-monitor') as HTMLButtonElement).click();
+    // Variant B: ＋ opens a port menu; picking one starts a monitor.
+    const item = document.querySelector('#add-menu .menu-item[data-path="COM90"]') as HTMLElement;
+    expect(item).toBeTruthy();
     posted.length = 0;
-    connectBtn.click();
+    item.click();
     expect(posted).not.toContainEqual(expect.objectContaining({ type: 'connect' }));
   });
 
@@ -228,5 +227,92 @@ describe('row height contract', () => {
     });
     const set = document.documentElement.style.getPropertyValue('--sm-row-h');
     expect(set).toMatch(/^1?\d+px$/);
+  });
+});
+
+describe('variant B: per-pane config, focused global actions', () => {
+  it('drops Monitor Mode and the global Start button from the page', () => {
+    const html = monitorPageHtml({ scriptUri: 'x', cspSource: 'y' });
+    expect(html).not.toContain('Monitor Mode');
+    expect(html).not.toContain('Start Monitoring');
+  });
+
+  it('gives each pane its own serial config, locked while connected', async () => {
+    fire({
+      type: 'sessionCreated',
+      sessionId: 40,
+      kind: 'port',
+      title: 'COM96',
+      state: 'connected',
+      settings: { baudRate: 9600, dataBits: 7, stopBits: 1, parity: 'even' },
+    });
+    fire({ type: 'ports', ports: [{ path: 'COM96' }, { path: 'COM97' }] });
+    const pane = Array.from(document.querySelectorAll('.pane')).find(
+      (p) => p.querySelector('.pane-title')?.textContent?.includes('COM96'),
+    ) as HTMLElement;
+    const port = pane.querySelector('select.ph-port') as HTMLSelectElement;
+    expect(port).toBeTruthy();
+    expect(port.value).toBe('COM96');
+    expect(port.disabled).toBe(true); // connected: config is view-only
+    const baud = pane.querySelector('input.ph-baud') as HTMLInputElement;
+    expect(baud.value).toBe('9600');
+  });
+
+  it('adds a monitor through the ＋ port menu, cloning the newest pane\u2019s settings', async () => {
+    fire({ type: 'ports', ports: [{ path: 'COM97' }] });
+    (document.getElementById('add-monitor') as HTMLButtonElement).click();
+    const item = document.querySelector('#add-menu .menu-item[data-path="COM97"]') as HTMLElement;
+    expect(item).toBeTruthy();
+    posted.length = 0;
+    item.click();
+    // The newest port pane (COM96) was reconfigured to 9600/7/even above; a
+    // new monitor clones it so sibling panes start on the same device family.
+    expect(posted).toContainEqual(
+      expect.objectContaining({ type: 'connect', port: 'COM97', baudRate: 9600, dataBits: 7, stopBits: 1, parity: 'even' }),
+    );
+  });
+
+  it('collapses the send bar by default and toggles it per pane', async () => {
+    fire({
+      type: 'sessionCreated',
+      sessionId: 41,
+      kind: 'port',
+      title: 'COM98',
+      state: 'connected',
+      settings: { baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' },
+    });
+    const pane = Array.from(document.querySelectorAll('.pane')).find(
+      (p) => p.querySelector('.pane-title')?.textContent?.includes('COM98'),
+    ) as HTMLElement;
+    const sendRow = pane.querySelector('.pane-send') as HTMLElement;
+    expect(sendRow.style.display).toBe('none');
+    const toggle = Array.from(pane.querySelectorAll('.pbtn')).find(
+      (b) => b.getAttribute('title') === 'Show the send bar',
+    ) as HTMLButtonElement;
+    expect(toggle).toBeTruthy();
+    toggle.click();
+    expect(sendRow.style.display).toBe('flex');
+  });
+
+  it('rides the global actions on the focused pane bar', async () => {
+    fire({
+      type: 'sessionCreated',
+      sessionId: 42,
+      kind: 'port',
+      title: 'COM99',
+      state: 'connected',
+      settings: { baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' },
+    });
+    // latest pane is focused by default
+    let focused = document.querySelector('.pane.focused') as HTMLElement;
+    expect((focused.querySelector('#global-seg') as HTMLElement).querySelector('#add-monitor')).toBeTruthy();
+    // clicking another pane moves the global segment with the focus
+    const other = Array.from(document.querySelectorAll('.pane')).find(
+      (p) => p.querySelector('.pane-title')?.textContent?.includes('COM96'),
+    ) as HTMLElement;
+    other.click();
+    focused = document.querySelector('.pane.focused') as HTMLElement;
+    expect(focused.querySelector('.pane-title')?.textContent).toContain('COM96');
+    expect(focused.querySelector('#global-seg')).toBeTruthy();
   });
 });
