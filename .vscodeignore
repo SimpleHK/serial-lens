@@ -1,0 +1,15 @@
+.vscode/**
+.vscode-test/**
+.scratch/**
+.github/**
+githooks/**
+assets/**
+docs/**
+scripts/**
+src/**
+test/**
+dist/integration/**
+*.vsix
+**/*.map
+npm-debug.log*
+.DS_Store

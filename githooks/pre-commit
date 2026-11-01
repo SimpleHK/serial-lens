@@ -1,0 +1,9 @@
+#!/bin/sh
+# Fast guardrails only: typecheck + manifest + unit tests (seconds).
+# Integration tests need the virtual COM pair and run separately
+# (`npm run test:integration`) — do not add them here.
+set -e
+cd "$(git rev-parse --show-toplevel)"
+npm run typecheck
+npm run check:manifest
+npm test

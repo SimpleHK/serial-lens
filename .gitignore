@@ -8,3 +8,6 @@ out/
 .env
 .DS_Store
 .scratch/
+
+# personal workspace settings stay local; launch/tasks remain shared
+.vscode/settings.json

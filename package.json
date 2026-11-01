@@ -1,0 +1,119 @@
+{
+  "name": "vscode-serial-monitor-oss",
+  "displayName": "Serial Monitor (OSS)",
+  "description": "Monitor serial ports in VS Code, with tag highlighting, filtering, and scroll lock.",
+  "version": "0.1.0",
+  "license": "MIT",
+  "publisher": "simplehk",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SimpleHK/vscode-serial-monitor-oss"
+  },
+  "engines": {
+    "vscode": "^1.90.0",
+    "node": ">=18"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "serialMonitor.open",
+        "title": "Open Monitor",
+        "category": "Serial Monitor"
+      }
+    ],
+    "viewsContainers": {
+      "panel": [
+        {
+          "id": "serialMonitor",
+          "title": "Serial Monitor",
+          "icon": "assets/serial-monitor.svg"
+        }
+      ]
+    },
+    "views": {
+      "serialMonitor": [
+        {
+          "type": "webview",
+          "id": "serialMonitor.view",
+          "name": "Serial Monitor"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Serial Monitor",
+      "properties": {
+        "serialMonitor.maxBufferLines": {
+          "type": "number",
+          "default": 10000,
+          "minimum": 100,
+          "description": "Receive buffer cap in lines; the oldest lines drop out beyond it (applies live)."
+        },
+        "serialMonitor.recentBaudRates": {
+          "type": "array",
+          "default": [],
+          "description": "Recently used baud rates, shown first in the quick-pick."
+        },
+        "serialMonitor.logDirectory": {
+          "type": "string",
+          "default": "",
+          "description": "Directory for per-session serial logs: each monitoring session creates a new timestamped .log file there."
+        },
+        "serialMonitor.timestamps": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show a receive timestamp at the start of each line (display decoration only; tag matching always uses raw line content)."
+        },
+        "serialMonitor.tags": {
+          "type": "array",
+          "default": [],
+          "markdownDescription": "Tags: named row-matching rules (pattern + color + highlight/filter flags) consumed by highlighting and filtering. Usually managed from the monitor UI.",
+          "items": {
+            "type": "object",
+            "required": ["name", "pattern", "isRegex", "color", "highlight", "filter"],
+            "properties": {
+              "id": { "type": "string", "description": "Stable identity used by the UI (assigned automatically)." },
+              "name": { "type": "string", "description": "Display name." },
+              "pattern": { "type": "string", "description": "Literal substring, or regex source when isRegex is true." },
+              "isRegex": { "type": "boolean", "description": "Whether pattern is a regular expression instead of a substring." },
+              "color": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Hex color used for the full-line highlight and the chip." },
+              "highlight": { "type": "boolean", "description": "Participates in full-line highlighting." },
+              "filter": { "type": "boolean", "description": "Participates in filtering (with the global filter mode)." },
+              "enabled": { "type": "boolean", "description": "Legacy single switch; migrated to highlight/filter on load." }
+            }
+          }
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "package": "npx --yes @vscode/vsce package",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "check:manifest": "node scripts/check-manifest.mjs",
+    "stop:feeder": "node scripts/stop-feeder.mjs",
+    "feeder": "node scripts/virtual-device.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:integration": "npm run build && node scripts/build-integration.mjs && node scripts/stop-feeder.mjs && node dist/integration/runTest.js",
+    "smoke:check": "node scripts/vserial-check.mjs",
+    "smoke:device": "node scripts/virtual-device.mjs"
+  },
+  "dependencies": {
+    "serialport": "^12.0.0"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^22.10.0",
+    "@types/vscode": "^1.90.0",
+    "@vscode/test-electron": "^2.5.2",
+    "esbuild": "^0.24.0",
+    "mocha": "^11.8.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}
