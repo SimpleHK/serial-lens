@@ -3,11 +3,15 @@ declare function acquireVsCodeApi(): { postMessage(msg: unknown): void };
 import { LineDecision, matchLine } from '../shared/tagMatching';
 import { FilterMode, Tag } from '../shared/tag';
 import { scrollReducer, ScrollState } from '../shared/scrollState';
-import { formatTimestamp } from '../shared/timestamp';
-import { BAUD_RATE_PRESETS } from '../shared/baudPresets';
+import { BAUD_RATE_PRESETS, DEFAULT_BAUD_RATE } from '../shared/baudPresets';
+import { formatLineText } from '../shared/lineText';
+import { HostToWebview, SerialParams, WebviewToHost } from '../shared/protocol';
+import { buildFindRegex, FindOccurrence, scanOccurrences, stepIndex } from './findCore';
+import { computeRenderWindow } from './windowMath';
 import { rowHeightFor } from './rowHeight';
 
 const vscode = acquireVsCodeApi();
+const post = (msg: WebviewToHost) => vscode.postMessage(msg);
 
 const panesArea = document.getElementById('panes') as HTMLDivElement;
 
@@ -72,13 +76,6 @@ interface PaneDom {
   spacerBottom: HTMLDivElement;
 }
 
-/** One occurrence of the find query inside a line's rendered text. */
-interface FindOccurrence {
-  lineIndex: number;
-  start: number;
-  end: number;
-}
-
 interface FindState {
   open: boolean;
   query: string;
@@ -94,14 +91,14 @@ interface FindState {
 
 /** Per-pane serial settings: captured at creation, edited through the pane's
  * own controls, and used verbatim when the pane (re)starts. */
-interface PortSettings {
-  baudRate: number;
-  dataBits: number;
-  stopBits: number;
-  parity: string;
-}
+type PortSettings = SerialParams;
 
-const DEFAULT_PORT_SETTINGS: PortSettings = { baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' };
+const DEFAULT_PORT_SETTINGS: PortSettings = {
+  baudRate: DEFAULT_BAUD_RATE,
+  dataBits: 8,
+  stopBits: 1,
+  parity: 'none',
+};
 
 interface PaneSession {
   id: number;
@@ -214,7 +211,7 @@ function buildGlobalControls(): {
 
   const refreshBtn = mkBtn('icon-btn refresh-btn', '&#128260;', 'Refresh port list');
   refreshBtn.addEventListener('click', () => {
-    vscode.postMessage({ type: 'refreshPorts' });
+    post({ type: 'refreshPorts' });
   });
 
   // Filter mode menu (funnel glyph).
@@ -245,21 +242,21 @@ function buildGlobalControls(): {
 
   const timestampsBtn = mkBtn('icon-btn timestamps', '&#9201;&#65039;', 'Timestamps: off');
   timestampsBtn.addEventListener('click', () => {
-    vscode.postMessage({ type: 'setTimestamps', enabled: !showTimestamps });
+    post({ type: 'setTimestamps', enabled: !showTimestamps });
   });
 
   const logDirBtn = mkBtn('icon-btn log-dir', '&#128193;', 'Choose a log directory: every logged session writes a new .log file (right-click to clear)');
   logDirBtn.addEventListener('click', () => {
-    vscode.postMessage({ type: 'chooseLogDirectory' });
+    post({ type: 'chooseLogDirectory' });
   });
   logDirBtn.addEventListener('contextmenu', (e) => {
     e.preventDefault();
-    vscode.postMessage({ type: 'clearLogDirectory' });
+    post({ type: 'clearLogDirectory' });
   });
 
   const openLogFileBtn = mkBtn('icon-btn open-log-file', '&#128194;', 'Open a log file in a read-only pane');
   openLogFileBtn.addEventListener('click', () => {
-    vscode.postMessage({ type: 'openLogFile' });
+    post({ type: 'openLogFile' });
   });
 
   const tagBtn = mkBtn('icon-btn create-tag', '&#127991;&#65039;', 'Create a tag from the selected text');
@@ -269,7 +266,7 @@ function buildGlobalControls(): {
     if (!selected) {
       return;
     }
-    vscode.postMessage({ type: 'createTag', pattern: selected });
+    post({ type: 'createTag', pattern: selected });
   });
   // Keep the selection alive: clicking the button must not collapse it.
   tagBtn.addEventListener('mousedown', (e) => e.preventDefault());
@@ -301,7 +298,7 @@ function toggleAddMenu(menu: HTMLDivElement): void {
   renderAddMenu(menu);
   menu.style.display = 'block';
   // Refresh the cached list in the background; reopening shows it.
-  vscode.postMessage({ type: 'refreshPorts' });
+  post({ type: 'refreshPorts' });
 }
 
 /** Baud quick-pick content: recently used rates first, then every preset. */
@@ -403,18 +400,14 @@ function measureRowHeight(logEl: HTMLElement): void {
 }
 
 function renderText(entry: { text: string; ts?: number }): string {
-  if (showTimestamps && entry.ts !== undefined) {
-    return `[${formatTimestamp(entry.ts)}] ${entry.text}`;
-  }
-  return entry.text;
+  return formatLineText(entry, showTimestamps);
 }
 
 function renderWindowFor(s: PaneSession): void {
   pendingRenders.delete(s);
   const logEl = s.dom.log;
   const total = s.visibleIndexes.length;
-  const first = Math.max(0, Math.floor(logEl.scrollTop / rowHeightPx) - OVERSCAN_ROWS);
-  const last = Math.min(total, Math.ceil((logEl.scrollTop + logEl.clientHeight) / rowHeightPx) + OVERSCAN_ROWS);
+  const { first, last } = computeRenderWindow(logEl.scrollTop, logEl.clientHeight, rowHeightPx, total, OVERSCAN_ROWS);
 
   const rows: RenderedRow[] = [];
   for (let p = first; p < last; p++) {
@@ -567,22 +560,6 @@ function renderFindMarksFor(s: PaneSession): void {
 
 // --- Find (editor-style widget, per pane) ------------------------------------
 
-function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function buildFindRegex(f: FindState): RegExp | undefined {
-  try {
-    let source = f.regex ? f.query : escapeRegExp(f.query);
-    if (f.wholeWord) {
-      source = `\\b(?:${source})\\b`;
-    }
-    return new RegExp(source, f.matchCase ? 'g' : 'gi');
-  } catch {
-    return undefined;
-  }
-}
-
 function recomputeOccurrences(s: PaneSession): void {
   const f = s.find;
   f.occurrences = [];
@@ -593,24 +570,14 @@ function recomputeOccurrences(s: PaneSession): void {
     if (!re) {
       f.error = true;
     } else {
-      for (const lineIndex of s.visibleIndexes) {
-        const text = renderText(s.lineStore[lineIndex]);
-        let m: RegExpExecArray | null;
-        let guard = 0;
-        while ((m = re.exec(text)) !== null && guard++ < 1000) {
-          if (m[0].length === 0) {
-            re.lastIndex++;
-            continue;
-          }
-          const occ: FindOccurrence = { lineIndex, start: m.index, end: m.index + m[0].length };
-          f.occurrences.push(occ);
-          let list = f.byLine.get(lineIndex);
-          if (!list) {
-            list = [];
-            f.byLine.set(lineIndex, list);
-          }
-          list.push(occ);
+      f.occurrences = scanOccurrences(re, s.visibleIndexes, (li) => renderText(s.lineStore[li]));
+      for (const occ of f.occurrences) {
+        let list = f.byLine.get(occ.lineIndex);
+        if (!list) {
+          list = [];
+          f.byLine.set(occ.lineIndex, list);
         }
+        list.push(occ);
       }
       if (f.current >= f.occurrences.length) {
         f.current = f.occurrences.length ? f.occurrences.length - 1 : 0;
@@ -653,7 +620,7 @@ function navigateFind(s: PaneSession, dir: 1 | -1): void {
   if (!f.occurrences.length) {
     return;
   }
-  f.current = (f.current + dir + f.occurrences.length) % f.occurrences.length;
+  f.current = stepIndex(f.current, f.occurrences.length, dir);
   jumpToCurrent(s);
   renderFindCount(s);
   refreshFindHighlights();
@@ -933,7 +900,7 @@ function startFromMenu(path: string): void {
   // Clone the newest port pane's settings; defaults otherwise.
   const last = [...sessions].reverse().find((x) => x.kind === 'port' && x.settings)?.settings;
   const cfg = last ?? DEFAULT_PORT_SETTINGS;
-  vscode.postMessage({
+  post({
     type: 'connect',
     port: path,
     baudRate: cfg.baudRate,
@@ -1155,7 +1122,7 @@ function buildPane(s: PaneSession): PaneDom {
     // edit also reconnects the pane with the new settings.
     const applyParams = (session: PaneSession) => {
       if (session.state === 'connected' && session.settings) {
-        vscode.postMessage({ type: 'reconnect', sessionId: session.id, settings: { ...session.settings } });
+        post({ type: 'reconnect', sessionId: session.id, settings: { ...session.settings } });
       }
     };
     baudInput.addEventListener('change', () => {
@@ -1257,14 +1224,14 @@ function buildPane(s: PaneSession): PaneDom {
 
   close.addEventListener('click', (e) => {
     e.stopPropagation();
-    vscode.postMessage({ type: 'closeSession', sessionId: s.id });
+    post({ type: 'closeSession', sessionId: s.id });
     removeSession(s.id);
   });
 
   play.addEventListener('click', (e) => {
     e.stopPropagation();
     if (s.state === 'connected') {
-      vscode.postMessage({ type: 'disconnect', sessionId: s.id });
+      post({ type: 'disconnect', sessionId: s.id });
     } else if (s.state !== 'connecting') {
       startPane(s);
     }
@@ -1279,7 +1246,7 @@ function buildPane(s: PaneSession): PaneDom {
   clearBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     if (s.kind === 'port') {
-      vscode.postMessage({ type: 'clear', sessionId: s.id }); // host resets its ring count too
+      post({ type: 'clear', sessionId: s.id }); // host resets its ring count too
     }
     clearBuffer(s);
   });
@@ -1289,12 +1256,12 @@ function buildPane(s: PaneSession): PaneDom {
     if (s.kind !== 'port' || s.state === 'connecting') {
       return;
     }
-    vscode.postMessage({ type: 'setLogSession', sessionId: s.id, enabled: !s.logDesired });
+    post({ type: 'setLogSession', sessionId: s.id, enabled: !s.logDesired });
   });
 
   exportBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    vscode.postMessage({ type: 'export', sessionId: s.id });
+    post({ type: 'export', sessionId: s.id });
   });
 
   scrollBtn.addEventListener('click', (e) => {
@@ -1571,7 +1538,7 @@ function startPane(s: PaneSession): void {
   pendingReplaceOldId = s.id; // replaced by the new session on success
   pendingReplaceNewId = undefined; // bound when the host reports the new session
   const cfg = s.settings ?? DEFAULT_PORT_SETTINGS;
-  vscode.postMessage({
+  post({
     type: 'connect',
     port,
     baudRate: cfg.baudRate,
@@ -1595,7 +1562,7 @@ function sendCurrent(s: PaneSession): void {
   }
   s.sendIndex = s.sendHistory.length;
   s.sendDraft = '';
-  vscode.postMessage({ type: 'send', sessionId: s.id, text, lineEnding: s.lineEnding });
+  post({ type: 'send', sessionId: s.id, text, lineEnding: s.lineEnding });
 }
 
 function clearBuffer(s: PaneSession): void {
@@ -1627,7 +1594,7 @@ function renderChips(): void {
     segH.title = t.highlight ? 'Highlighting ON — click to turn off' : 'Highlighting OFF — click to turn on';
     segH.addEventListener('click', (e) => {
       e.stopPropagation();
-      vscode.postMessage({ type: 'updateTag', id: t.id, patch: { highlight: !t.highlight } });
+      post({ type: 'updateTag', id: t.id, patch: { highlight: !t.highlight } });
     });
     const segF = document.createElement('span');
     segF.className = 'seg' + (t.filter ? ' on' : '');
@@ -1635,10 +1602,10 @@ function renderChips(): void {
     segF.title = t.filter ? 'Filtering ON — click to turn off' : 'Filtering OFF — click to turn on';
     segF.addEventListener('click', (e) => {
       e.stopPropagation();
-      vscode.postMessage({ type: 'updateTag', id: t.id, patch: { filter: !t.filter } });
+      post({ type: 'updateTag', id: t.id, patch: { filter: !t.filter } });
     });
     chip.title = `"${t.name}" — H: highlight on/off, F: filter on/off, double-click: delete`;
-    chip.addEventListener('dblclick', () => vscode.postMessage({ type: 'removeTag', id: t.id }));
+    chip.addEventListener('dblclick', () => post({ type: 'removeTag', id: t.id }));
     chip.append(nameSpan, segH, segF);
     tagsRow.appendChild(chip);
   }
@@ -1670,7 +1637,7 @@ function renderManagePanel(): void {
     if (!value) {
       return;
     }
-    vscode.postMessage({ type: 'createTag', pattern: value });
+    post({ type: 'createTag', pattern: value });
   };
   addBtn.addEventListener('click', addTag);
   addInput.addEventListener('keydown', (e) => {
@@ -1684,7 +1651,7 @@ function renderManagePanel(): void {
   clearAllBtn.title = 'Remove every tag';
   clearAllBtn.disabled = tags.length === 0;
   clearAllBtn.addEventListener('click', () => {
-    vscode.postMessage({ type: 'clearTags' });
+    post({ type: 'clearTags' });
   });
   addRow.append(addInput, addBtn, clearAllBtn);
   managePanel.appendChild(addRow);
@@ -1698,7 +1665,7 @@ function renderManagePanel(): void {
     nameInput.value = t.name;
     nameInput.title = 'Tag name';
     nameInput.addEventListener('change', () => {
-      vscode.postMessage({ type: 'updateTag', id: t.id, patch: { name: nameInput.value } });
+      post({ type: 'updateTag', id: t.id, patch: { name: nameInput.value } });
     });
 
     const patternInput = document.createElement('input');
@@ -1707,7 +1674,7 @@ function renderManagePanel(): void {
     patternInput.value = t.pattern;
     patternInput.placeholder = 'Match pattern (substring or regex source)';
     patternInput.addEventListener('change', () => {
-      vscode.postMessage({ type: 'updateTag', id: t.id, patch: { pattern: patternInput.value } });
+      post({ type: 'updateTag', id: t.id, patch: { pattern: patternInput.value } });
     });
 
     const hlLabel = document.createElement('label');
@@ -1715,7 +1682,7 @@ function renderManagePanel(): void {
     hlInput.type = 'checkbox';
     hlInput.checked = t.highlight;
     hlInput.addEventListener('change', () => {
-      vscode.postMessage({ type: 'updateTag', id: t.id, patch: { highlight: hlInput.checked } });
+      post({ type: 'updateTag', id: t.id, patch: { highlight: hlInput.checked } });
     });
     hlLabel.appendChild(hlInput);
     hlLabel.appendChild(document.createTextNode('H'));
@@ -1725,7 +1692,7 @@ function renderManagePanel(): void {
     flInput.type = 'checkbox';
     flInput.checked = t.filter;
     flInput.addEventListener('change', () => {
-      vscode.postMessage({ type: 'updateTag', id: t.id, patch: { filter: flInput.checked } });
+      post({ type: 'updateTag', id: t.id, patch: { filter: flInput.checked } });
     });
     flLabel.appendChild(flInput);
     flLabel.appendChild(document.createTextNode('F'));
@@ -1735,7 +1702,7 @@ function renderManagePanel(): void {
     regexInput.type = 'checkbox';
     regexInput.checked = t.isRegex;
     regexInput.addEventListener('change', () => {
-      vscode.postMessage({ type: 'updateTag', id: t.id, patch: { isRegex: regexInput.checked } });
+      post({ type: 'updateTag', id: t.id, patch: { isRegex: regexInput.checked } });
     });
     regexLabel.appendChild(regexInput);
     regexLabel.appendChild(document.createTextNode('regex'));
@@ -1744,7 +1711,7 @@ function renderManagePanel(): void {
     colorInput.type = 'color';
     colorInput.value = t.color;
     colorInput.addEventListener('change', () => {
-      vscode.postMessage({ type: 'updateTag', id: t.id, patch: { color: colorInput.value } });
+      post({ type: 'updateTag', id: t.id, patch: { color: colorInput.value } });
     });
 
     const deleteBtn = document.createElement('button');
@@ -1752,7 +1719,7 @@ function renderManagePanel(): void {
     deleteBtn.textContent = 'Delete';
     deleteBtn.title = `Delete tag "${t.name}"`;
     deleteBtn.addEventListener('click', () => {
-      vscode.postMessage({ type: 'removeTag', id: t.id });
+      post({ type: 'removeTag', id: t.id });
     });
 
     row.append(nameInput, patternInput, regexLabel, hlLabel, flLabel, colorInput, deleteBtn);
@@ -1772,7 +1739,7 @@ function sessionFor(id: number): PaneSession | undefined {
   return sessions.find((s) => s.id === id);
 }
 
-window.addEventListener('message', (e) => {
+window.addEventListener('message', (e: MessageEvent<HostToWebview>) => {
   const m = e.data;
   if (m.type === 'ports') {
     lastPorts = m.ports;
@@ -1794,7 +1761,7 @@ window.addEventListener('message', (e) => {
       const replacedId = pendingReplaceOldId;
       pendingReplaceOldId = undefined;
       pendingReplaceNewId = undefined;
-      vscode.postMessage({ type: 'closeSession', sessionId: replacedId });
+      post({ type: 'closeSession', sessionId: replacedId });
       removeSession(replacedId);
     }
     refreshPaneControls(s);
@@ -1836,7 +1803,7 @@ window.addEventListener('message', (e) => {
   } else if (m.type === 'exportRequest') {
     const s = sessionFor(m.sessionId);
     if (s) {
-      vscode.postMessage({ type: 'exportData', sessionId: s.id, entries: s.lineStore });
+      post({ type: 'exportData', sessionId: s.id, entries: s.lineStore });
     }
   } else if (m.type === 'status') {
     setStatus(m.message);
@@ -1846,7 +1813,7 @@ window.addEventListener('message', (e) => {
     const f = focusedSession();
     if (f) {
       if (f.kind === 'port') {
-        vscode.postMessage({ type: 'clear', sessionId: f.id });
+        post({ type: 'clear', sessionId: f.id });
       }
       clearBuffer(f);
     }
@@ -1995,4 +1962,4 @@ syncEmptyState();
 renderTimestampsControl();
 setFilterMode('off');
 updateTagButton();
-vscode.postMessage({ type: 'ready' });
+post({ type: 'ready' });

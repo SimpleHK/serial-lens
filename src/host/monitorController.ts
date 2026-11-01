@@ -13,10 +13,18 @@ import {
 
 export type ControllerState = 'idle' | 'connecting' | 'connected';
 
-export type HostToWebview =
+/**
+ * The controller's own narrow view of the wire (it knows nothing about
+ * sessions); the host session-tags these when forwarding. Shared message
+ * shapes live in shared/protocol.ts.
+ */
+export type ControllerToWebview =
   | { type: 'ports'; ports: PortInfo[] }
   | { type: 'state'; state: ControllerState; path?: string; message?: string }
   | { type: 'append'; lines: string[]; timestamps?: number[]; dropCount: number };
+
+/** Backwards-compatible alias: the controller-level union. */
+export type HostToWebview = ControllerToWebview;
 
 export interface MonitorControllerOptions {
   /** Batching window for appends to the webview, in milliseconds. */

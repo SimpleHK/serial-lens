@@ -390,6 +390,61 @@ describe('per-pane config and doubled controls', () => {
     expect(row.textContent).toContain('No monitors open');
   });
 
+  it('replaces a stopped pane only after the restart connects', async () => {
+    // Two-phase restart: ▶ on a stopped pane opens a NEW session; the old
+    // pane survives until the new one goes live.
+    fire({ type: 'sessionCreated', sessionId: 60, kind: 'port', title: 'COM120', state: 'idle' });
+    const pane = Array.from(document.querySelectorAll('.pane')).find(
+      (p) => p.querySelector('.pane-title')?.textContent?.includes('COM120'),
+    ) as HTMLElement;
+    posted.length = 0;
+    (pane.querySelector('button[title="Start monitoring COM120"]') as HTMLButtonElement).click();
+    expect(posted).toContainEqual(expect.objectContaining({ type: 'connect', port: 'COM120' }));
+    expect(document.querySelectorAll('.pane').length).toBe(1); // old pane still there
+
+    fire({
+      type: 'sessionCreated',
+      sessionId: 61,
+      kind: 'port',
+      title: 'COM120',
+      state: 'connecting',
+      settings: { baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' },
+    });
+    expect(document.querySelectorAll('.pane').length).toBe(2); // both until connected
+    fire({ type: 'state', sessionId: 61, state: 'connected', path: 'COM120' });
+    expect(posted).toContainEqual(expect.objectContaining({ type: 'closeSession', sessionId: 60 }));
+    fire({ type: 'sessionClosed', sessionId: 60 });
+    const remaining = Array.from(document.querySelectorAll('.pane .pane-title')).map((t) => t.textContent);
+    expect(remaining.filter((x) => x?.includes('COM120')).length).toBe(1);
+  });
+
+  it('keeps the old pane when a restart fails, immune to later connects', async () => {
+    // REGRESSION guard: a failed restart must not strand the replace request,
+    // letting an unrelated session close the old pane later.
+    fire({ type: 'sessionCreated', sessionId: 62, kind: 'port', title: 'COM122', state: 'idle' });
+    const pane = Array.from(document.querySelectorAll('.pane')).find(
+      (p) => p.querySelector('.pane-title')?.textContent?.includes('COM122'),
+    ) as HTMLElement;
+    posted.length = 0;
+    (pane.querySelector('button[title="Start monitoring COM122"]') as HTMLButtonElement).click();
+    fire({
+      type: 'sessionCreated',
+      sessionId: 63,
+      kind: 'port',
+      title: 'COM122',
+      state: 'connecting',
+      settings: { baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' },
+    });
+    fire({ type: 'sessionFailed', sessionId: 63, message: 'Could not open COM122' });
+    expect(pane.isConnected).toBe(true); // failed open keeps the old pane
+
+    // an unrelated session connecting afterwards must NOT close it
+    fire({ type: 'sessionCreated', sessionId: 64, kind: 'port', title: 'COM123', state: 'connecting' });
+    fire({ type: 'state', sessionId: 64, state: 'connected', path: 'COM123' });
+    expect(posted).not.toContainEqual(expect.objectContaining({ type: 'closeSession', sessionId: 62 }));
+    expect(pane.isConnected).toBe(true);
+  });
+
   it('gives baud a visible quick-pick with recents and presets', async () => {
     // REGRESSION: the quick-pick was once swapped for a bare native datalist,
     // leaving a single-option invisible picker with no affordance.

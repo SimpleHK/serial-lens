@@ -2,7 +2,7 @@
   "name": "vscode-serial-monitor-oss",
   "displayName": "Serial Monitor (OSS)",
   "description": "Monitor serial ports in VS Code, with tag highlighting, filtering, and scroll lock.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "MIT",
   "publisher": "simplehk",
   "repository": {

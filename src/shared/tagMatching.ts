@@ -34,10 +34,6 @@ export function matchLine(line: string, tags: readonly Tag[], mode: FilterMode):
   return { visible, highlightColors };
 }
 
-export function matchLines(lines: readonly string[], tags: readonly Tag[], mode: FilterMode): LineDecision[] {
-  return lines.map((line) => matchLine(line, tags, mode));
-}
-
 function lineMatches(line: string, tag: Tag): boolean {
   if (!tag.isRegex) {
     return line.includes(tag.pattern);

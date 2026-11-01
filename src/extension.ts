@@ -11,34 +11,15 @@ import {
   StopBits,
   Version,
 } from './api/serialMonitorApi';
-import { ControllerState, HostToWebview, MonitorController, TimedLine } from './host/monitorController';
+import { ControllerState, ControllerToWebview, MonitorController, TimedLine } from './host/monitorController';
 import { NodeSerialPortBackend } from './host/nodeSerialPortBackend';
 import { LineEnding, SerialPortSettings } from './host/serialPortAdapter';
 import { TagStorage, TagStore } from './host/tagStore';
 import { Tag } from './shared/tag';
-import { formatTimestamp } from './shared/timestamp';
+import { formatLineText } from './shared/lineText';
+import { HostToWebview, WebviewToHost } from './shared/protocol';
+import { DEFAULT_BAUD_RATE } from './shared/baudPresets';
 import { monitorPageHtml } from './webview/monitorPage';
-
-type WebviewToHost =
-  | { type: 'ready' }
-  | { type: 'refreshPorts' }
-  | { type: 'connect'; port: string; baudRate: number; dataBits: number; stopBits: number; parity: string }
-  | { type: 'reconnect'; sessionId: number; settings: Omit<SerialPortSettings, 'path'> }
-  | { type: 'disconnect'; sessionId: number }
-  | { type: 'closeSession'; sessionId: number }
-  | { type: 'openLogFile' }
-  | { type: 'clear'; sessionId?: number }
-  | { type: 'send'; sessionId: number; text: string; lineEnding: string }
-  | { type: 'setTimestamps'; enabled: boolean }
-  | { type: 'setLogSession'; sessionId: number; enabled: boolean }
-  | { type: 'chooseLogDirectory' }
-  | { type: 'clearLogDirectory' }
-  | { type: 'export'; sessionId: number }
-  | { type: 'exportData'; sessionId: number; entries: { text: string; ts?: number }[] }
-  | { type: 'createTag'; pattern: string }
-  | { type: 'updateTag'; id: string; patch: { name?: string; pattern?: string; isRegex?: boolean; color?: string; highlight?: boolean; filter?: boolean } }
-  | { type: 'removeTag'; id: string }
-  | { type: 'clearTags' };
 
 const LINE_ENDINGS: readonly LineEnding[] = ['none', 'LF', 'CRLF', 'CR'];
 
@@ -56,7 +37,7 @@ function sanitizeSerialParams(params: {
     ? (params.parity as SerialPortSettings['parity'])
     : 'none';
   return {
-    baudRate: Number(params.baudRate) || 115200,
+    baudRate: Number(params.baudRate) || DEFAULT_BAUD_RATE,
     dataBits: ([5, 6, 7, 8] as number[]).includes(dataBits) ? (dataBits as SerialPortSettings['dataBits']) : 8,
     stopBits: ([1, 1.5, 2] as number[]).includes(stopBits) ? (stopBits as SerialPortSettings['stopBits']) : 1,
     parity,
@@ -163,7 +144,7 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
   private get portSessions(): PortSession[] {
     return [...this.sessions.values()].filter((s): s is PortSession => s.kind === 'port');
   }
-  private post: (msg: unknown) => void = () => undefined;
+  private post: (msg: HostToWebview) => void = () => undefined;
   private pendingExportId: number | undefined;
 
   constructor(private readonly extensionUri: vscode.Uri) {}
@@ -180,7 +161,7 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
     });
     view.title = 'Serial Monitor';
 
-    const post = (msg: unknown) => {
+    const post = (msg: HostToWebview) => {
       // The view may already be disposed when a late message arrives.
       void Promise.resolve(view.webview.postMessage(msg)).catch(() => undefined);
     };
@@ -375,7 +356,8 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
     const id = this.nextId++;
     const controller = new MonitorController(
       new NodeSerialPortBackend(),
-      (msg: HostToWebview) => this.post({ ...msg, sessionId: id }),
+      (msg: ControllerToWebview) =>
+        this.post({ ...msg, sessionId: id } as unknown as HostToWebview),
       {
         maxBufferLines: readCap(),
         timestamps: readTimestamps(),
@@ -655,7 +637,7 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
     }
     const withTimestamps = readTimestamps();
     const text = entries
-      .map((e) => (withTimestamps ? `[${formatTimestamp(e.ts ?? Date.now())}] ${e.text}` : e.text))
+      .map((e) => formatLineText(e, withTimestamps))
       .join('\n') + '\n';
     try {
       await fs.writeFile(target.fsPath, text, 'utf-8');
@@ -671,7 +653,7 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
       return;
     }
     const text = entries
-      .map((e) => (withTimestamps ? `[${formatTimestamp(e.ts)}] ${e.text}` : e.text))
+      .map((e) => formatLineText(e, withTimestamps))
       .join('\n') + '\n';
     fs.appendFile(file, text, 'utf-8').catch((err: unknown) => {
       session.sessionLogFile = undefined;

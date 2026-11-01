@@ -1,5 +1,7 @@
 # Serial Monitor (OSS)
 
+[![CI](https://github.com/SimpleHK/vscode-serial-monitor-oss/actions/workflows/ci.yml/badge.svg)](https://github.com/SimpleHK/vscode-serial-monitor-oss/actions/workflows/ci.yml)
+
 Serial-port monitoring inside VS Code, rebuilt from scratch under MIT — an
 open alternative to Microsoft's archived (closed-source) Serial Monitor, with
 features no surveyed serial monitor offers:
