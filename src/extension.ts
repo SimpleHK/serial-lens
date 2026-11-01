@@ -23,6 +23,7 @@ type WebviewToHost =
   | { type: 'ready' }
   | { type: 'refreshPorts' }
   | { type: 'connect'; port: string; baudRate: number; dataBits: number; stopBits: number; parity: string }
+  | { type: 'reconnect'; sessionId: number; settings: Omit<SerialPortSettings, 'path'> }
   | { type: 'disconnect'; sessionId: number }
   | { type: 'closeSession'; sessionId: number }
   | { type: 'openLogFile' }
@@ -220,6 +221,37 @@ class MonitorViewProvider implements vscode.WebviewViewProvider {
         case 'connect':
           void this.handleConnect(toSettings(msg));
           break;
+        case 'reconnect': {
+          // A param edit on a connected pane: tear the connection down and
+          // open it again with the new settings — same session, same pane,
+          // same buffer.
+          const s = this.sessions.get(msg.sessionId);
+          if (s?.kind !== 'port' || s.controller.state !== 'connected') {
+            break;
+          }
+          const path = s.controller.activePath ?? '';
+          const reconnectSettings: SerialPortSettings = {
+            path,
+            baudRate: Number(msg.settings.baudRate) || 115200,
+            dataBits: ([5, 6, 7, 8] as number[]).includes(Number(msg.settings.dataBits))
+              ? (Number(msg.settings.dataBits) as SerialPortSettings['dataBits'])
+              : 8,
+            stopBits: ([1, 1.5, 2] as number[]).includes(Number(msg.settings.stopBits))
+              ? (Number(msg.settings.stopBits) as SerialPortSettings['stopBits'])
+              : 1,
+            parity: ['none', 'even', 'odd', 'mark', 'space'].includes(msg.settings.parity)
+              ? (msg.settings.parity as SerialPortSettings['parity'])
+              : 'none',
+          };
+          void (async () => {
+            await s.controller.disconnect();
+            await s.controller.connect(reconnectSettings);
+            if (s.controller.state === 'connected') {
+              void this.pushRecentBaud(reconnectSettings.baudRate);
+            }
+          })();
+          break;
+        }
         case 'disconnect': {
           const s = this.sessions.get(msg.sessionId);
           if (s?.kind === 'port') {

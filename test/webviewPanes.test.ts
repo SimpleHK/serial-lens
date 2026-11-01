@@ -237,7 +237,7 @@ describe('variant B: per-pane config, focused global actions', () => {
     expect(html).not.toContain('Start Monitoring');
   });
 
-  it('gives each pane its own serial config, locked while connected', async () => {
+  it('keeps the port locked while connected but params editable', async () => {
     fire({
       type: 'sessionCreated',
       sessionId: 40,
@@ -253,22 +253,72 @@ describe('variant B: per-pane config, focused global actions', () => {
     const port = pane.querySelector('select.ph-port') as HTMLSelectElement;
     expect(port).toBeTruthy();
     expect(port.value).toBe('COM96');
-    expect(port.disabled).toBe(true); // connected: config is view-only
+    expect(port.disabled).toBe(true); // the port itself cannot change live
     const baud = pane.querySelector('input.ph-baud') as HTMLInputElement;
     expect(baud.value).toBe('9600');
+    expect(baud.disabled).toBe(false); // params stay editable while connected
+  });
+
+  it('auto-reconnects with the new settings when params change while connected', async () => {
+    fire({
+      type: 'sessionCreated',
+      sessionId: 43,
+      kind: 'port',
+      title: 'COM100',
+      state: 'connected',
+      settings: { baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' },
+    });
+    const pane = Array.from(document.querySelectorAll('.pane')).find(
+      (p) => p.querySelector('.pane-title')?.textContent?.includes('COM100'),
+    ) as HTMLElement;
+    posted.length = 0;
+    const baud = pane.querySelector('input.ph-baud') as HTMLInputElement;
+    baud.value = '9600';
+    baud.dispatchEvent(new Event('change'));
+    expect(posted).toContainEqual(
+      expect.objectContaining({
+        type: 'reconnect',
+        sessionId: 43,
+        settings: { baudRate: 9600, dataBits: 8, stopBits: 1, parity: 'none' },
+      }),
+    );
+    // a parity edit also reconnects
+    posted.length = 0;
+    const parity = pane.querySelector('select.ph-parity') as HTMLSelectElement;
+    parity.value = 'even';
+    parity.dispatchEvent(new Event('change'));
+    expect(posted).toContainEqual(
+      expect.objectContaining({
+        type: 'reconnect',
+        sessionId: 43,
+        settings: { baudRate: 9600, dataBits: 8, stopBits: 1, parity: 'even' },
+      }),
+    );
   });
 
   it('adds a monitor through the ＋ port menu, cloning the newest pane\u2019s settings', async () => {
-    fire({ type: 'ports', ports: [{ path: 'COM97' }] });
+    // Clean slate so the clone source is deterministic.
+    for (const id of [1, 2, 3, 20, 21, 22, 23, 30, 40, 41, 42, 43]) {
+      fire({ type: 'sessionClosed', sessionId: id });
+    }
+    fire({
+      type: 'sessionCreated',
+      sessionId: 44,
+      kind: 'port',
+      title: 'COM101',
+      state: 'connected',
+      settings: { baudRate: 19200, dataBits: 8, stopBits: 1, parity: 'none' },
+    });
+    fire({ type: 'ports', ports: [{ path: 'COM97' }, { path: 'COM101' }] });
     (document.getElementById('add-monitor') as HTMLButtonElement).click();
     const item = document.querySelector('#add-menu .menu-item[data-path="COM97"]') as HTMLElement;
     expect(item).toBeTruthy();
     posted.length = 0;
     item.click();
-    // The newest port pane (COM96) was reconfigured to 9600/7/even above; a
-    // new monitor clones it so sibling panes start on the same device family.
+    // A new monitor clones the newest pane's settings so sibling panes start
+    // on the same device family.
     expect(posted).toContainEqual(
-      expect.objectContaining({ type: 'connect', port: 'COM97', baudRate: 9600, dataBits: 7, stopBits: 1, parity: 'even' }),
+      expect.objectContaining({ type: 'connect', port: 'COM97', baudRate: 19200, dataBits: 8, stopBits: 1, parity: 'none' }),
     );
   });
 
@@ -295,24 +345,20 @@ describe('variant B: per-pane config, focused global actions', () => {
   });
 
   it('rides the global actions on the focused pane bar', async () => {
-    fire({
-      type: 'sessionCreated',
-      sessionId: 42,
-      kind: 'port',
-      title: 'COM99',
-      state: 'connected',
-      settings: { baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' },
-    });
-    // latest pane is focused by default
+    const S = { baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' };
+    fire({ type: 'sessionCreated', sessionId: 45, kind: 'port', title: 'COM102', state: 'connected', settings: { ...S } });
+    fire({ type: 'sessionCreated', sessionId: 46, kind: 'port', title: 'COM103', state: 'connected', settings: { ...S } });
+    // the newest pane is focused by default
     let focused = document.querySelector('.pane.focused') as HTMLElement;
+    expect(focused.querySelector('.pane-title')?.textContent).toContain('COM103');
     expect((focused.querySelector('#global-seg') as HTMLElement).querySelector('#add-monitor')).toBeTruthy();
     // clicking another pane moves the global segment with the focus
     const other = Array.from(document.querySelectorAll('.pane')).find(
-      (p) => p.querySelector('.pane-title')?.textContent?.includes('COM96'),
+      (p) => p.querySelector('.pane-title')?.textContent?.includes('COM102'),
     ) as HTMLElement;
     other.click();
     focused = document.querySelector('.pane.focused') as HTMLElement;
-    expect(focused.querySelector('.pane-title')?.textContent).toContain('COM96');
+    expect(focused.querySelector('.pane-title')?.textContent).toContain('COM102');
     expect(focused.querySelector('#global-seg')).toBeTruthy();
   });
 
@@ -325,7 +371,7 @@ describe('variant B: per-pane config, focused global actions', () => {
   });
 
   it('returns the global segment to a top empty row when all panes close', () => {
-    for (const id of [1, 2, 3, 20, 21, 22, 23, 30, 40, 41, 42]) {
+    for (const id of [1, 2, 3, 20, 21, 22, 23, 30, 40, 41, 42, 43, 44, 45, 46]) {
       fire({ type: 'sessionClosed', sessionId: id });
     }
     expect(document.querySelectorAll('.pane').length).toBe(0);

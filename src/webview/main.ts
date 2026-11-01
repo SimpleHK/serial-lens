@@ -899,19 +899,21 @@ function refreshPaneControls(s: TabSession): void {
       ? 'Viewport follows new lines — click to lock'
       : 'Scroll locked, data keeps arriving — click to rejoin';
 
-  // Serial config: view-only unless the pane is idle (stopped). The line
-  // ending only affects sending, so it stays editable while connected.
-  const lock = s.state !== 'idle';
+  // Serial config: the PORT is locked while connected, but the parameters
+  // stay editable — an edit reconnects the pane with the new settings
+  // (MS-parity behavior). Everything locks while connecting.
+  const portLocked = s.state !== 'idle';
+  const paramsLocked = s.state === 'connecting';
   if (d.portSelect) {
-    d.portSelect.disabled = lock;
+    d.portSelect.disabled = portLocked;
     if (s.state === 'connected') {
       d.portSelect.value = s.title;
     }
   }
-  if (d.baudInput) d.baudInput.disabled = lock;
-  if (d.dbSel) d.dbSel.disabled = lock;
-  if (d.paritySel) d.paritySel.disabled = lock;
-  if (d.sbSel) d.sbSel.disabled = lock;
+  if (d.baudInput) d.baudInput.disabled = paramsLocked;
+  if (d.dbSel) d.dbSel.disabled = paramsLocked;
+  if (d.paritySel) d.paritySel.disabled = paramsLocked;
+  if (d.sbSel) d.sbSel.disabled = paramsLocked;
 
   // Send bar: collapsed by default, toggled per pane.
   if (d.sendToggle) {
@@ -1014,18 +1016,36 @@ function buildPane(s: TabSession): PaneDom {
     sbSel = mkSelect(['1', '1.5', '2'], String(cfg.stopBits), 'ph-sb', 'Stop bits');
     leSel = mkSelect(['LF', 'CRLF', 'CR', 'None'], s.lineEnding, 'ph-le', 'Line ending');
 
-    // Control edits become the pane's settings, used at its next start.
+    // Control edits become the pane's settings; while connected a param
+    // edit also reconnects the pane with the new settings.
+    const applyParams = (session: TabSession) => {
+      if (session.state === 'connected' && session.settings) {
+        vscode.postMessage({ type: 'reconnect', sessionId: session.id, settings: { ...session.settings } });
+      }
+    };
     baudInput.addEventListener('change', () => {
-      if (s.settings) s.settings.baudRate = Number(baudInput!.value) || 115200;
+      if (s.settings) {
+        s.settings.baudRate = Number(baudInput!.value) || 115200;
+        applyParams(s);
+      }
     });
     dbSel.addEventListener('change', () => {
-      if (s.settings) s.settings.dataBits = Number(dbSel!.value) || 8;
+      if (s.settings) {
+        s.settings.dataBits = Number(dbSel!.value) || 8;
+        applyParams(s);
+      }
     });
     paritySel.addEventListener('change', () => {
-      if (s.settings) s.settings.parity = paritySel!.value;
+      if (s.settings) {
+        s.settings.parity = paritySel!.value;
+        applyParams(s);
+      }
     });
     sbSel.addEventListener('change', () => {
-      if (s.settings) s.settings.stopBits = Number(sbSel!.value) || 1;
+      if (s.settings) {
+        s.settings.stopBits = Number(sbSel!.value) || 1;
+        applyParams(s);
+      }
     });
     leSel.addEventListener('change', () => {
       s.lineEnding = leSel!.value;
