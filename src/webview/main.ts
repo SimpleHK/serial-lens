@@ -792,7 +792,7 @@ function buildPane(s: TabSession): PaneDom {
     return b;
   };
   const play = mkBtn('&#9654;');
-  const clearBtn = mkBtn('&#129529;');
+  const clearBtn = mkBtn('&#128465;&#65039;');
   const logBtn = mkBtn('&#9898;&#65039;');
   const exportBtn = mkBtn('&#128228;');
   const scrollBtn = mkBtn('&#8681;');
