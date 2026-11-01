@@ -11,3 +11,6 @@ out/
 
 # personal workspace settings stay local; launch/tasks remain shared
 .vscode/settings.json
+
+# Coverage reports
+coverage/

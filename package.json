@@ -1,8 +1,8 @@
 {
   "name": "vscode-serial-monitor-oss",
   "displayName": "Serial Monitor (OSS)",
-  "description": "Monitor serial ports in VS Code, with tag highlighting, filtering, and scroll lock.",
-  "version": "0.1.0",
+  "description": "Monitor several serial ports side by side in VS Code — tag highlighting, display-layer filtering, per-pane find, live reconnect, log to file. Open-source rebuild of the Microsoft Serial Monitor.",
+  "version": "0.2.0",
   "license": "MIT",
   "publisher": "simplehk",
   "repository": {
@@ -14,7 +14,8 @@
     "node": ">=18"
   },
   "categories": [
-    "Other"
+    "Other",
+    "Debuggers"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -22,6 +23,11 @@
       {
         "command": "serialMonitor.open",
         "title": "Open Monitor",
+        "category": "Serial Monitor"
+      },
+      {
+        "command": "serialMonitor.openLogFile",
+        "title": "Open Log File...",
         "category": "Serial Monitor"
       }
     ],
@@ -64,7 +70,7 @@
         },
         "serialMonitor.timestamps": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Show a receive timestamp at the start of each line (display decoration only; tag matching always uses raw line content)."
         },
         "serialMonitor.tags": {
@@ -73,16 +79,48 @@
           "markdownDescription": "Tags: named row-matching rules (pattern + color + highlight/filter flags) consumed by highlighting and filtering. Usually managed from the monitor UI.",
           "items": {
             "type": "object",
-            "required": ["name", "pattern", "isRegex", "color", "highlight", "filter"],
+            "required": [
+              "name",
+              "pattern",
+              "isRegex",
+              "color",
+              "highlight",
+              "filter"
+            ],
             "properties": {
-              "id": { "type": "string", "description": "Stable identity used by the UI (assigned automatically)." },
-              "name": { "type": "string", "description": "Display name." },
-              "pattern": { "type": "string", "description": "Literal substring, or regex source when isRegex is true." },
-              "isRegex": { "type": "boolean", "description": "Whether pattern is a regular expression instead of a substring." },
-              "color": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Hex color used for the full-line highlight and the chip." },
-              "highlight": { "type": "boolean", "description": "Participates in full-line highlighting." },
-              "filter": { "type": "boolean", "description": "Participates in filtering (with the global filter mode)." },
-              "enabled": { "type": "boolean", "description": "Legacy single switch; migrated to highlight/filter on load." }
+              "id": {
+                "type": "string",
+                "description": "Stable identity used by the UI (assigned automatically)."
+              },
+              "name": {
+                "type": "string",
+                "description": "Display name."
+              },
+              "pattern": {
+                "type": "string",
+                "description": "Literal substring, or regex source when isRegex is true."
+              },
+              "isRegex": {
+                "type": "boolean",
+                "description": "Whether pattern is a regular expression instead of a substring."
+              },
+              "color": {
+                "type": "string",
+                "pattern": "^#[0-9a-fA-F]{6}$",
+                "description": "Hex color used for the full-line highlight and the chip."
+              },
+              "highlight": {
+                "type": "boolean",
+                "description": "Participates in full-line highlighting."
+              },
+              "filter": {
+                "type": "boolean",
+                "description": "Participates in filtering (with the global filter mode)."
+              },
+              "enabled": {
+                "type": "boolean",
+                "description": "Legacy single switch; migrated to highlight/filter on load."
+              }
             }
           }
         }
@@ -99,7 +137,9 @@
     "feeder": "node scripts/virtual-device.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "test:integration": "npm run build && node scripts/build-integration.mjs && node scripts/stop-feeder.mjs && node dist/integration/runTest.js",
+    "preview:webview": "node scripts/webview-preview.mjs",
     "smoke:check": "node scripts/vserial-check.mjs",
     "smoke:device": "node scripts/virtual-device.mjs"
   },
@@ -110,10 +150,40 @@
     "@types/mocha": "^10.0.10",
     "@types/node": "^22.10.0",
     "@types/vscode": "^1.90.0",
+    "@vitest/coverage-v8": "^2.1.9",
     "@vscode/test-electron": "^2.5.2",
     "esbuild": "^0.24.0",
+    "gifenc": "^1.0.3",
+    "happy-dom": "^21.0.4",
     "mocha": "^11.8.0",
+    "pngjs": "^7.0.0",
     "typescript": "^5.6.0",
     "vitest": "^2.1.0"
-  }
+  },
+  "icon": "assets/icon.png",
+  "keywords": [
+    "serial",
+    "serial port",
+    "monitor",
+    "hardware",
+    "embedded",
+    "uart",
+    "arduino",
+    "esp32",
+    "logs"
+  ],
+  "galleryBanner": {
+    "color": "#1f2733",
+    "theme": "dark"
+  },
+  "badges": [
+    {
+      "url": "https://github.com/SimpleHK/vscode-serial-monitor-oss/actions/workflows/ci.yml/badge.svg",
+      "href": "https://github.com/SimpleHK/vscode-serial-monitor-oss/actions/workflows/ci.yml",
+      "description": "CI"
+    }
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ]
 }

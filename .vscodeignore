@@ -4,6 +4,8 @@
 .github/**
 githooks/**
 assets/**
+!assets/icon.png
+!assets/serial-monitor.svg
 docs/**
 scripts/**
 src/**
@@ -13,3 +15,4 @@ dist/integration/**
 **/*.map
 npm-debug.log*
 .DS_Store
+coverage/
