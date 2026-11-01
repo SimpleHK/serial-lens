@@ -1,7 +1,7 @@
 {
   "name": "vscode-serial-monitor-oss",
   "displayName": "Serial Monitor (OSS)",
-  "description": "Monitor several serial ports side by side in VS Code — tag highlighting, display-layer filtering, per-pane find, live reconnect, log to file. Open-source rebuild of the Microsoft Serial Monitor.",
+  "description": "Monitor several serial ports side by side in VS Code — tag highlighting, display-layer filtering, per-pane find, live reconnect, log to file. Open-source rebuild of the Microsoft Serial Monitor. Independent, MIT-licensed, no telemetry.",
   "version": "0.2.0",
   "license": "MIT",
   "publisher": "simplehk",

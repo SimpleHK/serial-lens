@@ -91,6 +91,10 @@ Install the generated `.vsix` (`Extensions: Install from VSIX…`) or press
 No hardware? A com0com virtual pair works: `npm run smoke:check`, then feed
 it with `npm run smoke:device -- --scenario lines`.
 
+> [!NOTE]
+> Working with real hardware is at your own risk — double-check baud rates
+> and voltage levels before connecting anything you care about.
+
 ## Public API
 
 Other extensions can drive it through the vendored
