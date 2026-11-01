@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, beforeAll } from 'vitest';
 import { monitorPageHtml } from '../src/webview/monitorPage';
+import { rowHeightFor } from '../src/webview/rowHeight';
 
 /**
  * Regression tests for the split-view webview wiring. These run the REAL
@@ -202,5 +203,30 @@ describe('split-view panes', () => {
     expect(count.textContent).toBe('2 of 6');
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'F3', shiftKey: true }));
     expect(count.textContent).toBe('1 of 6');
+  });
+});
+
+describe('row height contract', () => {
+  it('rounds the font-derived row height to whole pixels', () => {
+    // 1.5em of the 13px editor font is 19.5px: the virtualization math needs
+    // an integer row height or spacers drift against real layout, which made
+    // scrollbars jump and find jumps land outside the rendered window.
+    expect(rowHeightFor(13)).toBe(20);
+    expect(rowHeightFor(14)).toBe(21);
+    expect(rowHeightFor(12)).toBe(18);
+    expect(rowHeightFor(10)).toBe(16); // clamped floor
+  });
+
+  it('page CSS and the renderer agree on the same row-height variable', async () => {
+    expect(monitorPageHtml({ scriptUri: 'x', cspSource: 'y' })).toContain('var(--sm-row-h');
+    fire({
+      type: 'sessionCreated',
+      sessionId: 30,
+      kind: 'port',
+      title: 'COM95',
+      state: 'connected',
+    });
+    const set = document.documentElement.style.getPropertyValue('--sm-row-h');
+    expect(set).toMatch(/^1?\d+px$/);
   });
 });

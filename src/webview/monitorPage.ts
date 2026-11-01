@@ -112,9 +112,10 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   .pane-log::-webkit-scrollbar-thumb { background: rgba(128, 128, 128, 0.35); border-radius: 4px; }
   .pane-log::-webkit-scrollbar-thumb:hover { background: rgba(128, 128, 128, 0.55); }
   .log-spacer { width: 1px; }
-  /* Row height follows the editor font size (probed at runtime), so users
-   * with larger editor fonts don't get clipped or overlapping lines. */
-  .pane-log .row-line { height: 1.5em; line-height: 1.5em; white-space: pre; width: max-content; min-width: 100%; }
+  /* Row height follows the editor font size: main.js measures it, rounds to
+   * whole pixels, and publishes --sm-row-h, which this rule consumes — CSS
+   * and the virtualization math must never disagree (drift = jumping). */
+  .pane-log .row-line { height: var(--sm-row-h, 20px); line-height: var(--sm-row-h, 20px); white-space: pre; width: max-content; min-width: 100%; }
   .pane-hint { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; color: var(--vscode-descriptionForeground); pointer-events: none; user-select: none; font-family: var(--vscode-font-family); }
   .log-empty { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--vscode-descriptionForeground); font-family: var(--vscode-font-family); }
   /* Highlight overview strip: one colored block per tag-highlighted line,

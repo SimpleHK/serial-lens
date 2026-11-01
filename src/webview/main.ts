@@ -5,6 +5,7 @@ import { FilterMode, Tag } from '../shared/tag';
 import { scrollReducer, ScrollState } from '../shared/scrollState';
 import { formatTimestamp } from '../shared/timestamp';
 import { BAUD_RATE_PRESETS } from '../shared/baudPresets';
+import { rowHeightFor } from './rowHeight';
 
 const vscode = acquireVsCodeApi();
 
@@ -166,12 +167,17 @@ const highlightCtor = (window as unknown as { Highlight?: HighlightLike }).Highl
 const highlightRegistry = (CSS as unknown as { highlights?: Map<string, unknown> }).highlights;
 
 function measureRowHeight(logEl: HTMLElement): void {
+  // Derive the row height from the editor font size and publish it to CSS —
+  // see rowHeight.ts for why the two must be one integer value.
+  const fontSize = parseFloat(window.getComputedStyle(logEl).fontSize) || 13;
+  const h = rowHeightFor(fontSize);
+  document.documentElement.style.setProperty('--sm-row-h', `${h}px`);
   const probe = document.createElement('div');
   probe.className = 'row-line';
   probe.style.visibility = 'hidden';
   probe.textContent = 'X';
   logEl.appendChild(probe);
-  rowHeightPx = probe.offsetHeight || 20;
+  rowHeightPx = probe.offsetHeight || h;
   probe.remove();
 }
 
