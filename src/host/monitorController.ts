@@ -84,19 +84,6 @@ export class MonitorController {
     }
   }
 
-  async refreshPorts(): Promise<void> {
-    try {
-      const ports = await this.backend.listPorts();
-      this.send({ type: 'ports', ports });
-    } catch (err) {
-      this.send({
-        type: 'state',
-        state: 'idle',
-        message: `Failed to list serial ports: ${describe(err)}`,
-      });
-    }
-  }
-
   async connect(settings: SerialPortSettings): Promise<void> {
     if (this.stateValue !== 'idle') {
       this.send({

@@ -125,31 +125,6 @@ describe('MonitorController', () => {
 
   const types = (messages: HostToWebview[]) => messages.map((m) => m.type);
 
-  it('sends the port list on refreshPorts', async () => {
-    const { messages, controller } = setup(['COM3', 'COM7']);
-
-    await controller.refreshPorts();
-
-    expect(messages).toEqual([
-      { type: 'ports', ports: [{ path: 'COM3' }, { path: 'COM7' }] },
-    ]);
-  });
-
-  it('reports list failure as a state message instead of crashing', async () => {
-    const backend = new FakeBackend();
-    backend.listPorts = async () => {
-      throw new Error('usb boom');
-    };
-    const messages: HostToWebview[] = [];
-    const controller = new MonitorController(backend, (msg) => messages.push(msg));
-
-    await controller.refreshPorts();
-
-    expect(messages).toEqual([
-      { type: 'state', state: 'idle', message: 'Failed to list serial ports: usb boom' },
-    ]);
-  });
-
   it('connects: creates the port with the requested path and baud, reporting connecting then connected', async () => {
     const { backend, messages, controller } = setup();
 

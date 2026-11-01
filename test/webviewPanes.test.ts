@@ -232,7 +232,7 @@ describe('row height contract', () => {
   });
 });
 
-describe('variant B: per-pane config, focused global actions', () => {
+describe('per-pane config and doubled controls', () => {
   it('drops Monitor Mode and the global Start button from the page', () => {
     const html = monitorPageHtml({ scriptUri: 'x', cspSource: 'y' });
     expect(html).not.toContain('Monitor Mode');

@@ -1,15 +1,15 @@
 /**
  * The webview page for the bottom-panel "SERIAL MONITOR" tab.
  *
- * Variant B layout (prototype verdict, prototypes/toolbar-layout.html):
+ * Layout (prototype verdict, branch prototype/toolbar-layout):
  * there is NO global toolbar. Every pane is fully self-contained — its bar
  * carries the serial config (port, baud, data bits, parity, stop bits, line
  * ending) plus the pane actions (start/stop, send toggle, clear, log-to-file,
- * export, follow/lock, find, close), and the GLOBAL actions (＋ add monitor,
- * refresh, tag filter, timestamps, log directory, open file, tag from
- * selection, manage tags, status) ride the FOCUSED pane's bar as one
- * #global-seg segment that moves with the focus. With zero panes the segment
- * sits in an empty-state row. The send bar starts collapsed. The static HTML
+ * export, follow/lock, find, close), and ITS OWN copy of the global actions
+ * (＋ add monitor, refresh, funnel filter, timestamps, log directory, open
+ * file, tag from selection, manage tags) plus a per-pane status readout.
+ * With zero panes an empty-state row carries the same controls. The send
+ * bar starts collapsed. The static HTML
  * is therefore minimal: the panes area and a shared baud datalist; everything
  * else is built by dist/media/main.js.
  */

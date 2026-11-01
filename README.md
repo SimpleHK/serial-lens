@@ -7,18 +7,18 @@ features no surveyed serial monitor offers:
 - **Split view, self-contained panes** — monitor several ports side by side.
   Each pane owns its FULL serial config (port, baud, data bits, parity, stop
   bits, line ending) and actions (start/stop, clear, log-to-file, export,
-  follow/lock, find, collapsible send bar), so ports never share controls.
-  Press **＋** and pick a port (settings clone the newest pane) — the view
-  splits; the global actions (filter, timestamps, log dir, tags…) ride the
-  focused pane's bar, VS Code editor-title style.
+  follow/lock, find, collapsible send bar), plus its own copy of the global
+  actions and a per-pane status readout — every control exists once per pane,
+  nothing moves when you switch panes. Press **＋** and pick a port (settings
+  clone the newest pane) and the view splits.
 - **Find per pane** — Ctrl+F opens an editor-style find widget: match case,
   whole word, and regex toggles with an occurrence counter and prev/next
   navigation, highlighted in place without disturbing text selection.
 - **Open log files** — open a saved `.log`/`.txt` file as a read-only tab and
   use the same tags, filtering, and export on recorded data.
-- **Tags** — select text, press **+ Tag**, and every matching line is
-  Highlighted across the full line. Each tag is a colored chip in the toolbar;
-  one click silences it everywhere (highlight *and* filter).
+- **Tags** — select text, press the **tag** button, and every matching line is
+  Highlighted across the full line. Each tag is a colored chip in the tags
+  row; one click silences it everywhere (highlight *and* filter).
 - **Filter** — a global three-state control (off / include / exclude) over tag
   matches. Purely display-layer: nothing is discarded, so switching filters
   back recovers every line still in the buffer.

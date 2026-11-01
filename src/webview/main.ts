@@ -13,11 +13,12 @@ const panesArea = document.getElementById('panes') as HTMLDivElement;
 const baudOptions = document.getElementById('baud-options') as HTMLDataListElement;
 
 /**
- * Variant B layout: there is no global toolbar. Every pane carries its own
- * serial config and actions in its bar; the single #global-seg segment (add
- * monitor, refresh, filter, timestamps, log dir, open file, tags, manage,
- * status) rides the FOCUSED pane's bar, or the empty-state row when no panes
- * are open. ＋ opens a port quick-pick instead of reading a global picker.
+ * Layout: there is no global toolbar. Every pane carries its own serial
+ * config and actions in its bar, plus its OWN copy of the global controls
+ * (add monitor, refresh, filter, timestamps, log dir, open file, tag,
+ * manage) and a per-pane status readout; the empty-state row carries one
+ * too. Nothing re-parents on focus — focus only steers Ctrl+F, the API
+ * clear, and transient status messages. ＋ opens a port quick-pick.
  */
 
 /** Per-pane DOM. Config controls exist only on port panes. */
@@ -103,7 +104,7 @@ interface PortSettings {
 
 const DEFAULT_PORT_SETTINGS: PortSettings = { baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' };
 
-interface TabSession {
+interface PaneSession {
   id: number;
   kind: 'port' | 'file';
   title: string;
@@ -116,7 +117,6 @@ interface TabSession {
   decisions: LineDecision[];
   visibleIndexes: number[];
   scroll: ScrollState;
-  scrollTop: number;
   logDesired: boolean;
   logFile?: string;
   logDirectory?: string;
@@ -130,11 +130,13 @@ interface TabSession {
   sendDraft: string;
 }
 
-const sessions: TabSession[] = [];
+const sessions: PaneSession[] = [];
 let focusedId: number | undefined;
 // A pane's ▶ restarts itself: the old pane closes only after the new session
-// actually connects (a failed open keeps the old pane and its buffer).
-let pendingReplaceId: number | undefined;
+// actually connects. Two-phase tracking keeps a failed open from stranding
+// the request (an unrelated session must never close the old pane).
+let pendingReplaceOldId: number | undefined;
+let pendingReplaceNewId: number | undefined;
 
 // Display-layer globals shared by every pane.
 let filterMode: FilterMode = 'off';
@@ -143,7 +145,7 @@ let tags: Tag[] = [];
 let recentBauds: number[] = [];
 let lastPorts: { path: string; description?: string }[] = [];
 
-function focusedSession(): TabSession | undefined {
+function focusedSession(): PaneSession | undefined {
   return sessions.find((s) => s.id === focusedId);
 }
 
@@ -327,7 +329,7 @@ function renderAddMenu(menu: HTMLDivElement): void {
 // distance so only the visible window (plus overscan) exists in the DOM.
 const OVERSCAN_ROWS = 20;
 let rowHeightPx = 20;
-const pendingRenders = new Set<TabSession>();
+const pendingRenders = new Set<PaneSession>();
 let renderScheduled = false;
 
 // CSS Custom Highlight API (Chromium ≥105, guaranteed in VS Code's webview);
@@ -358,7 +360,7 @@ function renderText(entry: { text: string; ts?: number }): string {
   return entry.text;
 }
 
-function renderWindowFor(s: TabSession): void {
+function renderWindowFor(s: PaneSession): void {
   pendingRenders.delete(s);
   const logEl = s.dom.log;
   const total = s.visibleIndexes.length;
@@ -445,7 +447,7 @@ interface RenderedRow {
 
 /** Overview strip beside a pane's scrollbar: one block per tag-highlighted
  * line, squashed to the viewport like the editor's overview ruler. */
-function renderMarksFor(s: TabSession): void {
+function renderMarksFor(s: PaneSession): void {
   if (!s.marksDirty) {
     return;
   }
@@ -478,7 +480,7 @@ function renderMarksFor(s: TabSession): void {
 }
 
 /** Find-match ticks in the secondary overview strip. */
-function renderFindMarksFor(s: TabSession): void {
+function renderFindMarksFor(s: PaneSession): void {
   const f = s.find;
   const strip = s.dom.findMarks;
   const total = s.visibleIndexes.length;
@@ -532,7 +534,7 @@ function buildFindRegex(f: FindState): RegExp | undefined {
   }
 }
 
-function recomputeOccurrences(s: TabSession): void {
+function recomputeOccurrences(s: PaneSession): void {
   const f = s.find;
   f.occurrences = [];
   f.byLine = new Map();
@@ -571,7 +573,7 @@ function recomputeOccurrences(s: TabSession): void {
   refreshFindHighlights();
 }
 
-function renderFindCount(s: TabSession): void {
+function renderFindCount(s: PaneSession): void {
   const f = s.find;
   const el = s.dom.findCount;
   el.classList.toggle('error', f.error);
@@ -586,7 +588,7 @@ function renderFindCount(s: TabSession): void {
   }
 }
 
-function jumpToCurrent(s: TabSession): void {
+function jumpToCurrent(s: PaneSession): void {
   const occ = s.find.occurrences[s.find.current];
   if (!occ) {
     return;
@@ -597,7 +599,7 @@ function jumpToCurrent(s: TabSession): void {
   }
 }
 
-function navigateFind(s: TabSession, dir: 1 | -1): void {
+function navigateFind(s: PaneSession, dir: 1 | -1): void {
   const f = s.find;
   if (!f.occurrences.length) {
     return;
@@ -647,7 +649,7 @@ function refreshFindHighlights(): void {
   }
 }
 
-function openFind(s: TabSession): void {
+function openFind(s: PaneSession): void {
   s.find.open = true;
   s.dom.findBar.classList.add('visible');
   s.dom.findInput.focus();
@@ -655,7 +657,7 @@ function openFind(s: TabSession): void {
   recomputeOccurrences(s);
 }
 
-function closeFind(s: TabSession): void {
+function closeFind(s: PaneSession): void {
   s.find.open = false;
   s.find.query = '';
   s.dom.findInput.value = '';
@@ -663,7 +665,7 @@ function closeFind(s: TabSession): void {
   recomputeOccurrences(s);
 }
 
-function scheduleFindRecompute(s: TabSession): void {
+function scheduleFindRecompute(s: PaneSession): void {
   if (s.find.debounce !== undefined) {
     clearTimeout(s.find.debounce);
   }
@@ -718,7 +720,7 @@ function restoreSelection(saved?: { start: SelectionPoint; end: SelectionPoint }
   selection?.addRange(range);
 }
 
-function scheduleRender(s: TabSession): void {
+function scheduleRender(s: PaneSession): void {
   pendingRenders.add(s);
   if (renderScheduled) {
     return;
@@ -732,7 +734,7 @@ function scheduleRender(s: TabSession): void {
   });
 }
 
-function rebuildVisibleIndexes(s: TabSession): void {
+function rebuildVisibleIndexes(s: PaneSession): void {
   s.visibleIndexes = [];
   for (let i = 0; i < s.decisions.length; i++) {
     if (s.decisions[i].visible) {
@@ -741,7 +743,7 @@ function rebuildVisibleIndexes(s: TabSession): void {
   }
 }
 
-function dropOldest(s: TabSession, count: number): void {
+function dropOldest(s: PaneSession, count: number): void {
   if (count <= 0) {
     return;
   }
@@ -751,7 +753,7 @@ function dropOldest(s: TabSession, count: number): void {
   s.marksDirty = true;
 }
 
-function appendToSession(s: TabSession, entries: { text: string; ts?: number }[], dropCount: number): void {
+function appendToSession(s: PaneSession, entries: { text: string; ts?: number }[], dropCount: number): void {
   dropOldest(s, dropCount);
   for (const entry of entries) {
     s.decisions.push(matchLine(entry.text, tags, filterMode));
@@ -797,10 +799,6 @@ function updateTagButton(): void {
   }
 }
 
-function updateButtons(): void {
-  updateTagButton();
-}
-
 function renderTimestampsControl(): void {
   for (const btn of controlRegistry.timestampsButtons) {
     btn.classList.toggle('on', showTimestamps);
@@ -808,7 +806,7 @@ function renderTimestampsControl(): void {
   }
 }
 
-function stateText(s: TabSession): string {
+function stateText(s: PaneSession): string {
   return s.state === 'connected' ? 'Connected' : s.state === 'connecting' ? 'Connecting...' : 'Idle';
 }
 
@@ -827,8 +825,9 @@ function setStatus(message?: string): void {
 }
 
 function startFromMenu(path: string): void {
-  // Already monitored: focus that pane instead of failing a second open.
-  const live = sessions.find((x) => x.kind === 'port' && x.state === 'connected' && x.title === path);
+  // Already monitored (or connecting): focus that pane instead of failing a
+  // second open.
+  const live = sessions.find((x) => x.kind === 'port' && x.state !== 'idle' && x.title === path);
   if (live) {
     setFocused(live.id);
     setStatus(`${path} is already being monitored`);
@@ -886,7 +885,7 @@ function syncEmptyState(): void {
 }
 
 /** Refreshes one pane's self-contained controls from its session state. */
-function refreshPaneControls(s: TabSession): void {
+function refreshPaneControls(s: PaneSession): void {
   const d = s.dom;
   const isPort = s.kind === 'port';
   const isConnected = isPort && s.state === 'connected';
@@ -977,7 +976,7 @@ function refreshPaneControls(s: TabSession): void {
   d.status.textContent = s.message || stateText(s);
 }
 
-function buildPane(s: TabSession): PaneDom {
+function buildPane(s: PaneSession): PaneDom {
   const root = document.createElement('div');
   root.className = 'pane';
   const bar = document.createElement('div');
@@ -1052,7 +1051,7 @@ function buildPane(s: TabSession): PaneDom {
 
     // Control edits become the pane's settings; while connected a param
     // edit also reconnects the pane with the new settings.
-    const applyParams = (session: TabSession) => {
+    const applyParams = (session: PaneSession) => {
       if (session.state === 'connected' && session.settings) {
         vscode.postMessage({ type: 'reconnect', sessionId: session.id, settings: { ...session.settings } });
       }
@@ -1246,7 +1245,6 @@ function buildPane(s: TabSession): PaneDom {
   });
 
   logEl.addEventListener('scroll', () => {
-    s.scrollTop = logEl.scrollTop;
     const atBottom = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 40;
     const next = scrollReducer(s.scroll, { type: 'scrolled', atBottom });
     if (next !== s.scroll) {
@@ -1345,9 +1343,9 @@ function createSession(m: {
   title: string;
   state: 'idle' | 'connecting' | 'connected';
   settings?: PortSettings;
-}): TabSession {
+}): PaneSession {
   const isFirst = sessions.length === 0;
-  const s: TabSession = {
+  const s: PaneSession = {
     id: m.sessionId,
     kind: m.kind,
     title: m.title,
@@ -1359,7 +1357,6 @@ function createSession(m: {
     decisions: [],
     visibleIndexes: [],
     scroll: 'follow',
-    scrollTop: 0,
     logDesired: false,
     find: {
       open: false,
@@ -1399,7 +1396,7 @@ function createSession(m: {
 }
 
 /** Drag-resize: the divider adjusts the left pane's flex-grow weight 1:1. */
-function startPaneDrag(s: TabSession, e: MouseEvent): void {
+function startPaneDrag(s: PaneSession, e: MouseEvent): void {
   e.preventDefault();
   const startX = e.clientX;
   const startWidth = s.dom.root.getBoundingClientRect().width || 300;
@@ -1446,8 +1443,9 @@ function removeSession(id: number): void {
     sessions[0].dividerLeft = undefined;
   }
   pendingRenders.delete(gone);
-  if (pendingReplaceId === id) {
-    pendingReplaceId = undefined;
+  if (pendingReplaceOldId === id) {
+    pendingReplaceOldId = undefined;
+    pendingReplaceNewId = undefined;
   }
   if (focusedId === id) {
     const next = sessions[idx] ?? sessions[idx - 1];
@@ -1460,12 +1458,13 @@ function removeSession(id: number): void {
 }
 
 /** Restarts this pane's port with its OWN controls and settings. */
-function startPane(s: TabSession): void {
+function startPane(s: PaneSession): void {
   if (s.kind !== 'port') {
     return;
   }
   const port = (s.dom.portSelect?.value || s.title).trim();
-  pendingReplaceId = s.id; // this pane is replaced by the new session on success
+  pendingReplaceOldId = s.id; // replaced by the new session on success
+  pendingReplaceNewId = undefined; // bound when the host reports the new session
   const cfg = s.settings ?? DEFAULT_PORT_SETTINGS;
   vscode.postMessage({
     type: 'connect',
@@ -1477,7 +1476,7 @@ function startPane(s: TabSession): void {
   });
 }
 
-function sendCurrent(s: TabSession): void {
+function sendCurrent(s: PaneSession): void {
   if (s.kind !== 'port' || s.state !== 'connected') {
     return;
   }
@@ -1494,7 +1493,7 @@ function sendCurrent(s: TabSession): void {
   vscode.postMessage({ type: 'send', sessionId: s.id, text, lineEnding: s.lineEnding });
 }
 
-function clearBuffer(s: TabSession): void {
+function clearBuffer(s: PaneSession): void {
   s.lineStore.length = 0;
   s.decisions.length = 0;
   s.visibleIndexes = [];
@@ -1664,6 +1663,10 @@ function renderManagePanel(): void {
 
 // --- Host messages -----------------------------------------------------------
 
+function sessionFor(id: number): PaneSession | undefined {
+  return sessions.find((s) => s.id === id);
+}
+
 window.addEventListener('message', (e) => {
   const m = e.data;
   if (m.type === 'ports') {
@@ -1673,19 +1676,19 @@ window.addEventListener('message', (e) => {
         rebuildPortOptions(s);
       }
     }
-    updateButtons();
+    updateTagButton();
   } else if (m.type === 'state') {
-    const s = sessions.find((x) => x.id === m.sessionId);
+    const s = sessionFor(m.sessionId);
     if (!s) {
       return;
     }
     s.state = m.state;
     s.message = m.message;
-    if (m.state === 'connected' && pendingReplaceId !== undefined && m.sessionId !== pendingReplaceId) {
-      // The pane's ▶ restart went live: close the pane it replaces (intent-
-      // based, so a port change on a stopped pane works too).
-      const replacedId = pendingReplaceId;
-      pendingReplaceId = undefined;
+    if (m.state === 'connected' && pendingReplaceNewId === m.sessionId && pendingReplaceOldId !== undefined) {
+      // The pane's ▶ restart went live: close the pane it replaces.
+      const replacedId = pendingReplaceOldId;
+      pendingReplaceOldId = undefined;
+      pendingReplaceNewId = undefined;
       vscode.postMessage({ type: 'closeSession', sessionId: replacedId });
       removeSession(replacedId);
     }
@@ -1694,7 +1697,7 @@ window.addEventListener('message', (e) => {
       setStatus();
     }
   } else if (m.type === 'append') {
-    const s = sessions.find((x) => x.id === m.sessionId);
+    const s = sessionFor(m.sessionId);
     if (s) {
       appendToSession(s, m.lines.map((text: string, i: number) => ({ text, ts: m.timestamps?.[i] })), m.dropCount);
     }
@@ -1709,7 +1712,7 @@ window.addEventListener('message', (e) => {
       }
     }
   } else if (m.type === 'logging') {
-    const s = sessions.find((x) => x.id === m.sessionId);
+    const s = sessionFor(m.sessionId);
     if (!s) {
       return;
     }
@@ -1727,7 +1730,7 @@ window.addEventListener('message', (e) => {
     recentBauds = m.values;
     renderBaudDatalist();
   } else if (m.type === 'exportRequest') {
-    const s = sessions.find((x) => x.id === m.sessionId);
+    const s = sessionFor(m.sessionId);
     if (s) {
       vscode.postMessage({ type: 'exportData', sessionId: s.id, entries: s.lineStore });
     }
@@ -1745,11 +1748,11 @@ window.addEventListener('message', (e) => {
     }
   } else if (m.type === 'lineEnding') {
     // The public API set a line ending for the session it just started.
-    const f = focusedSession();
-    if (f && f.kind === 'port') {
-      f.lineEnding = m.value;
-      if (f.dom.leSel) {
-        f.dom.leSel.value = m.value;
+    const s = sessionFor(m.sessionId);
+    if (s && s.kind === 'port') {
+      s.lineEnding = m.value;
+      if (s.dom.leSel) {
+        s.dom.leSel.value = m.value;
       }
     }
   } else if (m.type === 'tags') {
@@ -1757,8 +1760,16 @@ window.addEventListener('message', (e) => {
     renderChips();
     restyleAllRows();
   } else if (m.type === 'sessionCreated') {
+    if (pendingReplaceOldId !== undefined && pendingReplaceNewId === undefined) {
+      pendingReplaceNewId = m.sessionId; // bind the created session to the restart request
+    }
     createSession(m);
   } else if (m.type === 'sessionFailed') {
+    if (pendingReplaceNewId === m.sessionId) {
+      // The restart's open failed: keep the old pane and its buffer.
+      pendingReplaceOldId = undefined;
+      pendingReplaceNewId = undefined;
+    }
     const wasFocused = focusedId === m.sessionId;
     removeSession(m.sessionId);
     if (wasFocused || focusedId === undefined) {
@@ -1769,7 +1780,7 @@ window.addEventListener('message', (e) => {
   }
 });
 
-function rebuildPortOptions(s: TabSession): void {
+function rebuildPortOptions(s: PaneSession): void {
   const sel = s.dom.portSelect;
   if (!sel) {
     return;
@@ -1878,5 +1889,5 @@ syncEmptyState();
 renderTimestampsControl();
 renderBaudDatalist();
 setFilterMode('off');
-updateButtons();
+updateTagButton();
 vscode.postMessage({ type: 'ready' });
