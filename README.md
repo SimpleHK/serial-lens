@@ -117,6 +117,14 @@ npm run preview:webview # drive the real webview UI in a plain browser
 - Test seams: data (chunks → lines → buffer), matching (lines + tags + filter
   mode → visibility/highlight), UI state (scroll events → Follow/locked)
 
-## License
+## License & notices
 
-[MIT](LICENSE)
+[MIT](LICENSE). Third-party code (the vendored API surface and the bundled
+`serialport` stack) is MIT-licensed; its copyright and license notices ship
+inside the extension, see `node_modules/**/LICENSE` in the VSIX.
+
+Serial Monitor (OSS) is an independent project — it is not affiliated with,
+endorsed by, or derived from Microsoft Corporation's products. "Visual Studio
+Code" and "VS Code" are trademarks of Microsoft Corporation; references to
+the original Serial Monitor extension are nominative. No telemetry, no data
+collection.
