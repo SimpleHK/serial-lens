@@ -155,6 +155,26 @@ beforeEach(() => {
 
 const tick = () => new Promise((r) => setTimeout(r, 30));
 
+/** Log batches flush on a 16ms timer that races with CI runners; poll for
+ * the content instead of sleeping a fixed amount. */
+async function waitForFileContent(file: string, substr: string, timeoutMs = 3000): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      const content = await fs.readFile(file, 'utf-8');
+      if (content.includes(substr)) {
+        return content;
+      }
+    } catch {
+      // file not created yet — keep polling until the deadline
+    }
+    if (Date.now() > deadline) {
+      throw new Error(`waitForFileContent timed out for ${file} (looking for ${JSON.stringify(substr)})`);
+    }
+    await new Promise((r) => setTimeout(r, 50));
+  }
+}
+
 describe('MonitorViewProvider (host layer, vscode-mocked)', () => {
   it('lists ports on ready and connects a session end to end', async () => {
     fire({ type: 'connect', port: 'COM10', baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' });
@@ -184,12 +204,21 @@ describe('MonitorViewProvider (host layer, vscode-mocked)', () => {
     await tick();
     posted.length = 0;
     ports.at(-1)!.emitData('hello\n');
-    await new Promise((r) => setTimeout(r, 60));
-    const append = posted.find(
-      (m) => (m as { type: string; sessionId?: number }).type === 'append',
-    ) as { lines: string[]; timestamps?: number[] };
-    expect(append.lines).toEqual(['hello']);
-    expect(append.timestamps?.length).toBe(1);
+    // the batcher flushes on a 16ms timer — poll instead of sleeping a
+    // fixed amount (CI runners are slower than a dev machine)
+    const deadline = Date.now() + 3000;
+    let append: { lines: string[]; timestamps?: number[] } | undefined;
+    for (;;) {
+      append = posted.find(
+        (m) => (m as { type: string; sessionId?: number }).type === 'append',
+      ) as { lines: string[]; timestamps?: number[] } | undefined;
+      if (append || Date.now() > deadline) {
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    expect(append?.lines).toEqual(['hello']);
+    expect(append?.timestamps?.length).toBe(1);
   });
 
   it('live-reconnects in place and keeps the log file across the idle hop', async () => {
@@ -214,8 +243,7 @@ describe('MonitorViewProvider (host layer, vscode-mocked)', () => {
     expect(logFileAfter).toBe(logFileBefore);
     // the new connection actually runs and logs into the same file
     ports.at(-1)!.emitData('after reconnect\n');
-    await tick();
-    const content = await fs.readFile(path.join(dir, logFileAfter!), 'utf-8');
+    const content = await waitForFileContent(path.join(dir, logFileAfter!), 'after reconnect');
     expect(content).toContain('after reconnect');
     setConfig('serialMonitor.logDirectory', '');
     dialogs.save.mockReset();
