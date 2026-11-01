@@ -24,6 +24,7 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
 <title>Serial Monitor</title>
 <style>
   :root { --sm-radius: 4px; }
+  *, *::before, *::after { box-sizing: border-box; }
   body { display: flex; flex-direction: column; height: 100vh; margin: 0; color: var(--vscode-foreground); font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); }
   button { background: transparent; color: var(--vscode-foreground); border: none; border-radius: var(--sm-radius); cursor: pointer; font-family: inherit; }
   button:hover:enabled { background: var(--vscode-toolbar-hoverBackground); }

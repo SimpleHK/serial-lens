@@ -137,6 +137,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "npm run build && node scripts/build-integration.mjs && node scripts/stop-feeder.mjs && node dist/integration/runTest.js",
+    "preview:webview": "node scripts/webview-preview.mjs",
     "smoke:check": "node scripts/vserial-check.mjs",
     "smoke:device": "node scripts/virtual-device.mjs"
   },

@@ -56,7 +56,14 @@ npm run smoke:check                       # verify a virtual port pair
 npm run smoke:device -- --scenario lines  # feed one end (lines|crlf|split|utf8|burst)
 npm test                                  # unit tests (pure seams)
 npm run test:integration                  # real VS Code + virtual COM pair
+npm run preview:webview                   # drive the real webview UI in a plain browser
 ```
+
+The webview preview (`http://localhost:8231/`) serves the real page and real
+client bundle with a stubbed VS Code API: `__host(msg)` fires host→webview
+messages (sessionCreated, append, ports, …) and `__posted` collects the
+webview's messages — used for screenshot-based UI checks without the
+extension host.
 
 Integration tests need a com0com pair (`COM10 ↔ COM11`); see
 [docs/smoke-checklist.md](docs/smoke-checklist.md) for the full manual pass.
