@@ -130,10 +130,11 @@ type ProviderSession = PortSession | FileSession;
 /**
  * The monitor docks in the bottom panel as a "SERIAL MONITOR" tab, matching
  * the Microsoft Serial Monitor layout. Sessions (monitored ports and opened
- * log files) appear as tabs in the webview; the view keeps its state while
+ * log files) appear as panes in the webview; the view keeps its state while
  * hidden (retainContextWhenHidden) so streaming output survives switches.
+ * Exported for the host-layer unit suite (test/extensionProvider.test.ts).
  */
-class MonitorViewProvider implements vscode.WebviewViewProvider {
+export class MonitorViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewId = 'serialMonitor.view';
 
   private view: vscode.WebviewView | undefined;
