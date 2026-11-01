@@ -94,4 +94,113 @@ describe('split-view panes', () => {
     tagBtn.click();
     expect(posted).toContainEqual(expect.objectContaining({ type: 'createTag', pattern: 'error line one' }));
   });
+
+  it('refuses to start a second monitor on an already-connected port', async () => {
+    fire({
+      type: 'sessionCreated',
+      sessionId: 20,
+      kind: 'port',
+      title: 'COM90',
+      state: 'connected',
+      settings: { baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' },
+    });
+    fire({ type: 'ports', ports: [{ path: 'COM90' }] });
+    const connectBtn = document.getElementById('connect') as HTMLButtonElement;
+    const portSelect = document.getElementById('port') as HTMLSelectElement;
+    // happy-dom does not auto-select the first option like a browser does,
+    // so pick it explicitly before starting.
+    portSelect.value = 'COM90';
+    posted.length = 0;
+    connectBtn.click();
+    expect(posted).not.toContainEqual(expect.objectContaining({ type: 'connect' }));
+  });
+
+  it('keeps a per-pane send history navigable with the arrow keys', async () => {
+    fire({
+      type: 'sessionCreated',
+      sessionId: 21,
+      kind: 'port',
+      title: 'COM91',
+      state: 'connected',
+      settings: { baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' },
+    });
+    const pane = Array.from(document.querySelectorAll('.pane')).find(
+      (p) => p.querySelector('.pane-title')?.textContent?.includes('COM91'),
+    ) as HTMLElement;
+    const input = pane.querySelector('.pane-send input') as HTMLInputElement;
+    const key = (k: string) => input.dispatchEvent(new KeyboardEvent('keydown', { key: k }));
+
+    input.value = 'led on';
+    key('Enter');
+    input.value = 'led off';
+    key('Enter');
+    expect(posted).toContainEqual(expect.objectContaining({ type: 'send', text: 'led on' }));
+    expect(posted).toContainEqual(expect.objectContaining({ type: 'send', text: 'led off' }));
+    expect(input.value).toBe('');
+
+    key('ArrowUp');
+    expect(input.value).toBe('led off');
+    key('ArrowUp');
+    expect(input.value).toBe('led on');
+    key('ArrowDown');
+    expect(input.value).toBe('led off');
+    key('ArrowDown');
+    expect(input.value).toBe('');
+  });
+
+  it('shows a state hint in an empty pane while connecting, waiting, or stopped', async () => {
+    fire({
+      type: 'sessionCreated',
+      sessionId: 22,
+      kind: 'port',
+      title: 'COM92',
+      state: 'connecting',
+    });
+    const pane = Array.from(document.querySelectorAll('.pane')).find(
+      (p) => p.querySelector('.pane-title')?.textContent?.includes('COM92'),
+    ) as HTMLElement;
+    const hint = pane.querySelector('.pane-hint') as HTMLElement;
+    expect(hint.textContent).toContain('Connecting');
+    expect(hint.style.display).not.toBe('none');
+
+    fire({ type: 'state', sessionId: 22, state: 'connected' });
+    expect(hint.textContent).toContain('Waiting for data');
+
+    fire({ type: 'append', sessionId: 22, lines: ['data arrives'], dropCount: 0 });
+    await tick();
+    expect(hint.style.display).toBe('none');
+  });
+
+  it('navigates find matches with F3 / Shift+F3', async () => {
+    fire({
+      type: 'sessionCreated',
+      sessionId: 23,
+      kind: 'port',
+      title: 'COM93',
+      state: 'connected',
+      settings: { baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' },
+    });
+    fire({
+      type: 'append',
+      sessionId: 23,
+      lines: Array.from({ length: 30 }, (_, i) => (i % 5 === 3 ? `needle ${i}` : `filler ${i}`)),
+      dropCount: 0,
+    });
+    await tick();
+    const pane = Array.from(document.querySelectorAll('.pane')).find(
+      (p) => p.querySelector('.pane-title')?.textContent?.includes('COM93'),
+    ) as HTMLElement;
+    (pane.querySelector('.pbtn[title^="Find"]') as HTMLButtonElement).click();
+    const findInput = pane.querySelector('.find-bar input') as HTMLInputElement;
+    findInput.value = 'needle';
+    findInput.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 250)); // find recompute debounces 150ms
+    const count = pane.querySelector('.find-count') as HTMLElement;
+    expect(count.textContent).toBe('1 of 6');
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'F3' }));
+    expect(count.textContent).toBe('2 of 6');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'F3', shiftKey: true }));
+    expect(count.textContent).toBe('1 of 6');
+  });
 });

@@ -65,6 +65,10 @@ interface PaneDom {
    * rendered last, collapsing the other pane's scrollable height. */
   spacerTop: HTMLDivElement;
   spacerBottom: HTMLDivElement;
+  /** Overlay hint shown when the pane has no lines yet (connecting/waiting/stopped). */
+  hint: HTMLDivElement;
+  /** Secondary overview strip showing where find matches sit in the buffer. */
+  findMarks: HTMLDivElement;
 }
 
 /** One occurrence of the find query inside a line's rendered text. */
@@ -123,6 +127,13 @@ interface TabSession {
   dom: PaneDom;
   lastRender?: { topPx: number; bottomPx: number; rows: RenderedRow[] };
   marksDirty: boolean;
+  /** Divider element on this pane's left edge (undefined for the first pane);
+   * dragging it resizes the pane. */
+  dividerLeft?: HTMLDivElement;
+  /** Per-pane send history for ArrowUp/ArrowDown recall. */
+  sendHistory: string[];
+  sendIndex: number;
+  sendDraft: string;
 }
 
 const sessions: TabSession[] = [];
@@ -211,6 +222,7 @@ function renderWindowFor(s: TabSession): void {
     )
   ) {
     renderMarksFor(s);
+    renderFindMarksFor(s);
     refreshFindHighlights();
     return;
   }
@@ -233,6 +245,7 @@ function renderWindowFor(s: TabSession): void {
   restoreSelection(savedSelection);
   s.lastRender = { topPx, bottomPx, rows };
   renderMarksFor(s);
+  renderFindMarksFor(s);
   refreshFindHighlights();
 }
 
@@ -288,6 +301,44 @@ function renderMarksFor(s: TabSession): void {
     s.dom.marks.appendChild(mark);
   }
   s.dom.marks.style.display = 'block';
+}
+
+/** Find-match ticks in the secondary overview strip: where the current
+ * query hits sit inside the buffer, squashed like the tag marks. */
+function renderFindMarksFor(s: TabSession): void {
+  const f = s.find;
+  const strip = s.dom.findMarks;
+  const total = s.visibleIndexes.length;
+  if (!f.open || !f.occurrences.length || !total) {
+    strip.textContent = '';
+    strip.style.display = 'none';
+    return;
+  }
+  const height = Math.max(1, s.dom.log.clientHeight - 8);
+  const posOf = new Map<number, number>();
+  for (let p = 0; p < total; p++) {
+    posOf.set(s.visibleIndexes[p], p);
+  }
+  const buckets = new Map<number, number>(); // row → first occurrence index
+  for (let i = 0; i < f.occurrences.length; i++) {
+    const p = posOf.get(f.occurrences[i].lineIndex);
+    if (p === undefined) {
+      continue;
+    }
+    const row = Math.min(height - 1, Math.floor((p / total) * height));
+    if (!buckets.has(row)) {
+      buckets.set(row, i);
+    }
+  }
+  strip.textContent = '';
+  for (const [row, occIndex] of buckets) {
+    const tick = document.createElement('div');
+    tick.className = 'tick';
+    tick.style.top = `${row}px`;
+    tick.dataset.occ = String(occIndex);
+    strip.appendChild(tick);
+  }
+  strip.style.display = 'block';
 }
 
 // --- Find (editor-style widget, per pane) ------------------------------------
@@ -346,6 +397,7 @@ function recomputeOccurrences(s: TabSession): void {
     }
   }
   renderFindCount(s);
+  renderFindMarksFor(s);
   refreshFindHighlights();
 }
 
@@ -698,6 +750,22 @@ function refreshPaneControls(s: TabSession): void {
   d.sendInput.disabled = !isConnected;
   d.sendBtn.disabled = !isConnected;
   d.sendInput.placeholder = isConnected ? `To ${s.title}: type a message to send...` : 'Start monitoring to send';
+
+  // Empty-pane hint: connect/wait/stop states would otherwise look frozen.
+  let hintText = '';
+  if (isPort && s.lineStore.length === 0) {
+    if (s.state === 'connecting') {
+      hintText = `Connecting to ${s.title}…`;
+    } else if (s.state === 'connected') {
+      hintText = 'Waiting for data…';
+    } else {
+      hintText = 'Stopped — press ▶ to start monitoring';
+    }
+  }
+  d.hint.style.display = hintText ? 'flex' : 'none';
+  if (hintText) {
+    d.hint.textContent = hintText;
+  }
 }
 
 function buildPane(s: TabSession): PaneDom {
@@ -730,7 +798,7 @@ function buildPane(s: TabSession): PaneDom {
   close.title = 'Close this pane';
   header.append(dot, title, play, clearBtn, logBtn, exportBtn, scrollBtn, findBtn, close);
 
-  // Body: console + marks strip + floating find widget.
+  // Body: console + marks strips + floating find widget + state hint.
   const body = document.createElement('div');
   body.className = 'pane-body';
   const logEl = document.createElement('div');
@@ -738,6 +806,11 @@ function buildPane(s: TabSession): PaneDom {
   const marks = document.createElement('div');
   marks.className = 'log-marks';
   marks.title = 'Highlighted lines — click to jump';
+  const findMarks = document.createElement('div');
+  findMarks.className = 'find-marks';
+  findMarks.title = 'Find matches — click to jump to the nearest one';
+  const hint = document.createElement('div');
+  hint.className = 'pane-hint';
 
   const findBar = document.createElement('div');
   findBar.className = 'find-bar';
@@ -771,7 +844,32 @@ function buildPane(s: TabSession): PaneDom {
   findClose.innerHTML = '&#10005;';
   findClose.title = 'Close find (Escape)';
   findBar.append(findInput, findCase, findWord, findRegex, findCount, findPrev, findNext, findClose);
-  body.append(logEl, marks, findBar);
+  body.append(logEl, marks, findMarks, findBar, hint);
+
+  // Find-match strip: clicking at a height fraction jumps to the nearest
+  // occurrence at or after that fraction of the buffer.
+  findMarks.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const rect = findMarks.getBoundingClientRect();
+    const frac = Math.min(1, Math.max(0, (e.clientY - rect.top) / Math.max(1, rect.height)));
+    const total = s.visibleIndexes.length;
+    if (!total || !s.find.occurrences.length) {
+      return;
+    }
+    const targetP = frac * total;
+    let chosen = s.find.occurrences.length - 1;
+    for (let i = 0; i < s.find.occurrences.length; i++) {
+      const p = s.visibleIndexes.indexOf(s.find.occurrences[i].lineIndex);
+      if (p >= targetP) {
+        chosen = i;
+        break;
+      }
+    }
+    s.find.current = chosen;
+    jumpToCurrent(s);
+    renderFindCount(s);
+    refreshFindHighlights();
+  });
 
   // Port-local send bar.
   const sendRow = document.createElement('div');
@@ -915,6 +1013,23 @@ function buildPane(s: TabSession): PaneDom {
   sendInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       sendCurrent(s);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (!s.sendHistory.length) {
+        return;
+      }
+      if (s.sendIndex === s.sendHistory.length) {
+        s.sendDraft = sendInput.value; // remember the unsent draft
+      }
+      s.sendIndex = Math.max(0, s.sendIndex - 1);
+      sendInput.value = s.sendHistory[s.sendIndex];
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (s.sendIndex >= s.sendHistory.length) {
+        return;
+      }
+      s.sendIndex++;
+      sendInput.value = s.sendIndex === s.sendHistory.length ? s.sendDraft : s.sendHistory[s.sendIndex];
     }
   });
 
@@ -923,7 +1038,7 @@ function buildPane(s: TabSession): PaneDom {
   const spacerBottom = document.createElement('div');
   spacerBottom.className = 'log-spacer';
 
-  return { root, dot, title, play, clearBtn, logBtn, exportBtn, scrollBtn, findBtn, close, log: logEl, marks, findBar, findInput, findCase, findWord, findRegex, findCount, findPrev, findNext, findClose, sendRow, sendInput, sendBtn, spacerTop, spacerBottom };
+  return { root, dot, title, play, clearBtn, logBtn, exportBtn, scrollBtn, findBtn, close, log: logEl, marks, findBar, findInput, findCase, findWord, findRegex, findCount, findPrev, findNext, findClose, sendRow, sendInput, sendBtn, spacerTop, spacerBottom, hint, findMarks };
 }
 
 function createSession(m: {
@@ -933,6 +1048,7 @@ function createSession(m: {
   state: 'idle' | 'connecting' | 'connected';
   settings?: PortSettings;
 }): TabSession {
+  const isFirst = sessions.length === 0;
   const s: TabSession = {
     id: m.sessionId,
     kind: m.kind,
@@ -959,14 +1075,51 @@ function createSession(m: {
     },
     marksDirty: true,
     dom: undefined as unknown as PaneDom,
+    sendHistory: [],
+    sendIndex: 0,
+    sendDraft: '',
   };
   sessions.push(s);
   syncEmptyState();
   s.dom = buildPane(s);
   measureRowHeight(s.dom.log);
+  if (!isFirst) {
+    // Draggable divider on the pane's left edge; double-click resets to an
+    // equal share.
+    const divider = document.createElement('div');
+    divider.className = 'pane-divider';
+    divider.addEventListener('mousedown', (e) => startPaneDrag(s, e));
+    divider.addEventListener('dblclick', () => {
+      s.dom.root.style.flexGrow = '';
+    });
+    panesArea.insertBefore(divider, s.dom.root);
+    s.dividerLeft = divider;
+  }
   refreshPaneControls(s);
   setFocused(s.id);
   return s;
+}
+
+/** Drag-resize: the divider adjusts the left pane's flex-grow weight 1:1
+ * with the pointer. */
+function startPaneDrag(s: TabSession, e: MouseEvent): void {
+  e.preventDefault();
+  const startX = e.clientX;
+  const startWidth = s.dom.root.getBoundingClientRect().width || 300;
+  const startWeight = Number(s.dom.root.style.flexGrow) || 1;
+  const pxPerWeight = startWidth / startWeight;
+  document.body.classList.add('pane-dragging');
+  const move = (ev: MouseEvent) => {
+    const weight = Math.min(6, Math.max(0.35, startWeight + (ev.clientX - startX) / pxPerWeight));
+    s.dom.root.style.flexGrow = String(weight);
+  };
+  const up = () => {
+    document.body.classList.remove('pane-dragging');
+    window.removeEventListener('mousemove', move);
+    window.removeEventListener('mouseup', up);
+  };
+  window.addEventListener('mousemove', move);
+  window.addEventListener('mouseup', up);
 }
 
 function setFocused(id: number | undefined): void {
@@ -987,6 +1140,12 @@ function removeSession(id: number): void {
     clearTimeout(gone.find.debounce);
   }
   gone.dom.root.remove();
+  gone.dividerLeft?.remove();
+  if (idx === 0 && sessions.length > 0) {
+    // The next pane became the first: its left divider would dangle.
+    sessions[0].dividerLeft?.remove();
+    sessions[0].dividerLeft = undefined;
+  }
   pendingRenders.delete(gone);
   if (pendingReplaceId === id) {
     pendingReplaceId = undefined;
@@ -1022,6 +1181,14 @@ function sendCurrent(s: TabSession): void {
   }
   const text = s.dom.sendInput.value;
   s.dom.sendInput.value = '';
+  if (text && s.sendHistory[s.sendHistory.length - 1] !== text) {
+    s.sendHistory.push(text);
+    if (s.sendHistory.length > 100) {
+      s.sendHistory.shift();
+    }
+  }
+  s.sendIndex = s.sendHistory.length;
+  s.sendDraft = '';
   vscode.postMessage({ type: 'send', sessionId: s.id, text, lineEnding: lineEndingSelect.value });
 }
 
@@ -1296,6 +1463,14 @@ function startMonitoring(): void {
   if (!path) {
     return;
   }
+  // Already monitored: focus that pane instead of failing to open the port
+  // a second time.
+  const live = sessions.find((x) => x.kind === 'port' && x.state === 'connected' && x.title === path);
+  if (live) {
+    setFocused(live.id);
+    setStatus(`${path} is already being monitored`);
+    return;
+  }
   // Starting over a stopped pane on the same port reconnects in place: the
   // old pane closes once the new session connects.
   const stopped = sessions.find(
@@ -1327,12 +1502,21 @@ openLogFileBtn.addEventListener('click', () => {
 });
 
 // Ctrl+F finds in the focused pane, like the editor's find widget.
+// F3 / Shift+F3 walk the matches once find is open.
 document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
     const f = focusedSession();
     if (f) {
       e.preventDefault();
       openFind(f);
+    }
+    return;
+  }
+  if (e.key === 'F3') {
+    const f = focusedSession();
+    if (f && f.find.open) {
+      e.preventDefault();
+      navigateFind(f, e.shiftKey ? -1 : 1);
     }
   }
 });

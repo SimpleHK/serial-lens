@@ -70,7 +70,7 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   .chip:hover:enabled { filter: brightness(1.2); }
   .chip-off { opacity: 0.45; }
   .chip .seg { font-size: 10px; padding: 0 4px; border-radius: 3px; margin-left: 4px; opacity: 0.35; cursor: pointer; user-select: none; }
-  .chip .seg.on { opacity: 1; background: rgba(255, 255, 255, 0.18); }
+  .chip .seg.on { opacity: 1; background: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.18)); }
   .panel-hint { color: var(--vscode-descriptionForeground); font-size: 12px; }
   #manage-panel { display: none; flex-direction: column; gap: 4px; padding: 6px 10px; border-bottom: 1px solid var(--vscode-panel-border); }
   .tag-edit-row { display: flex; gap: 6px; align-items: center; }
@@ -82,11 +82,14 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   .tag-edit-row .tag-delete { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); padding: 0 8px; }
   .tag-add { background: var(--vscode-button-background); color: var(--vscode-button-foreground); padding: 0 10px; }
   /* Split view: one self-contained pane per session, side by side; narrow
-   * viewports scroll horizontally instead of crushing the consoles. */
+   * viewports scroll horizontally instead of crushing the consoles. Panes
+   * resize via the draggable divider between them. */
   #panes { flex: 1; min-height: 0; display: flex; overflow-x: auto; background: var(--vscode-editor-background); }
-  .pane { flex: 1 1 0; min-width: 340px; display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--vscode-panel-border); }
-  .pane:last-child { border-right: none; }
+  .pane { flex: 1 1 0; min-width: 340px; display: flex; flex-direction: column; min-height: 0; }
   .pane.focused { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+  .pane-divider { flex: 0 0 1px; background: var(--vscode-panel-border); cursor: col-resize; position: relative; z-index: 6; }
+  .pane-divider::after { content: ''; position: absolute; top: 0; bottom: 0; left: -3px; right: -3px; }
+  body.pane-dragging { cursor: col-resize; user-select: none; }
   .pane-header { display: flex; align-items: center; gap: 3px; height: 24px; padding: 0 4px 0 8px; flex: none; color: var(--vscode-descriptionForeground); border-bottom: 1px solid var(--vscode-panel-border); user-select: none; cursor: default; }
   .pane-header .pane-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 2px; }
   .tab-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--vscode-descriptionForeground); opacity: 0.5; flex: none; margin-right: 3px; }
@@ -109,12 +112,19 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   .pane-log::-webkit-scrollbar-thumb { background: rgba(128, 128, 128, 0.35); border-radius: 4px; }
   .pane-log::-webkit-scrollbar-thumb:hover { background: rgba(128, 128, 128, 0.55); }
   .log-spacer { width: 1px; }
-  .pane-log .row-line { height: 20px; line-height: 20px; white-space: pre; width: max-content; min-width: 100%; }
+  /* Row height follows the editor font size (probed at runtime), so users
+   * with larger editor fonts don't get clipped or overlapping lines. */
+  .pane-log .row-line { height: 1.5em; line-height: 1.5em; white-space: pre; width: max-content; min-width: 100%; }
+  .pane-hint { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; color: var(--vscode-descriptionForeground); pointer-events: none; user-select: none; font-family: var(--vscode-font-family); }
   .log-empty { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--vscode-descriptionForeground); font-family: var(--vscode-font-family); }
   /* Highlight overview strip: one colored block per tag-highlighted line,
    * squashed to the viewport height like the editor's overview ruler. */
   .log-marks { display: none; position: absolute; top: 4px; bottom: 4px; right: 13px; width: 4px; z-index: 5; cursor: pointer; }
   .log-marks .mark { position: absolute; left: 0; width: 100%; min-height: 2px; border-radius: 1px; opacity: 0.85; }
+  /* Find-match ticks: a second strip left of the tag marks, like the
+   * editor's find decorations in the overview ruler. */
+  .find-marks { display: none; position: absolute; top: 4px; bottom: 4px; right: 19px; width: 3px; z-index: 5; cursor: pointer; }
+  .find-marks .tick { position: absolute; left: 0; width: 100%; min-height: 2px; border-radius: 1px; background: rgba(255, 140, 0, 0.8); }
   /* Editor-style find widget: floats over the pane's top-right corner. */
   .find-bar { display: none; position: absolute; top: 4px; right: 26px; z-index: 8; align-items: center; gap: 4px; padding: 4px 6px;
     background: var(--vscode-editorWidget-background, var(--vscode-dropdown-background));
