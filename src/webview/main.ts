@@ -848,9 +848,9 @@ function syncEmptyState(): void {
     row.className = 'empty-row';
     const hint = document.createElement('span');
     hint.textContent = 'No monitors open — press ＋ to add one, or open a saved log file.';
-    row.appendChild(hint);
     panesArea.appendChild(row);
-    row.appendChild(globalSeg); // the actions stay reachable with zero panes
+    row.appendChild(globalSeg); // actions lead, hint follows
+    row.appendChild(hint);
   }
 }
 

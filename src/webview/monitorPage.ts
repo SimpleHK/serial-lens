@@ -91,7 +91,9 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   /* Variant B: the global actions ride the focused pane's bar. */
   #global-seg { display: flex; align-items: center; gap: 2px; margin-left: auto; padding-left: 6px; border-left: 1px solid var(--vscode-panel-border); align-self: stretch; }
   #status { font-size: 11px; color: var(--vscode-descriptionForeground); padding: 0 4px; white-space: nowrap; }
-  .empty-row { display: flex; align-items: center; gap: 10px; min-height: 30px; padding: 2px 10px; border-bottom: 1px solid var(--vscode-panel-border); color: var(--vscode-descriptionForeground); font-size: 12px; }
+  .empty-row { display: flex; flex: none; align-self: flex-start; width: 100%; flex-wrap: wrap; align-items: center; gap: 10px; min-height: 30px; padding: 2px 10px; border-bottom: 1px solid var(--vscode-panel-border); color: var(--vscode-descriptionForeground); font-size: 12px; }
+  /* The segment loses its pane-bar divider styling inside the empty row. */
+  .empty-row #global-seg { margin-left: 0; border-left: none; align-self: center; }
   .pane-body { position: relative; flex: 1; min-height: 0; display: flex; }
   /* Microsoft-terminal gray for received data in both dark and light themes. */
   .pane-log { flex: 1; overflow-y: auto; overflow-x: auto; padding: 4px 14px 4px 10px; background: var(--vscode-editor-background); font-family: var(--vscode-editor-font-family, monospace); font-size: var(--vscode-editor-font-size, 13px); user-select: text; scrollbar-width: thin; color: #cccccc; }

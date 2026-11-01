@@ -315,4 +315,23 @@ describe('variant B: per-pane config, focused global actions', () => {
     expect(focused.querySelector('.pane-title')?.textContent).toContain('COM96');
     expect(focused.querySelector('#global-seg')).toBeTruthy();
   });
+
+  it('pins the empty-state row to the top, actions leading', () => {
+    const html = monitorPageHtml({ scriptUri: 'x', cspSource: 'y' });
+    // A stretched flex item would center the row mid-panel and draw the
+    // segment's border-left as a full-height vertical line (seen in the wild).
+    expect(html).toMatch(/\.empty-row\s*\{[^}]*flex:\s*none/);
+    expect(html).toMatch(/\.empty-row\s*\{[^}]*align-self:\s*flex-start/);
+  });
+
+  it('returns the global segment to a top empty row when all panes close', () => {
+    for (const id of [1, 2, 3, 20, 21, 22, 23, 30, 40, 41, 42]) {
+      fire({ type: 'sessionClosed', sessionId: id });
+    }
+    expect(document.querySelectorAll('.pane').length).toBe(0);
+    const row = document.querySelector('#panes .empty-row') as HTMLElement;
+    expect(row).toBeTruthy();
+    expect(row.firstElementChild?.id).toBe('global-seg'); // actions lead, hint follows
+    expect(document.getElementById('add-monitor')).toBeTruthy(); // still reachable
+  });
 });
