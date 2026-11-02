@@ -328,6 +328,16 @@ describe('MonitorViewProvider (host layer, vscode-mocked)', () => {
     expect(ports.at(-1)!.write).toHaveBeenCalledWith('hi');
   });
 
+  it('disconnect reports exactly the idle state the webview unlocks on', async () => {
+    fire({ type: 'connect', port: 'COM10', baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' });
+    await tick();
+    const sid = (findLastMsg('sessionCreated') as { sessionId: number }).sessionId;
+    posted.length = 0;
+    fire({ type: 'disconnect', sessionId: sid });
+    await tick();
+    expect(findLastMsg('state')).toEqual(expect.objectContaining({ sessionId: sid, state: 'idle' }));
+  });
+
   it('persists serialMonitor settings through the config watcher', async () => {
     fire({ type: 'setTimestamps', enabled: true });
     await tick();

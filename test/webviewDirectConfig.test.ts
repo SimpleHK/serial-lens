@@ -224,4 +224,30 @@ describe('port switching & control placement', () => {
     const emptyRule = css.match(/\.empty-row \.global-seg \{[^}]*\}/)?.[0] ?? '';
     expect(emptyRule).toContain('border-left: none');
   });
+
+  it('connected pane allows picking another port and moves live', () => {
+    fire({ type: 'ports', ports: [{ path: 'COM96', description: 'USB' }, { path: 'COM12', description: 'pair' }] });
+    fire({ type: 'sessionCreated', sessionId: 96, kind: 'port', title: 'COM96', state: 'connected', settings: { ...S } });
+    const pane = paneByTitle('COM96');
+    const sel = pane.querySelector('.ph-port') as HTMLSelectElement;
+    expect(sel.disabled).toBe(false); // connected: picking moves the pane
+    posted.length = 0;
+    sel.value = 'COM12';
+    sel.dispatchEvent(new Event('change'));
+    expect(posted).toContainEqual(expect.objectContaining({ type: 'connect', port: 'COM12', baudRate: 115200 }));
+    // re-picking the pane's own port is a no-op
+    posted.length = 0;
+    sel.value = 'COM10';
+    sel.dispatchEvent(new Event('change'));
+    expect(posted).toEqual([]);
+  });
+
+  it('connecting pane locks the picker, with a visible disabled state', () => {
+    fire({ type: 'sessionCreated', sessionId: 97, kind: 'port', title: 'COM170', state: 'connecting', settings: { ...S } });
+    const pane = paneByTitle('COM170');
+    const sel = pane.querySelector('.ph-port') as HTMLSelectElement;
+    expect(sel.disabled).toBe(true);
+    const css = document.querySelector('style')?.textContent ?? '';
+    expect(css).toMatch(/\.ph-ctl:disabled/); // the lock must be visible
+  });
 });

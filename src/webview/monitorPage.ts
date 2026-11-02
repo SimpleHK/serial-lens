@@ -101,6 +101,8 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   .ph-ctl { height: 24px; font-size: 13px; background: var(--vscode-dropdown-background); color: var(--vscode-dropdown-foreground); border: 1px solid transparent; border-radius: 3px; padding: 0 5px; outline: none; font-family: inherit; }
   .ph-ctl:hover:enabled { border-color: var(--vscode-dropdown-border); }
   .ph-ctl:focus:enabled { border-color: var(--vscode-focusBorder); }
+  /* A locked control must LOOK locked, or it reads as broken. */
+  .ph-ctl:disabled { opacity: 0.5; cursor: default; }
   select.ph-ctl { cursor: pointer; }
   .ph-port { flex: 0 1 140px; min-width: 92px; }
   .ph-baud { width: 70px; text-align: right; font-variant-numeric: tabular-nums; }

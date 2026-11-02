@@ -1134,14 +1134,13 @@ function refreshPaneControls(s: PaneSession): void {
 
   // Serial config: the PORT is locked while connected, but the parameters
   // stay editable — an edit reconnects the pane with the new settings
-  // (MS-parity behavior). Everything locks while connecting.
-  const portLocked = s.state !== 'idle';
+  // (MS-parity behavior). The port picker follows the same philosophy:
+  // picking another port live MOVES the pane there. Everything locks
+  // while connecting.
+  const portLocked = s.state === 'connecting';
   const paramsLocked = s.state === 'connecting';
   if (d.portSelect) {
     d.portSelect.disabled = portLocked;
-    if (s.state === 'connected') {
-      d.portSelect.value = s.title;
-    }
   }
   if (d.baudInput) d.baudInput.disabled = paramsLocked;
   if (d.dbSel) d.dbSel.disabled = paramsLocked;
@@ -1221,13 +1220,22 @@ function buildPane(s: PaneSession): PaneDom {
   if (s.kind === 'port') {
     title.style.display = 'none'; // the port select shows the identity
     portSelect = document.createElement('select');
+    const portSel = portSelect; // narrowed alias for the closures below
     portSelect.className = 'ph-ctl ph-port';
-    setTip(portSelect, 'Port (stop to change)');
+    setTip(portSelect, 'Port — picking another port moves this pane to it');
     fillPortOptions(portSelect, s.title); // every known port, not just this one
     // Keep the list fresh while the picker is usable, like the start bar.
-    portSelect.addEventListener('click', () => {
-      if (s.state === 'idle') {
+    portSel.addEventListener('click', () => {
+      if (s.state !== 'connecting') {
         post({ type: 'refreshPorts' });
+      }
+    });
+    // A port pick is an edit like any other: while stopped it applies on ▶
+    // (startPane reads the select); while connected it moves the pane live
+    // through the replace flow. Picking the pane's own port does nothing.
+    portSel.addEventListener('change', () => {
+      if (s.state === 'connected' && portSel.value && portSel.value !== s.title) {
+        startPane(s);
       }
     });
 
@@ -1983,7 +1991,12 @@ window.addEventListener('message', (e: MessageEvent<HostToWebview>) => {
     createSession(m);
   } else if (m.type === 'sessionFailed') {
     if (pendingReplaceNewId === m.sessionId) {
-      // The restart's open failed: keep the old pane and its buffer.
+      // The restart's open failed: keep the old pane and its buffer, and
+      // snap its picker back to the port it is actually still on.
+      const old = pendingReplaceOldId !== undefined ? sessions.find((x) => x.id === pendingReplaceOldId) : undefined;
+      if (old?.dom.portSelect) {
+        old.dom.portSelect.value = old.title;
+      }
       pendingReplaceOldId = undefined;
       pendingReplaceNewId = undefined;
     }
@@ -2023,7 +2036,7 @@ function rebuildPortOptions(s: PaneSession): void {
     return;
   }
   fillPortOptions(sel, sel.value || s.title);
-  sel.disabled = s.state !== 'idle';
+  sel.disabled = s.state === 'connecting';
 }
 
 // Ctrl+F finds in the focused pane; F3 / Shift+F3 walk the matches.
