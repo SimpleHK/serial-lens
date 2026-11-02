@@ -1222,12 +1222,14 @@ function buildPane(s: PaneSession): PaneDom {
     title.style.display = 'none'; // the port select shows the identity
     portSelect = document.createElement('select');
     portSelect.className = 'ph-ctl ph-port';
-    portSelect.title = 'Port (stop to change)';
-    const opt = document.createElement('option');
-    opt.value = s.title;
-    opt.textContent = s.title;
-    portSelect.appendChild(opt);
-    portSelect.value = s.title;
+    setTip(portSelect, 'Port (stop to change)');
+    fillPortOptions(portSelect, s.title); // every known port, not just this one
+    // Keep the list fresh while the picker is usable, like the start bar.
+    portSelect.addEventListener('click', () => {
+      if (s.state === 'idle') {
+        post({ type: 'refreshPorts' });
+      }
+    });
 
     const cfg = s.settings ?? DEFAULT_PORT_SETTINGS;
     // Baud quick-pick + collapsible params come from the shared builder —
@@ -1995,16 +1997,12 @@ window.addEventListener('message', (e: MessageEvent<HostToWebview>) => {
   }
 });
 
-function rebuildPortOptions(s: PaneSession): void {
-  const sel = s.dom.portSelect;
-  if (!sel) {
-    return;
-  }
-  const current = sel.value || s.title;
+/** Fills a port picker with every known port, keeping `current` selectable
+ * even when it vanished from the list (the pane must keep its identity). */
+function fillPortOptions(sel: HTMLSelectElement, current: string): void {
   sel.textContent = '';
   const paths = new Set(lastPorts.map((p) => p.path));
   if (!paths.has(current)) {
-    // Keep the pane's identity visible even if the port vanished.
     const o = document.createElement('option');
     o.value = current;
     o.textContent = current;
@@ -2017,6 +2015,14 @@ function rebuildPortOptions(s: PaneSession): void {
     sel.appendChild(o);
   }
   sel.value = current;
+}
+
+function rebuildPortOptions(s: PaneSession): void {
+  const sel = s.dom.portSelect;
+  if (!sel) {
+    return;
+  }
+  fillPortOptions(sel, sel.value || s.title);
   sel.disabled = s.state !== 'idle';
 }
 

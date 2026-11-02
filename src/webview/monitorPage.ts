@@ -112,8 +112,10 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   .pane-close { width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; border-radius: 3px; font-size: 14px; color: inherit; opacity: 0.7; cursor: pointer; flex: none; }
   .pane-close:hover { background: rgba(128, 128, 128, 0.35); opacity: 1; }
   /* Variant B: the global actions exist on EVERY pane's bar (all controls
-   * doubled) plus the empty-state row. */
-  .global-seg { display: flex; align-items: center; gap: 2px; margin-left: auto; padding-left: 6px; border-left: 1px solid var(--vscode-panel-border); align-self: stretch; }
+   * doubled) plus the empty-state row. They sit ADJACENT to the pane's own
+   * controls — never pushed to the far edge (that made them jump after
+   * opening a port). */
+  .global-seg { display: flex; align-items: center; gap: 2px; padding-left: 6px; border-left: 1px solid var(--vscode-panel-border); align-self: stretch; }
   .pane-status { display: inline-flex; align-items: center; font-size: 11px; color: var(--vscode-descriptionForeground); padding: 0 4px; white-space: nowrap; }
   /* Iconized connection state: ✔ connected, ⌛ connecting, ○ idle. */
   .pane-status .status-icon { font-size: 13px; line-height: 1; }

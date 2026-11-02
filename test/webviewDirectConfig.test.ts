@@ -192,3 +192,36 @@ describe('interface guidelines (a11y & polish)', () => {
     expect(pane.querySelector('.find-marks')!.getAttribute('aria-hidden')).toBe('true');
   });
 });
+
+describe('port switching & control placement', () => {
+  it('stopped pane lists every port, restarts on the selected one', async () => {
+    fire({ type: 'ports', ports: [{ path: 'COM10', description: 'USB' }, { path: 'COM12', description: 'pair' }] });
+    fire({ type: 'sessionCreated', sessionId: 95, kind: 'port', title: 'COM10', state: 'connected', settings: { ...S } });
+    const pane = paneByTitle('COM10');
+    const sel = pane.querySelector('.ph-port') as HTMLSelectElement;
+    expect(sel.options.length).toBe(2); // built from the known port list, not one option
+    fire({ type: 'state', sessionId: 95, state: 'idle' });
+    await tick();
+    expect(sel.disabled).toBe(false); // stop to change
+    posted.length = 0;
+    sel.value = 'COM12';
+    sel.dispatchEvent(new Event('click')); // keeps the list fresh, like the start bar
+    expect(posted).toContainEqual(expect.objectContaining({ type: 'refreshPorts' }));
+    const play = Array.from(pane.querySelectorAll('button')).find(
+      (b) => b.getAttribute('aria-label')?.startsWith('Start monitoring'),
+    ) as HTMLButtonElement;
+    play.click(); // ▶ restarts on the pick
+    expect(posted).toContainEqual(
+      expect.objectContaining({ type: 'connect', port: 'COM12', baudRate: 115200 }),
+    );
+  });
+
+  it('global controls stay adjacent to the pane controls, not far right', () => {
+    const css = document.querySelector('style')?.textContent ?? '';
+    const rule = css.match(/\.global-seg \{[^}]*\}/)?.[0] ?? '';
+    expect(rule).not.toContain('margin-left: auto');
+    // the empty-state override keeps its no-divider form
+    const emptyRule = css.match(/\.empty-row \.global-seg \{[^}]*\}/)?.[0] ?? '';
+    expect(emptyRule).toContain('border-left: none');
+  });
+});
