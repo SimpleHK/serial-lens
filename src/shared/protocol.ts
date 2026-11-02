@@ -56,7 +56,7 @@ export type HostToWebview =
 export type WebviewToHost =
   | { type: 'ready' }
   | { type: 'refreshPorts' }
-  | { type: 'connect'; port: string; baudRate: number; dataBits: number; stopBits: number; parity: string }
+  | { type: 'connect'; port: string; baudRate: number; dataBits: number; stopBits: number; parity: string; lineEnding?: string }
   | { type: 'reconnect'; sessionId: number; settings: SerialParams }
   | { type: 'disconnect'; sessionId: number }
   | { type: 'closeSession'; sessionId: number }

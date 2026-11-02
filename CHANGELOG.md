@@ -4,6 +4,18 @@ All notable changes to Serial Monitor (OSS) are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.1] - 2026-11-03
+
+### Fixed
+
+- **The empty-state start bar now carries the full serial config** — the same
+  baud quick-pick (▾ recents + presets) and collapsible params (☰ data bits /
+  parity / stop bits / line ending) that pane bars have, built from one shared
+  builder so the two surfaces cannot drift apart again. The chosen values,
+  including line ending, flow into the connect.
+- **Send with line ending `None`** no longer falls back to `LF` (UI form
+  `None` vs host form `none` is now normalized case-insensitively).
+
 ## [0.2.0] - 2026-11-02
 
 ### Added

@@ -56,7 +56,12 @@ function fileStamp(what: string): string {
 }
 
 function toLineEnding(value: string): LineEnding {
-  return (LINE_ENDINGS as readonly string[]).includes(value) ? (value as LineEnding) : 'LF';
+  // UI forms differ from host forms only in case ('None' vs 'none');
+  // normalize instead of silently falling back to LF.
+  const hit = (LINE_ENDINGS as readonly string[]).find(
+    (e) => e.toLowerCase() === value.toLowerCase(),
+  );
+  return (hit as LineEnding | undefined) ?? 'LF';
 }
 
 function readCap(): number {
@@ -213,7 +218,7 @@ export class MonitorViewProvider implements vscode.WebviewViewProvider {
           }
           break;
         case 'connect':
-          void this.handleConnect(toSettings(msg));
+          void this.handleConnect(toSettings(msg), msg.lineEnding);
           break;
         case 'reconnect': {
           // A param edit on a connected pane: tear the connection down and
@@ -408,10 +413,15 @@ export class MonitorViewProvider implements vscode.WebviewViewProvider {
     return session;
   }
 
-  private async handleConnect(settings: SerialPortSettings): Promise<void> {
+  private async handleConnect(settings: SerialPortSettings, uiLineEnding?: string): Promise<void> {
     const session = this.createPortSession(settings.path, settings);
     await session.controller.connect(settings);
     if (session.controller.state === 'connected') {
+      // A start-bar line-ending choice seeds the new session's send format
+      // (the pane's own select stays authoritative afterwards).
+      if (uiLineEnding && ['LF', 'CRLF', 'CR', 'None'].includes(uiLineEnding)) {
+        this.post({ type: 'lineEnding', sessionId: session.id, value: uiLineEnding });
+      }
       void this.pushRecentBaud(settings.baudRate);
       return;
     }

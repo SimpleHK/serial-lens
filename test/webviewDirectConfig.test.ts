@@ -47,6 +47,47 @@ describe('direct config bar', () => {
     );
   });
 
+  it('empty-state start bar: baud quick-pick and collapsible params feed the connect', () => {
+    fire({ type: 'ports', ports: [{ path: 'COM151', description: 'USB' }] });
+    const row = document.querySelector('#panes .empty-row') as HTMLElement;
+    // baud keeps a visible quick-pick menu, like the pane bar
+    const baudToggle = row.querySelector('.baud-toggle') as HTMLButtonElement;
+    const menu = row.querySelector('.baud-menu') as HTMLElement;
+    expect(baudToggle).toBeTruthy();
+    baudToggle.click();
+    expect(menu.classList.contains('visible')).toBe(true);
+    const preset = Array.from(menu.querySelectorAll('.menu-item')).find(
+      (e) => e.textContent === '9600',
+    ) as HTMLElement;
+    preset.click();
+    expect((row.querySelector('.ph-baud') as HTMLInputElement).value).toBe('9600');
+    // data bits / parity / stop bits / line ending collapse behind the ☰ toggle
+    const paramsToggle = row.querySelector('.params-toggle') as HTMLButtonElement;
+    const params = row.querySelector('.pane-params') as HTMLElement;
+    expect(paramsToggle).toBeTruthy();
+    expect(params.style.display).toBe('none');
+    paramsToggle.click();
+    expect(params.style.display).toBe('flex');
+    // the chosen values flow into the connect message
+    posted.length = 0;
+    (row.querySelector('select.ph-db') as HTMLSelectElement).value = '7';
+    (row.querySelector('select.ph-parity') as HTMLSelectElement).value = 'even';
+    (row.querySelector('select.ph-sb') as HTMLSelectElement).value = '2';
+    (row.querySelector('select.ph-le') as HTMLSelectElement).value = 'CRLF';
+    (row.querySelector('.start-btn') as HTMLButtonElement).click();
+    expect(posted).toContainEqual(
+      expect.objectContaining({
+        type: 'connect',
+        port: 'COM151',
+        baudRate: 9600,
+        dataBits: 7,
+        parity: 'even',
+        stopBits: 2,
+        lineEnding: 'CRLF',
+      }),
+    );
+  });
+
   it('collapses data bits / parity / stop bits / line ending behind a toggle', () => {
     fire({
       type: 'sessionCreated',

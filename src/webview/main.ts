@@ -348,6 +348,84 @@ function renderBaudMenuInto(menu: HTMLDivElement, input: HTMLInputElement): void
   }
 }
 
+const mkSelect = (options: string[], value: string, cls: string, ctlTitle: string) => {
+  const sel = document.createElement('select');
+  sel.className = `ph-ctl ${cls}`;
+  sel.title = ctlTitle;
+  for (const o of options) {
+    const e = document.createElement('option');
+    e.value = o;
+    e.textContent = o;
+    sel.appendChild(e);
+  }
+  sel.value = value;
+  return sel;
+};
+
+interface SerialConfigControls {
+  baudWrap: HTMLSpanElement;
+  baudInput: HTMLInputElement;
+  paramsToggle: HTMLButtonElement;
+  params: HTMLSpanElement;
+  dbSel: HTMLSelectElement;
+  paritySel: HTMLSelectElement;
+  sbSel: HTMLSelectElement;
+  leSel: HTMLSelectElement;
+}
+
+/** The serial config block shared by every pane bar AND the empty-state
+ * start bar: a baud quick-pick (▾ menu with recents + presets) plus the
+ * rarely-used params (data bits, parity, stop bits, line ending) collapsed
+ * behind a ☰ toggle. Toggle behavior is self-contained; callers wire their
+ * own change semantics. One builder, so the two surfaces cannot drift. */
+function buildSerialConfigControls(
+  cfg: { baudRate: number; dataBits: number; stopBits: number; parity: string },
+  lineEnding: string,
+): SerialConfigControls {
+  const baudWrap = document.createElement('span');
+  baudWrap.className = 'menu-wrap';
+  const baudInput = document.createElement('input');
+  baudInput.className = 'ph-ctl ph-baud';
+  baudInput.value = String(cfg.baudRate);
+  baudInput.title = 'Baud rate';
+  const baudToggle = document.createElement('button');
+  baudToggle.className = 'pbtn baud-toggle';
+  baudToggle.innerHTML = '&#9662;';
+  baudToggle.title = 'Quick-pick baud rate';
+  const baudMenu = document.createElement('div');
+  baudMenu.className = 'menu baud-menu';
+  baudWrap.append(baudInput, baudToggle, baudMenu);
+  baudToggle.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (baudMenu.classList.contains('visible')) {
+      baudMenu.classList.remove('visible');
+      return;
+    }
+    renderBaudMenuInto(baudMenu, baudInput);
+    baudMenu.classList.add('visible');
+  });
+
+  const paramsToggle = document.createElement('button');
+  paramsToggle.className = 'pbtn params-toggle';
+  paramsToggle.innerHTML = '&#9776;';
+  paramsToggle.title = 'Serial params (data bits, parity, stop bits, line ending)';
+  const params = document.createElement('span');
+  params.className = 'pane-params';
+  params.style.display = 'none';
+  const dbSel = mkSelect(['8', '7', '6', '5'], String(cfg.dataBits), 'ph-db', 'Data bits');
+  const paritySel = mkSelect(['none', 'even', 'odd', 'mark', 'space'], cfg.parity, 'ph-parity', 'Parity');
+  const sbSel = mkSelect(['1', '1.5', '2'], String(cfg.stopBits), 'ph-sb', 'Stop bits');
+  const leSel = mkSelect(['LF', 'CRLF', 'CR', 'None'], lineEnding, 'ph-le', 'Line ending');
+  params.append(dbSel, paritySel, sbSel, leSel);
+  paramsToggle.addEventListener('click', (e) => {
+    e.stopPropagation();
+    params.style.display = params.style.display === 'none' ? 'flex' : 'none';
+    paramsToggle.classList.toggle('on', params.style.display === 'flex');
+  });
+
+  return { baudWrap, baudInput, paramsToggle, params, dbSel, paritySel, sbSel, leSel };
+}
+
 function renderAddMenu(menu: HTMLDivElement): void {
   menu.textContent = '';
   const header = document.createElement('div');
@@ -930,10 +1008,12 @@ function syncEmptyState(): void {
     startPortSelect = document.createElement('select');
     startPortSelect.className = 'ph-ctl start-port';
     startPortSelect.title = 'Port';
-    const baud = document.createElement('input');
-    baud.className = 'ph-ctl ph-baud';
-    baud.value = String(DEFAULT_BAUD_RATE);
-    baud.title = 'Baud rate';
+    // The same serial config block as a pane bar: baud quick-pick plus the
+    // rarely-used params collapsed behind ☰ — pick a port, press Start.
+    const ctl = buildSerialConfigControls(
+      { baudRate: DEFAULT_BAUD_RATE, dataBits: 8, stopBits: 1, parity: 'none' },
+      'LF',
+    );
     const startBtn = document.createElement('button');
     startBtn.className = 'start-btn';
     startBtn.innerHTML = '&#9654; Start Monitoring';
@@ -946,10 +1026,11 @@ function syncEmptyState(): void {
       post({
         type: 'connect',
         port,
-        baudRate: Number(baud.value) || DEFAULT_BAUD_RATE,
-        dataBits: 8,
-        stopBits: 1,
-        parity: 'none',
+        baudRate: Number(ctl.baudInput.value) || DEFAULT_BAUD_RATE,
+        dataBits: Number(ctl.dbSel.value) || 8,
+        stopBits: Number(ctl.sbSel.value) || 1,
+        parity: ctl.paritySel.value,
+        lineEnding: ctl.leSel.value,
       });
     });
     const refreshStartSelect = () => {
@@ -965,7 +1046,7 @@ function syncEmptyState(): void {
     startPortSelect.addEventListener('click', () => {
       vscode.postMessage({ type: 'refreshPorts' }); // keep the list fresh
     });
-    startBar.append(startPortSelect, baud, startBtn);
+    startBar.append(startPortSelect, ctl.baudWrap, ctl.paramsToggle, ctl.params, startBtn);
     refreshStartSelect();
     emptyRefreshStartSelect = refreshStartSelect;
 
@@ -1097,20 +1178,6 @@ function buildPane(s: PaneSession): PaneDom {
     b.title = title;
     return b;
   };
-  const mkSelect = (options: string[], value: string, cls: string, ctlTitle: string) => {
-    const sel = document.createElement('select');
-    sel.className = `ph-ctl ${cls}`;
-    sel.title = ctlTitle;
-    for (const o of options) {
-      const e = document.createElement('option');
-      e.value = o;
-      e.textContent = o;
-      sel.appendChild(e);
-    }
-    sel.value = value;
-    return sel;
-  };
-
   const play = mkBtn('&#9654;', `Start monitoring ${s.title}`);
   const sendToggle = mkBtn('&#9000;&#65038;', 'Show the send bar');
   const clearBtn = mkBtn('&#128465;&#65039;', `Clear ${s.title}`);
@@ -1142,49 +1209,14 @@ function buildPane(s: PaneSession): PaneDom {
     portSelect.value = s.title;
 
     const cfg = s.settings ?? DEFAULT_PORT_SETTINGS;
-    // Baud keeps a VISIBLE quick-pick (▾ menu with recents + presets) — a
-    // bare native datalist regressed to an invisible single-option picker.
-    const baudWrap = document.createElement('span');
-    baudWrap.className = 'menu-wrap';
-    baudInput = document.createElement('input');
-    baudInput.className = 'ph-ctl ph-baud';
-    baudInput.value = String(cfg.baudRate);
-    baudInput.title = 'Baud rate';
-    const baudToggle = document.createElement('button');
-    baudToggle.className = 'pbtn baud-toggle';
-    baudToggle.innerHTML = '&#9662;';
-    baudToggle.title = 'Quick-pick baud rate';
-    const baudMenu = document.createElement('div');
-    baudMenu.className = 'menu baud-menu';
-    baudWrap.append(baudInput, baudToggle, baudMenu);
-    baudToggle.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (baudMenu.classList.contains('visible')) {
-        baudMenu.classList.remove('visible');
-        return;
-      }
-      renderBaudMenuInto(baudMenu, baudInput!);
-      baudMenu.classList.add('visible');
-    });
-    // Rarely-used params live in a collapsible container, collapsed by
-    // default (baud stays visible).
-    const paramsToggle = document.createElement('button');
-    paramsToggle.className = 'pbtn params-toggle';
-    paramsToggle.innerHTML = '&#9776;';
-    paramsToggle.title = 'Serial params (data bits, parity, stop bits, line ending)';
-    const params = document.createElement('span');
-    params.className = 'pane-params';
-    params.style.display = 'none';
-    dbSel = mkSelect(['8', '7', '6', '5'], String(cfg.dataBits), 'ph-db', 'Data bits');
-    paritySel = mkSelect(['none', 'even', 'odd', 'mark', 'space'], cfg.parity, 'ph-parity', 'Parity');
-    sbSel = mkSelect(['1', '1.5', '2'], String(cfg.stopBits), 'ph-sb', 'Stop bits');
-    leSel = mkSelect(['LF', 'CRLF', 'CR', 'None'], s.lineEnding, 'ph-le', 'Line ending');
-    params.append(dbSel, paritySel, sbSel, leSel);
-    paramsToggle.addEventListener('click', (e) => {
-      e.stopPropagation();
-      params.style.display = params.style.display === 'none' ? 'flex' : 'none';
-      paramsToggle.classList.toggle('on', params.style.display === 'flex');
-    });
+    // Baud quick-pick + collapsible params come from the shared builder —
+    // the same block the empty-state start bar renders.
+    const ctl = buildSerialConfigControls(cfg, s.lineEnding);
+    baudInput = ctl.baudInput;
+    dbSel = ctl.dbSel;
+    paritySel = ctl.paritySel;
+    sbSel = ctl.sbSel;
+    leSel = ctl.leSel;
 
     // Control edits become the pane's settings; while connected a param
     // edit also reconnects the pane with the new settings.
@@ -1221,7 +1253,7 @@ function buildPane(s: PaneSession): PaneDom {
       s.lineEnding = leSel!.value;
     });
 
-    bar.append(dot, title, portSelect, baudWrap, paramsToggle, params);
+    bar.append(dot, title, portSelect, ctl.baudWrap, ctl.paramsToggle, ctl.params);
   } else {
     bar.append(dot, title);
   }

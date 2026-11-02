@@ -308,6 +308,26 @@ describe('MonitorViewProvider (host layer, vscode-mocked)', () => {
     expect(posted).toContainEqual(expect.objectContaining({ type: 'clear' }));
   });
 
+  it('honors the start-bar lineEnding on connect', async () => {
+    fire({ type: 'connect', port: 'COM10', baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none', lineEnding: 'CRLF' });
+    await tick();
+    const created = findMsg('sessionCreated', { title: 'COM10' }) as { sessionId: number };
+    expect(created).toBeTruthy();
+    const le = findLastMsg('lineEnding') as { sessionId: number; value: string } | undefined;
+    expect(le?.sessionId).toBe(created.sessionId);
+    expect(le?.value).toBe('CRLF');
+  });
+
+  it('sends with line ending None append no bytes (UI form normalized)', async () => {
+    fire({ type: 'connect', port: 'COM10', baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' });
+    await tick();
+    const sid = (findLastMsg('sessionCreated') as { sessionId: number }).sessionId;
+    ports.at(-1)!.write.mockClear();
+    fire({ type: 'send', sessionId: sid, text: 'hi', lineEnding: 'None' });
+    await tick();
+    expect(ports.at(-1)!.write).toHaveBeenCalledWith('hi');
+  });
+
   it('persists serialMonitor settings through the config watcher', async () => {
     fire({ type: 'setTimestamps', enabled: true });
     await tick();
