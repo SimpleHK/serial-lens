@@ -60,6 +60,8 @@ interface PaneDom {
   sendInput: HTMLInputElement;
   sendBtn: HTMLButtonElement;
   hint: HTMLDivElement;
+  /** Tag chips row, doubled per pane; hidden while there are no tags. */
+  tags: HTMLDivElement;
   /** This pane's own copy of the global controls and its status readout. */
   globalSeg: HTMLDivElement;
   status: HTMLSpanElement;
@@ -160,6 +162,8 @@ const controlRegistry = {
 };
 let emptyStatus: HTMLSpanElement | undefined;
 let emptyAddMenu: HTMLDivElement | undefined;
+let emptyRefreshStartSelect: (() => void) | undefined;
+let startPortSelect!: HTMLSelectElement;
 
 function unregisterControls(ctlRefs?: PaneDom['ctlRefs']): void {
   if (!ctlRefs) {
@@ -918,10 +922,58 @@ function syncEmptyState(): void {
     const row = document.createElement('div');
     row.className = 'empty-row';
     const controls = buildGlobalControls();
+
+    // Direct start bar: the serial config is visible without opening the
+    // ＋ menu — pick a port, press Start.
+    const startBar = document.createElement('span');
+    startBar.className = 'start-bar';
+    startPortSelect = document.createElement('select');
+    startPortSelect.className = 'ph-ctl start-port';
+    startPortSelect.title = 'Port';
+    const baud = document.createElement('input');
+    baud.className = 'ph-ctl ph-baud';
+    baud.value = String(DEFAULT_BAUD_RATE);
+    baud.title = 'Baud rate';
+    const startBtn = document.createElement('button');
+    startBtn.className = 'start-btn';
+    startBtn.innerHTML = '&#9654; Start Monitoring';
+    startBtn.disabled = true;
+    startBtn.addEventListener('click', () => {
+      const port = startPortSelect.value;
+      if (!port) {
+        return;
+      }
+      post({
+        type: 'connect',
+        port,
+        baudRate: Number(baud.value) || DEFAULT_BAUD_RATE,
+        dataBits: 8,
+        stopBits: 1,
+        parity: 'none',
+      });
+    });
+    const refreshStartSelect = () => {
+      startPortSelect.textContent = '';
+      for (const p of lastPorts) {
+        const o = document.createElement('option');
+        o.value = p.path;
+        o.textContent = p.description ? `${p.path} — ${p.description}` : p.path;
+        startPortSelect.appendChild(o);
+      }
+      startBtn.disabled = !lastPorts.length;
+    };
+    startPortSelect.addEventListener('click', () => {
+      vscode.postMessage({ type: 'refreshPorts' }); // keep the list fresh
+    });
+    startBar.append(startPortSelect, baud, startBtn);
+    refreshStartSelect();
+    emptyRefreshStartSelect = refreshStartSelect;
+
     const hint = document.createElement('span');
-    hint.textContent = 'No monitors open — press ＋ to add one, or open a saved log file.';
+    hint.textContent = 'No monitors open — or open a saved log file.';
     panesArea.appendChild(row);
-    row.appendChild(controls.seg); // actions lead, hint follows
+    row.appendChild(startBar); // config leads: pick a port, press Start
+    row.appendChild(controls.seg);
     row.appendChild(hint);
     emptyStatus = controls.status;
     emptyAddMenu = controls.seg.querySelector<HTMLDivElement>('.add-menu') ?? undefined;
@@ -931,6 +983,7 @@ function syncEmptyState(): void {
   } else {
     emptyStatus = undefined;
     emptyAddMenu = undefined;
+    emptyRefreshStartSelect = undefined;
   }
 }
 
@@ -1113,10 +1166,25 @@ function buildPane(s: PaneSession): PaneDom {
       renderBaudMenuInto(baudMenu, baudInput!);
       baudMenu.classList.add('visible');
     });
+    // Rarely-used params live in a collapsible container, collapsed by
+    // default (baud stays visible).
+    const paramsToggle = document.createElement('button');
+    paramsToggle.className = 'pbtn params-toggle';
+    paramsToggle.innerHTML = '&#9776;';
+    paramsToggle.title = 'Serial params (data bits, parity, stop bits, line ending)';
+    const params = document.createElement('span');
+    params.className = 'pane-params';
+    params.style.display = 'none';
     dbSel = mkSelect(['8', '7', '6', '5'], String(cfg.dataBits), 'ph-db', 'Data bits');
     paritySel = mkSelect(['none', 'even', 'odd', 'mark', 'space'], cfg.parity, 'ph-parity', 'Parity');
     sbSel = mkSelect(['1', '1.5', '2'], String(cfg.stopBits), 'ph-sb', 'Stop bits');
     leSel = mkSelect(['LF', 'CRLF', 'CR', 'None'], s.lineEnding, 'ph-le', 'Line ending');
+    params.append(dbSel, paritySel, sbSel, leSel);
+    paramsToggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      params.style.display = params.style.display === 'none' ? 'flex' : 'none';
+      paramsToggle.classList.toggle('on', params.style.display === 'flex');
+    });
 
     // Control edits become the pane's settings; while connected a param
     // edit also reconnects the pane with the new settings.
@@ -1153,13 +1221,21 @@ function buildPane(s: PaneSession): PaneDom {
       s.lineEnding = leSel!.value;
     });
 
-    bar.append(dot, title, portSelect, baudWrap, dbSel, paritySel, sbSel, leSel);
+    bar.append(dot, title, portSelect, baudWrap, paramsToggle, params);
   } else {
     bar.append(dot, title);
   }
 
   bar.append(play, sendToggle, clearBtn, logBtn, exportBtn, scrollBtn, findBtn, close);
   root.appendChild(bar);
+
+  // Tag chips row: a copy under this pane's control bar (doubled like the
+  // global controls); hidden while there are no tags.
+  const paneTags = document.createElement('div');
+  paneTags.className = 'pane-tags';
+  paneTags.style.display = 'none';
+  root.appendChild(paneTags);
+  void paneTags;
 
   // Body: console + marks strips + floating find widget + state hint.
   const body = document.createElement('div');
@@ -1403,7 +1479,7 @@ function buildPane(s: PaneSession): PaneDom {
   const controls = buildGlobalControls();
   bar.appendChild(controls.seg);
 
-  return { root, bar, dot, title, play, sendToggle, clearBtn, logBtn, exportBtn, scrollBtn, findBtn, close, portSelect, baudInput, dbSel, paritySel, sbSel, leSel, log: logEl, marks, findMarks, findBar, findInput, findCase, findWord, findRegex, findCount, findPrev, findNext, findClose, sendRow, sendInput, sendBtn, hint, spacerTop, spacerBottom, globalSeg: controls.seg, status: controls.status, ctlRefs: { tagBtn: controls.tagBtn, filterToggleBtn: controls.filterToggleBtn, timestampsBtn: controls.timestampsBtn, logDirBtn: controls.logDirBtn } };
+  return { root, bar, tags: paneTags, dot, title, play, sendToggle, clearBtn, logBtn, exportBtn, scrollBtn, findBtn, close, portSelect, baudInput, dbSel, paritySel, sbSel, leSel, log: logEl, marks, findMarks, findBar, findInput, findCase, findWord, findRegex, findCount, findPrev, findNext, findClose, sendRow, sendInput, sendBtn, hint, spacerTop, spacerBottom, globalSeg: controls.seg, status: controls.status, ctlRefs: { tagBtn: controls.tagBtn, filterToggleBtn: controls.filterToggleBtn, timestampsBtn: controls.timestampsBtn, logDirBtn: controls.logDirBtn } };
 }
 
 function createSession(m: {
@@ -1579,8 +1655,15 @@ function clearBuffer(s: PaneSession): void {
 }
 
 function renderChips(): void {
-  tagsRow.textContent = '';
-  tagsRow.style.display = tags.length ? 'flex' : 'none';
+  // Doubled like every other control: each pane carries its own chips row.
+  for (const s of sessions) {
+    renderChipsInto(s.dom.tags);
+  }
+}
+
+function renderChipsInto(row: HTMLDivElement): void {
+  row.textContent = '';
+  row.style.display = tags.length ? 'flex' : 'none';
   for (const t of tags) {
     const chip = document.createElement('div');
     chip.className = 'chip' + (t.highlight || t.filter ? '' : ' chip-off');
@@ -1607,13 +1690,12 @@ function renderChips(): void {
     chip.title = `"${t.name}" — H: highlight on/off, F: filter on/off, double-click: delete`;
     chip.addEventListener('dblclick', () => post({ type: 'removeTag', id: t.id }));
     chip.append(nameSpan, segH, segF);
-    tagsRow.appendChild(chip);
+    row.appendChild(chip);
   }
   renderManagePanel();
 }
 
 let manageOpen = false;
-let tagsRow: HTMLDivElement;
 let managePanel: HTMLDivElement;
 
 function renderManagePanel(): void {
@@ -1748,6 +1830,7 @@ window.addEventListener('message', (e: MessageEvent<HostToWebview>) => {
         rebuildPortOptions(s);
       }
     }
+    emptyRefreshStartSelect?.();
     updateTagButton();
   } else if (m.type === 'state') {
     const s = sessionFor(m.sessionId);
@@ -1952,11 +2035,8 @@ document.addEventListener('click', (e) => {
 
 // --- Init ----------------------------------------------------------------------
 
-tagsRow = document.createElement('div');
-tagsRow.id = 'tags-row';
 managePanel = document.createElement('div');
 managePanel.id = 'manage-panel';
-document.body.insertBefore(tagsRow, panesArea);
 document.body.insertBefore(managePanel, panesArea);
 syncEmptyState();
 renderTimestampsControl();

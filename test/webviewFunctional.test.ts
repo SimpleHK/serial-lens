@@ -52,7 +52,7 @@ describe('functional coverage round', () => {
     await tick();
 
     const pane = paneByTitle('COM130');
-    const chip = pane.ownerDocument.querySelector('#tags-row .chip') as HTMLElement;
+    const chip = pane.querySelector('.pane-tags .chip') as HTMLElement;
     expect(chip?.textContent).toContain('ERR');
     const errRow = Array.from(pane.querySelectorAll('.row-line')).find((r) => r.textContent?.includes('[ERROR]'));
     const okRow = Array.from(pane.querySelectorAll('.row-line')).find((r) => r.textContent === 'ok line');

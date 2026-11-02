@@ -54,7 +54,17 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   .menu-item:hover { background: var(--vscode-list-hoverBackground); }
   .menu-item.current { color: var(--vscode-focusBorder); }
   .menu-item.hint { color: var(--vscode-descriptionForeground); cursor: default; }
-  #tags-row { display: none; gap: 8px; align-items: center; padding: 6px 10px; flex-wrap: wrap; border-bottom: 1px solid var(--vscode-panel-border); }
+  /* Per-pane tag chips row (doubled like every control), under the bar. */
+  .pane-tags { display: none; gap: 8px; align-items: center; padding: 4px 8px; flex-wrap: wrap; border-bottom: 1px solid var(--vscode-panel-border); }
+  /* Collapsible rarely-used serial params. */
+  .pane-params { display: none; align-items: center; gap: 3px; }
+  .pane-params select { cursor: pointer; }
+  /* Empty-state direct start bar. */
+  .start-bar { display: inline-flex; align-items: center; gap: 6px; }
+  .start-btn { height: 26px; padding: 0 12px; font-weight: 600; background: var(--vscode-button-background); color: var(--vscode-button-foreground); border-radius: var(--sm-radius); }
+  .start-btn:hover:enabled { background: var(--vscode-button-hoverBackground); }
+  .start-btn:disabled { opacity: 0.4; cursor: default; }
+  .start-port { min-width: 140px; }
   .chip { border: 1px solid; border-radius: 999px; padding: 2px 12px; font-size: 1em; height: auto; background: transparent; color: var(--vscode-foreground); }
   .chip:hover:enabled { filter: brightness(1.2); }
   .chip-off { opacity: 0.45; }
