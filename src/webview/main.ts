@@ -13,6 +13,13 @@ import { rowHeightFor } from './rowHeight';
 const vscode = acquireVsCodeApi();
 const post = (msg: WebviewToHost) => vscode.postMessage(msg);
 
+/** Icon-only controls carry their tooltip as a real accessible name too —
+ * title alone is a weak name for assistive tech. */
+function setTip(el: HTMLElement, text: string): void {
+  el.title = text;
+  el.setAttribute('aria-label', text);
+}
+
 const panesArea = document.getElementById('panes') as HTMLDivElement;
 
 /**
@@ -192,7 +199,7 @@ function buildGlobalControls(): {
     const b = document.createElement('button');
     b.className = cls;
     b.innerHTML = glyph;
-    b.title = title;
+    setTip(b, title);
     seg.appendChild(b);
     return b;
   };
@@ -203,7 +210,7 @@ function buildGlobalControls(): {
   const addMonitorBtn = document.createElement('button');
   addMonitorBtn.className = 'icon-btn add-monitor';
   addMonitorBtn.innerHTML = '&#65291;';
-  addMonitorBtn.title = 'Add a monitor — pick a port';
+  setTip(addMonitorBtn, 'Add a monitor — pick a port');
   const addMenu = document.createElement('div');
   addMenu.className = 'menu add-menu';
   addWrap.append(addMonitorBtn, addMenu);
@@ -223,8 +230,7 @@ function buildGlobalControls(): {
   filterWrap.className = 'menu-wrap';
   const filterToggleBtn = document.createElement('button');
   filterToggleBtn.className = 'icon-btn filter-toggle';
-  filterToggleBtn.setAttribute('aria-label', 'Filter');
-  filterToggleBtn.title = 'Filter';
+  setTip(filterToggleBtn, 'Filter');
   const glyph = document.createElement('span');
   glyph.className = 'filter-glyph';
   glyph.innerHTML =
@@ -283,6 +289,8 @@ function buildGlobalControls(): {
 
   const status = document.createElement('span');
   status.className = 'pane-status';
+  status.setAttribute('role', 'status'); // connection changes announce politely
+  status.setAttribute('aria-live', 'polite');
   status.textContent = 'Idle';
   seg.appendChild(status);
 
@@ -309,7 +317,9 @@ function toggleAddMenu(menu: HTMLDivElement): void {
 function renderBaudMenuInto(menu: HTMLDivElement, input: HTMLInputElement): void {
   menu.textContent = '';
   const push = (b: number, recent: boolean) => {
-    const item = document.createElement('div');
+    // buttons, not divs: keyboard focus + Enter activation for free
+    const item = document.createElement('button');
+    item.type = 'button';
     item.className = 'menu-item' + (recent ? ' recent' : '');
     item.textContent = (String(b) === input.value.trim() ? '✔︎ ' : '') + String(b);
     item.title = recent ? 'Recently used' : '';
@@ -387,11 +397,13 @@ function buildSerialConfigControls(
   const baudInput = document.createElement('input');
   baudInput.className = 'ph-ctl ph-baud';
   baudInput.value = String(cfg.baudRate);
-  baudInput.title = 'Baud rate';
+  setTip(baudInput, 'Baud rate');
+  baudInput.inputMode = 'numeric';
+  baudInput.setAttribute('autocomplete', 'off');
   const baudToggle = document.createElement('button');
   baudToggle.className = 'pbtn baud-toggle';
   baudToggle.innerHTML = '&#9662;';
-  baudToggle.title = 'Quick-pick baud rate';
+  setTip(baudToggle, 'Quick-pick baud rate');
   const baudMenu = document.createElement('div');
   baudMenu.className = 'menu baud-menu';
   baudWrap.append(baudInput, baudToggle, baudMenu);
@@ -408,7 +420,7 @@ function buildSerialConfigControls(
   const paramsToggle = document.createElement('button');
   paramsToggle.className = 'pbtn params-toggle';
   paramsToggle.innerHTML = '&#9776;';
-  paramsToggle.title = 'Serial params (data bits, parity, stop bits, line ending)';
+  setTip(paramsToggle, 'Serial params (data bits, parity, stop bits, line ending)');
   const params = document.createElement('span');
   params.className = 'pane-params';
   params.style.display = 'none';
@@ -440,7 +452,8 @@ function renderAddMenu(menu: HTMLDivElement): void {
     return;
   }
   for (const p of lastPorts) {
-    const item = document.createElement('div');
+    const item = document.createElement('button');
+    item.type = 'button';
     item.className = 'menu-item';
     item.dataset.path = p.path;
     item.textContent = p.description ? `${p.path} — ${p.description}` : p.path;
@@ -891,29 +904,33 @@ function updateTagButton(): void {
   const selected = window.getSelection()?.toString().trim() ?? '';
   for (const btn of controlRegistry.tagButtons) {
     btn.disabled = selected.length === 0;
-    btn.title = selected
-      ? `Create a tag from "${selected.length > 24 ? selected.slice(0, 24) + '…' : selected}"`
-      : 'Create a tag from the selected text (or type one in the ⚙ panel)';
+    setTip(
+      btn,
+      selected
+        ? `Create a tag from "${selected.length > 24 ? selected.slice(0, 24) + '…' : selected}"`
+        : 'Create a tag from the selected text (or type one in the ⚙ panel)',
+    );
   }
 }
 
 function renderTimestampsControl(): void {
   for (const btn of controlRegistry.timestampsButtons) {
     btn.classList.toggle('on', showTimestamps);
-    btn.title = `Timestamps: ${showTimestamps ? 'on' : 'off'} — click to ${showTimestamps ? 'hide' : 'show'} them`;
+    setTip(btn, `Timestamps: ${showTimestamps ? 'on' : 'off'} — click to ${showTimestamps ? 'hide' : 'show'} them`);
   }
 }
 
 function stateText(s: PaneSession): string {
-  return s.state === 'connected' ? 'Connected' : s.state === 'connecting' ? 'Connecting...' : 'Idle';
+  return s.state === 'connected' ? 'Connected' : s.state === 'connecting' ? 'Connecting…' : 'Idle';
 }
 
-/** The pane's status readout: an iconized connection state (✔/⌛/○, title
- * carries the full text) unless a transient message is on display. */
+/** The pane's status readout: an iconized connection state (✔/⌛/○, the
+ * accessible name carries the full text) unless a transient message is on
+ * display. */
 function renderPaneStatus(s: PaneSession): void {
   const el = s.dom.status;
   const text = s.message || stateText(s);
-  el.title = text;
+  setTip(el, text);
   if (s.transientMessage && s.transientUntil !== undefined && Date.now() < s.transientUntil) {
     el.textContent = s.transientMessage;
     return;
@@ -1083,14 +1100,14 @@ function refreshPaneControls(s: PaneSession): void {
     d.play.style.display = isPort ? '' : 'none';
     d.play.innerHTML = isConnected ? '&#9632;' : '&#9654;';
     d.play.classList.toggle('on', isConnected);
-    d.play.title = isConnected ? `Stop monitoring ${s.title}` : `Start monitoring ${s.title}`;
+    setTip(d.play, isConnected ? `Stop monitoring ${s.title}` : `Start monitoring ${s.title}`);
     d.play.disabled = s.state === 'connecting';
   }
 
   d.clearBtn.disabled = s.lineStore.length === 0 && !isConnected;
-  d.clearBtn.title = `Clear ${s.title}`;
+  setTip(d.clearBtn, `Clear ${s.title}`);
   d.exportBtn.disabled = s.lineStore.length === 0;
-  d.exportBtn.title = `Export ${s.title}'s buffered log to a file`;
+  setTip(d.exportBtn, `Export ${s.title}'s buffered log to a file`);
 
   if (d.logBtn) {
     d.logBtn.style.display = isPort ? '' : 'none';
@@ -1100,18 +1117,20 @@ function refreshPaneControls(s: PaneSession): void {
     d.logBtn.innerHTML = logOn ? '&#128308;&#65039;' : '&#9898;&#65039;';
     if (logOn) {
       const where = s.logFile ? ` (now: ${s.logFile})` : s.logDirectory ? ` into ${s.logDirectory}` : '';
-      d.logBtn.title = `Log to file: on${where} — click to stop`;
+      setTip(d.logBtn, `Log to file: on${where} — click to stop`);
     } else {
-      d.logBtn.title = 'Log to file: off — click to log this session to a .log file';
+      setTip(d.logBtn, 'Log to file: off — click to log this session to a .log file');
     }
   }
 
   d.scrollBtn.innerHTML = s.scroll === 'follow' ? '&#8681;' : '&#128274;';
   d.scrollBtn.classList.toggle('locked', s.scroll === 'locked');
-  d.scrollBtn.title =
+  setTip(
+    d.scrollBtn,
     s.scroll === 'follow'
       ? 'Viewport follows new lines — click to lock'
-      : 'Scroll locked, data keeps arriving — click to rejoin';
+      : 'Scroll locked, data keeps arriving — click to rejoin',
+  );
 
   // Serial config: the PORT is locked while connected, but the parameters
   // stay editable — an edit reconnects the pane with the new settings
@@ -1133,12 +1152,12 @@ function refreshPaneControls(s: PaneSession): void {
   if (d.sendToggle) {
     d.sendToggle.style.display = isPort ? '' : 'none';
     d.sendToggle.classList.toggle('on', isPort && !s.sendCollapsed);
-    d.sendToggle.title = !isPort ? '' : s.sendCollapsed ? 'Show the send bar' : 'Hide the send bar';
+    setTip(d.sendToggle, !isPort ? '' : s.sendCollapsed ? 'Show the send bar' : 'Hide the send bar');
   }
   d.sendRow.style.display = isPort && !s.sendCollapsed ? 'flex' : 'none';
   d.sendInput.disabled = !isConnected;
   d.sendBtn.disabled = !isConnected;
-  d.sendInput.placeholder = isConnected ? `To ${s.title}: type a message to send...` : 'Start monitoring to send';
+  d.sendInput.placeholder = isConnected ? `To ${s.title}: type a message to send…` : 'Start monitoring to send';
 
   // Empty-pane hint: connect/wait/stop states would otherwise look frozen.
   let hintText = '';
@@ -1175,7 +1194,7 @@ function buildPane(s: PaneSession): PaneDom {
     const b = document.createElement('button');
     b.className = cls;
     b.innerHTML = glyph;
-    b.title = title;
+    setTip(b, title);
     return b;
   };
   const play = mkBtn('&#9654;', `Start monitoring ${s.title}`);
@@ -1185,10 +1204,12 @@ function buildPane(s: PaneSession): PaneDom {
   const exportBtn = mkBtn('&#128228;', `Export ${s.title}'s buffered log to a file`);
   const scrollBtn = mkBtn('&#8681;', 'Viewport follows new lines — click to lock');
   const findBtn = mkBtn('&#128269;', 'Find in this pane (Ctrl+F)');
-  const close = document.createElement('span');
+  // A real button (not a span with a click handler): keyboard focus + Enter.
+  const close = document.createElement('button');
+  close.type = 'button';
   close.className = 'pane-close';
   close.textContent = '\u00d7';
-  close.title = 'Close this pane';
+  setTip(close, 'Close this pane');
 
   let portSelect: HTMLSelectElement | undefined;
   let baudInput: HTMLInputElement | undefined;
@@ -1277,17 +1298,21 @@ function buildPane(s: PaneSession): PaneDom {
   const marks = document.createElement('div');
   marks.className = 'log-marks';
   marks.title = 'Highlighted lines — click to jump';
+  marks.setAttribute('aria-hidden', 'true'); // decorative: the same data is in the stream
   const findMarks = document.createElement('div');
   findMarks.className = 'find-marks';
   findMarks.title = 'Find matches — click to jump to the nearest one';
+  findMarks.setAttribute('aria-hidden', 'true');
   const hint = document.createElement('div');
   hint.className = 'pane-hint';
+  hint.setAttribute('aria-live', 'polite'); // state hints announce
 
   const findBar = document.createElement('div');
   findBar.className = 'find-bar';
   const findInput = document.createElement('input');
   findInput.placeholder = 'Find';
   findInput.spellcheck = false;
+  findInput.setAttribute('autocomplete', 'off');
   const findCase = document.createElement('button');
   findCase.className = 'fbtn';
   findCase.textContent = 'Aa';
@@ -1302,18 +1327,19 @@ function buildPane(s: PaneSession): PaneDom {
   findRegex.title = 'Use regular expression';
   const findCount = document.createElement('span');
   findCount.className = 'find-count';
+  findCount.setAttribute('aria-live', 'polite'); // the counter updates per keystroke
   const findPrev = document.createElement('button');
   findPrev.className = 'fbtn';
   findPrev.innerHTML = '&#8593;';
-  findPrev.title = 'Previous match (Shift+Enter)';
+  setTip(findPrev, 'Previous match (Shift+Enter)');
   const findNext = document.createElement('button');
   findNext.className = 'fbtn';
   findNext.innerHTML = '&#8595;';
-  findNext.title = 'Next match (Enter)';
+  setTip(findNext, 'Next match (Enter)');
   const findClose = document.createElement('button');
   findClose.className = 'fbtn';
   findClose.innerHTML = '&#10005;';
-  findClose.title = 'Close find (Escape)';
+  setTip(findClose, 'Close find (Escape)');
   findBar.append(findInput, findCase, findWord, findRegex, findCount, findPrev, findNext, findClose);
   body.append(logEl, marks, findMarks, findBar, hint);
 
@@ -1321,8 +1347,11 @@ function buildPane(s: PaneSession): PaneDom {
   const sendRow = document.createElement('div');
   sendRow.className = 'pane-send';
   const sendInput = document.createElement('input');
+  sendInput.spellcheck = false; // machine data, not prose
+  sendInput.setAttribute('autocomplete', 'off');
   const sendBtn = document.createElement('button');
   sendBtn.textContent = 'Send';
+  setTip(sendBtn, 'Send the message with the pane\'s line ending');
   sendRow.append(sendInput, sendBtn);
 
   root.append(body, sendRow);
@@ -2029,7 +2058,8 @@ function renderFilterMenu(filterMenu: HTMLDivElement): void {
     { mode: 'exclude', label: 'Exclude', hint: 'Hide lines matching a filter tag' },
   ];
   for (const o of options) {
-    const item = document.createElement('div');
+    const item = document.createElement('button');
+    item.type = 'button';
     item.className = 'menu-item' + (o.mode === filterMode ? ' current' : '');
     item.textContent = (o.mode === filterMode ? '\u2714\uFE0E ' : '') + o.label;
     item.title = o.hint;

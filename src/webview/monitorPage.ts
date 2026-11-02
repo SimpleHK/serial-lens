@@ -30,6 +30,11 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   button:hover:enabled { background: var(--vscode-toolbar-hoverBackground); }
   button:disabled { opacity: 0.4; cursor: default; }
   button:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
+  /* Native popup chrome (select dropdowns, scrollbars) follows the theme. */
+  body.vscode-dark, body.vscode-high-contrast { color-scheme: dark; }
+  body.vscode-light { color-scheme: light; }
+  /* Drop the mobile double-tap zoom delay on every control. */
+  button, select { touch-action: manipulation; }
   .icon-btn { width: 30px; min-width: 30px; height: 26px; padding: 0; font-size: 17px; display: inline-flex; align-items: center; justify-content: center; }
   .icon-btn.on { color: var(--vscode-focusBorder); background: var(--vscode-toolbar-hoverBackground); }
   #log-dir.logging, .log-dir.logging { color: var(--vscode-charts-red, #f14c4c); }
@@ -50,7 +55,7 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
     border-radius: 6px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45); padding: 4px;
   }
   .menu-header { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--vscode-descriptionForeground); padding: 4px 8px 2px; user-select: none; white-space: nowrap; }
-  .menu-item { padding: 4px 10px; border-radius: 3px; cursor: pointer; white-space: nowrap; font-size: 12px; }
+  .menu-item { display: block; width: 100%; text-align: left; padding: 4px 10px; border-radius: 3px; cursor: pointer; white-space: nowrap; font-size: 12px; font-family: inherit; }
   .menu-item:hover { background: var(--vscode-list-hoverBackground); }
   .menu-item.current { color: var(--vscode-focusBorder); }
   .menu-item.hint { color: var(--vscode-descriptionForeground); cursor: default; }

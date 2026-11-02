@@ -131,3 +131,64 @@ describe('direct config bar', () => {
     );
   });
 });
+
+describe('interface guidelines (a11y & polish)', () => {
+  it('icon-only buttons carry an aria-label, not just a tooltip', () => {
+    fire({ type: 'sessionCreated', sessionId: 90, kind: 'port', title: 'COM190', state: 'connected', settings: { ...S } });
+    const pane = paneByTitle('COM190');
+    const named = (b: Element) => !!((b as HTMLElement).textContent?.trim() || b.getAttribute('aria-label'));
+    // every button resolves to an accessible name one way or another
+    for (const b of Array.from(pane.querySelectorAll('button'))) {
+      expect(named(b)).toBe(true);
+    }
+    // the doubled global icons are aria-named, never tooltip-only
+    expect(document.querySelectorAll('.icon-btn').length).toBeGreaterThan(3);
+    for (const b of Array.from(document.querySelectorAll('.icon-btn'))) {
+      expect(b.getAttribute('aria-label') || '').not.toBe('');
+    }
+    // spot-check the pane's icon-only set explicitly
+    for (const sel of ['.pane-close', '.baud-toggle', '.params-toggle', '.pbtn']) {
+      const el = pane.querySelector(sel) as HTMLElement;
+      expect(el.getAttribute('aria-label') || '').not.toBe('');
+    }
+  });
+
+  it('uses real buttons for clickable non-text controls', () => {
+    const pane = paneByTitle('COM190');
+    // the pane close glyph is a button, not a span with a click handler
+    expect(pane.querySelector('.pane-close')!.tagName).toBe('BUTTON');
+    // menu entries are buttons so keyboard focus + Enter work
+    (pane.querySelector('.baud-toggle') as HTMLButtonElement).click();
+    const baudItem = pane.querySelector('.baud-menu .menu-item')!;
+    expect(baudItem.tagName).toBe('BUTTON');
+    document.body.dispatchEvent(new MouseEvent('click', { bubbles: true })); // close menus
+    document.querySelector('.filter-toggle')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(document.querySelector('.filter-menu .menu-item')!.tagName).toBe('BUTTON');
+  });
+
+  it('polishes copy and input hints per the guidelines', () => {
+    const pane = paneByTitle('COM190');
+    fire({ type: 'sessionCreated', sessionId: 91, kind: 'port', title: 'COM191', state: 'connecting', settings: { ...S } });
+    expect(paneByTitle('COM191').querySelector('.pane-status')!.getAttribute('aria-label')).toBe('Connecting…');
+    // placeholders end with the ellipsis character, not three dots
+    const sendInput = pane.querySelector('.pane-send input') as HTMLInputElement;
+    expect(sendInput.placeholder.endsWith('…')).toBe(true);
+    expect(sendInput.spellcheck).toBe(false);
+    expect(sendInput.autocomplete).toBe('off');
+    // the baud field is numeric and never autofilled
+    const baud = pane.querySelector('.ph-baud') as HTMLInputElement;
+    expect(baud.inputMode).toBe('numeric');
+    expect(baud.autocomplete).toBe('off');
+    const findInput = pane.querySelector('.find-bar input') as HTMLInputElement;
+    expect(findInput.autocomplete).toBe('off');
+  });
+
+  it('async state regions announce politely; decorative strips hide from AT', () => {
+    const pane = paneByTitle('COM190');
+    expect(pane.querySelector('.pane-status')!.getAttribute('aria-live')).toBe('polite');
+    expect(pane.querySelector('.find-count')!.getAttribute('aria-live')).toBe('polite');
+    expect(pane.querySelector('.pane-hint')!.getAttribute('aria-live')).toBe('polite');
+    expect(pane.querySelector('.log-marks')!.getAttribute('aria-hidden')).toBe('true');
+    expect(pane.querySelector('.find-marks')!.getAttribute('aria-hidden')).toBe('true');
+  });
+});
