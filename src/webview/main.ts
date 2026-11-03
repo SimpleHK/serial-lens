@@ -243,17 +243,18 @@ function buildGlobalControls(owner: PaneSession | undefined): {
   filterMenu.className = 'menu filter-menu';
   filterWrap.append(filterToggleBtn, filterMenu);
   seg.appendChild(filterWrap);
+  filterToggleBtn.disabled = !owner; // no pane, nothing to filter
   filterToggleBtn.addEventListener('click', (e) => {
     e.stopPropagation();
+    if (!owner) {
+      return; // no pane, nothing to filter — never open a dead menu
+    }
     if (filterMenu.style.display === 'block') {
       filterMenu.style.display = 'none';
       return;
     }
     renderFilterMenu(filterMenu, owner);
     filterMenu.style.display = 'block';
-    if (!owner) {
-      filterToggleBtn.disabled = true; // no pane, nothing to filter
-    }
   });
 
   const timestampsBtn = mkBtn('icon-btn timestamps', '&#9201;&#65039;', 'Timestamps: off');
@@ -283,12 +284,7 @@ function buildGlobalControls(owner: PaneSession | undefined): {
     if (!selected || !f) {
       return;
     }
-    f.tags = [...f.tags, makeTag(f.tags, selected)];
-    commitTags(f);
-    restyleAllRows();
-    renderChips();
-    renderManagePanel();
-    scheduleFindRecompute(f);
+    applyTagEdit(f, [...f.tags, makeTag(f.tags, selected)]);
   });
   // Keep the selection alive: clicking the button must not collapse it.
   tagBtn.addEventListener('mousedown', (e) => e.preventDefault());
@@ -899,24 +895,39 @@ function appendToSession(s: PaneSession, entries: { text: string; ts?: number }[
   refreshPaneControls(s);
 }
 
+function restylePane(s: PaneSession): void {
+  for (let i = 0; i < s.lineStore.length; i++) {
+    s.decisions[i] = matchLine(s.lineStore[i].text, s.tags, s.filterMode);
+  }
+  rebuildVisibleIndexes(s);
+  s.marksDirty = true;
+  scheduleRender(s);
+  if (s.find.open) {
+    scheduleFindRecompute(s);
+  }
+}
+
 function restyleAllRows(): void {
   for (const s of sessions) {
-    for (let i = 0; i < s.lineStore.length; i++) {
-      s.decisions[i] = matchLine(s.lineStore[i].text, s.tags, s.filterMode);
-    }
-    rebuildVisibleIndexes(s);
-    s.marksDirty = true;
-    scheduleRender(s);
-    if (s.find.open) {
-      scheduleFindRecompute(s);
-    }
+    restylePane(s);
   }
+}
+
+/** The one gateway for a pane's tag edits (ADR-0006): persist the pane's
+ * list, restyle THAT pane, refresh its chips. The ⚙ panel re-renders on its
+ * own whenever chips do. */
+function applyTagEdit(s: PaneSession, tags: Tag[]): void {
+  s.tags = tags;
+  commitTags(s);
+  restylePane(s);
+  renderChips();
 }
 
 function updateTagButton(): void {
   const selected = window.getSelection()?.toString().trim() ?? '';
   for (const btn of controlRegistry.tagButtons) {
-    btn.disabled = selected.length === 0;
+    // tags live on panes (ADR-0006): with none open, the button stays dead
+    btn.disabled = selected.length === 0 || sessions.length === 0;
     setTip(
       btn,
       selected
@@ -1169,6 +1180,13 @@ function refreshPaneControls(s: PaneSession): void {
     setTip(d.sendToggle, !isPort ? '' : s.sendCollapsed ? 'Show the send bar' : 'Hide the send bar');
   }
   d.sendRow.style.display = isPort && !s.sendCollapsed ? 'flex' : 'none';
+  // This pane's funnel shows ITS filter mode, not some global one. The
+  // aria-label stays the stable name; the mode detail rides in the tooltip.
+  if (d.ctlRefs) {
+    d.ctlRefs.filterToggleBtn.classList.toggle('on', s.filterMode !== 'off');
+    d.ctlRefs.filterToggleBtn.setAttribute('aria-label', 'Filter');
+    d.ctlRefs.filterToggleBtn.title = `Filter: ${s.filterMode} — click to choose`;
+  }
   d.sendInput.disabled = !isConnected;
   d.sendBtn.disabled = !isConnected;
   d.sendInput.placeholder = isConnected ? `To ${s.title}: type a message to send…` : 'Start monitoring to send';
@@ -1313,7 +1331,6 @@ function buildPane(s: PaneSession): PaneDom {
   paneTags.className = 'pane-tags';
   paneTags.style.display = 'none';
   root.appendChild(paneTags);
-  void paneTags;
 
   // Body: console + marks strips + floating find widget + state hint.
   const body = document.createElement('div');
@@ -1772,10 +1789,7 @@ function renderChipsInto(s: PaneSession): void {
     segH.title = t.highlight ? 'Highlighting ON — click to turn off' : 'Highlighting OFF — click to turn on';
     segH.addEventListener('click', (e) => {
       e.stopPropagation();
-      s.tags = patchedTag(s.tags, t.id, { highlight: !t.highlight });
-      commitTags(s);
-      restyleAllRows();
-      renderChips();
+      applyTagEdit(s, patchedTag(s.tags, t.id, { highlight: !t.highlight }));
     });
     const segF = document.createElement('span');
     segF.className = 'seg' + (t.filter ? ' on' : '');
@@ -1783,19 +1797,11 @@ function renderChipsInto(s: PaneSession): void {
     segF.title = t.filter ? 'Filtering ON — click to turn off' : 'Filtering OFF — click to turn on';
     segF.addEventListener('click', (e) => {
       e.stopPropagation();
-      s.tags = patchedTag(s.tags, t.id, { filter: !t.filter });
-      commitTags(s);
-      restyleAllRows();
-      renderChips();
-      scheduleFindRecompute(s);
+      applyTagEdit(s, patchedTag(s.tags, t.id, { filter: !t.filter }));
     });
     chip.title = `"${t.name}" — H: highlight on/off, F: filter on/off, double-click: delete`;
     chip.addEventListener('dblclick', () => {
-      s.tags = withoutTag(s.tags, t.id);
-      commitTags(s);
-      restyleAllRows();
-      renderChips();
-      scheduleFindRecompute(s);
+      applyTagEdit(s, withoutTag(s.tags, t.id));
     });
     chip.append(nameSpan, segH, segF);
     row.appendChild(chip);
@@ -1835,13 +1841,9 @@ function renderManagePanel(): void {
     if (!value || !owner) {
       return;
     }
-    owner.tags = [...owner.tags, makeTag(owner.tags, value)];
+    applyTagEdit(owner, [...owner.tags, makeTag(owner.tags, value)]);
     addInput.value = '';
-    commitTags(owner);
-    restyleAllRows();
-    renderChips();
     renderManagePanel();
-    scheduleFindRecompute(owner);
   };
   addBtn.addEventListener('click', addTag);
   addInput.addEventListener('keydown', (e) => {
@@ -1858,12 +1860,8 @@ function renderManagePanel(): void {
     if (!owner) {
       return;
     }
-    owner.tags = [];
-    commitTags(owner);
-    restyleAllRows();
-    renderChips();
+    applyTagEdit(owner, []);
     renderManagePanel();
-    scheduleFindRecompute(owner);
   });
   addRow.append(addInput, addBtn, clearAllBtn);
   managePanel.appendChild(addRow);
@@ -1878,9 +1876,7 @@ function renderManagePanel(): void {
     nameInput.title = 'Tag name';
     nameInput.addEventListener('change', () => {
       if (!owner) return;
-      owner.tags = patchedTag(owner.tags, t.id, { name: nameInput.value });
-      commitTags(owner);
-      renderChips();
+      applyTagEdit(owner, patchedTag(owner.tags, t.id, { name: nameInput.value }));
     });
 
     const patternInput = document.createElement('input');
@@ -1890,10 +1886,7 @@ function renderManagePanel(): void {
     patternInput.placeholder = 'Match pattern (substring or regex source)';
     patternInput.addEventListener('change', () => {
       if (!owner) return;
-      owner.tags = patchedTag(owner.tags, t.id, { pattern: patternInput.value });
-      commitTags(owner);
-      restyleAllRows();
-      scheduleFindRecompute(owner);
+      applyTagEdit(owner, patchedTag(owner.tags, t.id, { pattern: patternInput.value }));
     });
 
     const hlLabel = document.createElement('label');
@@ -1902,10 +1895,7 @@ function renderManagePanel(): void {
     hlInput.checked = t.highlight;
     hlInput.addEventListener('change', () => {
       if (!owner) return;
-      owner.tags = patchedTag(owner.tags, t.id, { highlight: hlInput.checked });
-      commitTags(owner);
-      restyleAllRows();
-      renderChips();
+      applyTagEdit(owner, patchedTag(owner.tags, t.id, { highlight: hlInput.checked }));
     });
     hlLabel.appendChild(hlInput);
     hlLabel.appendChild(document.createTextNode('H'));
@@ -1916,11 +1906,7 @@ function renderManagePanel(): void {
     flInput.checked = t.filter;
     flInput.addEventListener('change', () => {
       if (!owner) return;
-      owner.tags = patchedTag(owner.tags, t.id, { filter: flInput.checked });
-      commitTags(owner);
-      restyleAllRows();
-      renderChips();
-      scheduleFindRecompute(owner);
+      applyTagEdit(owner, patchedTag(owner.tags, t.id, { filter: flInput.checked }));
     });
     flLabel.appendChild(flInput);
     flLabel.appendChild(document.createTextNode('F'));
@@ -1931,10 +1917,7 @@ function renderManagePanel(): void {
     regexInput.checked = t.isRegex;
     regexInput.addEventListener('change', () => {
       if (!owner) return;
-      owner.tags = patchedTag(owner.tags, t.id, { isRegex: regexInput.checked });
-      commitTags(owner);
-      restyleAllRows();
-      scheduleFindRecompute(owner);
+      applyTagEdit(owner, patchedTag(owner.tags, t.id, { isRegex: regexInput.checked }));
     });
     regexLabel.appendChild(regexInput);
     regexLabel.appendChild(document.createTextNode('regex'));
@@ -1944,9 +1927,7 @@ function renderManagePanel(): void {
     colorInput.value = t.color;
     colorInput.addEventListener('change', () => {
       if (!owner) return;
-      owner.tags = patchedTag(owner.tags, t.id, { color: colorInput.value });
-      commitTags(owner);
-      renderChips();
+      applyTagEdit(owner, patchedTag(owner.tags, t.id, { color: colorInput.value }));
     });
 
     const deleteBtn = document.createElement('button');
@@ -1955,12 +1936,8 @@ function renderManagePanel(): void {
     deleteBtn.title = `Delete tag "${t.name}"`;
     deleteBtn.addEventListener('click', () => {
       if (!owner) return;
-      owner.tags = withoutTag(owner.tags, t.id);
-      commitTags(owner);
-      restyleAllRows();
-      renderChips();
+      applyTagEdit(owner, withoutTag(owner.tags, t.id));
       renderManagePanel();
-      scheduleFindRecompute(owner);
     });
 
     row.append(nameInput, patternInput, regexLabel, hlLabel, flLabel, colorInput, deleteBtn);
@@ -2077,11 +2054,8 @@ window.addEventListener('message', (e: MessageEvent<HostToWebview>) => {
     const ts = sessions.find((x) => x.id === m.sessionId);
     if (ts) {
       ts.tags = sanitizeTags(m.tags);
+      restylePane(ts);
       renderChips();
-      restyleAllRows();
-      if (ts.find.open) {
-        scheduleFindRecompute(ts);
-      }
     }
   } else if (m.type === 'sessionCreated') {
     if (pendingReplaceOldId !== undefined && pendingReplaceNewId === undefined) {
@@ -2181,7 +2155,8 @@ function setFilterMode(s: PaneSession | undefined, mode: FilterMode): void {
     return; // the empty row's funnel has no pane to filter
   }
   s.filterMode = mode;
-  restyleAllRows();
+  restylePane(s);
+  refreshPaneControls(s); // the pane's own funnel shows the new mode
 }
 
 function renderFilterMenu(filterMenu: HTMLDivElement, owner: PaneSession | undefined): void {

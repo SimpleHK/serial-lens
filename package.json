@@ -73,11 +73,11 @@
           "default": true,
           "description": "Show a receive timestamp at the start of each line (display decoration only; tag matching always uses raw line content)."
         },
-        "serialMonitor.tags": {
-          "type": "array",
-          "default": [],
-          "markdownDescription": "Tags: named row-matching rules (pattern + color + highlight/filter flags) consumed by highlighting and filtering. Usually managed from the monitor UI.",
-          "items": {
+        "serialMonitor.portTags": {
+          "type": "object",
+          "default": {},
+          "markdownDescription": "Per-port tag sets (ADR-0006): a map of port path to that port’s tags. Usually managed from the monitor UI.",
+          "additionalProperties": {
             "type": "object",
             "required": [
               "name",

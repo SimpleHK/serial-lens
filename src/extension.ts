@@ -22,6 +22,8 @@ import { DEFAULT_BAUD_RATE } from './shared/baudPresets';
 import { monitorPageHtml } from './webview/monitorPage';
 
 const LINE_ENDINGS: readonly LineEnding[] = ['none', 'LF', 'CRLF', 'CR'];
+/** The webview's select vocabulary (what `mkSelect` offers). */
+const UI_LINE_ENDINGS: readonly string[] = ['LF', 'CRLF', 'CR', 'None'];
 
 /** Coerces raw serial params to the settings the backend accepts, with the
  * same defaults everywhere. */
@@ -118,6 +120,10 @@ interface PortSession {
   kind: 'port';
   id: number;
   controller: MonitorController;
+  /** The port this session was created for — the tag persistence key. It
+   * survives disconnect (unlike controller.activePath), so edits made while
+   * the pane is stopped still land under the right port (ADR-0006). */
+  portPath: string;
   logDesired: boolean;
   sessionLogFile?: string;
   /** Set while a live param-edit reconnect is in flight: the idle hop must
@@ -320,7 +326,7 @@ export class MonitorViewProvider implements vscode.WebviewViewProvider {
           if (ts?.kind !== 'port') {
             break;
           }
-          void tagStore.save(ts.controller.activePath ?? '', msg.tags);
+          void tagStore.save(ts.portPath, msg.tags);
           break;
         }
       }
@@ -363,7 +369,7 @@ export class MonitorViewProvider implements vscode.WebviewViewProvider {
         },
       },
     );
-    const session: PortSession = { kind: 'port', id, controller, logDesired: Boolean(readLogDirectory()) };
+    const session: PortSession = { kind: 'port', id, controller, portPath: settings.path, logDesired: Boolean(readLogDirectory()) };
     this.sessions.set(id, session);
     // Tags belong to the port (ADR-0006): the pane starts with this port's set.
     this.post({ type: 'tags', sessionId: id, tags: this.tagStore?.load(settings.path) ?? [] });
@@ -409,7 +415,7 @@ export class MonitorViewProvider implements vscode.WebviewViewProvider {
     if (session.controller.state === 'connected') {
       // A start-bar line-ending choice seeds the new session's send format
       // (the pane's own select stays authoritative afterwards).
-      if (uiLineEnding && ['LF', 'CRLF', 'CR', 'None'].includes(uiLineEnding)) {
+      if (uiLineEnding && UI_LINE_ENDINGS.includes(uiLineEnding)) {
         this.post({ type: 'lineEnding', sessionId: session.id, value: uiLineEnding });
       }
       void this.pushRecentBaud(settings.baudRate);

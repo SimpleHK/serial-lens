@@ -165,6 +165,9 @@ describe('direct config bar', () => {
     ) as HTMLElement;
     include.click();
     await tick();
+    // the pane's own funnel shows the mode is active
+    expect((p1.querySelector('.filter-toggle') as HTMLButtonElement).classList.contains('on')).toBe(true);
+    expect((paneByTitle('COM162').querySelector('.filter-toggle') as HTMLButtonElement).classList.contains('on')).toBe(false);
     // COM161 collapses to its matching lines only; COM162 keeps everything
     const p1Rows = Array.from(p1.querySelectorAll('.row-line')).map((r) => r.textContent);
     expect(p1Rows.length).toBeGreaterThan(0);
@@ -323,5 +326,24 @@ describe('port switching & control placement', () => {
     posted.length = 0;
     (document.querySelector('.start-btn') as HTMLButtonElement).click();
     expect(posted).toContainEqual(expect.objectContaining({ type: 'connect', port: 'COM12' }));
+  });
+
+  it('empty row: funnel and tag controls are dead until a pane exists', async () => {
+    // the previous test closed every pane; the empty row is up
+    const row = document.querySelector('.empty-row') as HTMLElement;
+    const funnel = row.querySelector('.filter-toggle') as HTMLButtonElement;
+    funnel.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    const menu = row.querySelector('.filter-menu') as HTMLElement;
+    expect(menu.style.display).not.toBe('block'); // no dead menu opens
+    expect(funnel.disabled).toBe(true);
+    // a text selection alone must not resurrect the tag button
+    const sel = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(row);
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+    document.dispatchEvent(new Event('selectionchange'));
+    const tagBtn = row.querySelector('.create-tag') as HTMLButtonElement;
+    expect(tagBtn.disabled).toBe(true);
   });
 });

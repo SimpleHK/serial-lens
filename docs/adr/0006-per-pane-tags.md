@@ -37,6 +37,7 @@ device must not collapse its neighbor.
   already pure and per-call, so nothing downstream changed shape.
 - "Delete all", renames, and chip toggles in the ⚙ panel apply to the pane
   named in the panel header.
-- Persistence is per port, so a pane that never connected (no path yet)
-  keeps its tags in memory only.
+- The persistence key is the port recorded when the session is created,
+  so edits persist even while the pane is stopped; only a session with no
+  port at all (file panes) stays memory-only.
 - The empty row has no pane: its funnel/tag/manage controls are disabled.

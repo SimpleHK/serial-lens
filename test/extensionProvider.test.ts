@@ -371,6 +371,26 @@ describe('MonitorViewProvider (host layer, vscode-mocked)', () => {
     expect(pushed?.tags.map((t) => t.name)).toEqual(['ERROR']);
   });
 
+  it('persists tag edits made while the pane is stopped', async () => {
+    fire({ type: 'connect', port: 'COM10', baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' });
+    await tick();
+    const sid = (findLastMsg('sessionCreated') as { sessionId: number }).sessionId;
+    fire({ type: 'disconnect', sessionId: sid });
+    await tick();
+    posted.length = 0;
+    fire({
+      type: 'saveTags',
+      sessionId: sid,
+      tags: [{ id: 't1', name: 'ERROR', pattern: '[ERROR]', isRegex: false, color: '#ff0000', highlight: true, filter: true }],
+    });
+    await tick();
+    // activePath is gone once detached — the pane's own port must key the save
+    expect(getConfigUpdates()).toContainEqual({
+      key: 'portTags',
+      value: expect.objectContaining({ COM10: expect.arrayContaining([expect.objectContaining({ name: 'ERROR' })]) }),
+    });
+  });
+
   it('persists serialMonitor settings through the config watcher', async () => {
     fire({ type: 'setTimestamps', enabled: true });
     await tick();
