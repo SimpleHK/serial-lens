@@ -14,7 +14,7 @@ import {
 import { ControllerState, ControllerToWebview, MonitorController, TimedLine } from './host/monitorController';
 import { NodeSerialPortBackend } from './host/nodeSerialPortBackend';
 import { LineEnding, SerialPortSettings } from './host/serialPortAdapter';
-import { TagStorage, TagStore } from './host/tagStore';
+import { PortTagStorage, PortTagStore } from './host/tagStore';
 import { Tag } from './shared/tag';
 import { formatLineText } from './shared/lineText';
 import { HostToWebview, WebviewToHost } from './shared/protocol';
@@ -22,6 +22,8 @@ import { DEFAULT_BAUD_RATE } from './shared/baudPresets';
 import { monitorPageHtml } from './webview/monitorPage';
 
 const LINE_ENDINGS: readonly LineEnding[] = ['none', 'LF', 'CRLF', 'CR'];
+/** The webview's select vocabulary (what `mkSelect` offers). */
+const UI_LINE_ENDINGS: readonly string[] = ['LF', 'CRLF', 'CR', 'None'];
 
 /** Coerces raw serial params to the settings the backend accepts, with the
  * same defaults everywhere. */
@@ -56,7 +58,12 @@ function fileStamp(what: string): string {
 }
 
 function toLineEnding(value: string): LineEnding {
-  return (LINE_ENDINGS as readonly string[]).includes(value) ? (value as LineEnding) : 'LF';
+  // UI forms differ from host forms only in case ('None' vs 'none');
+  // normalize instead of silently falling back to LF.
+  const hit = (LINE_ENDINGS as readonly string[]).find(
+    (e) => e.toLowerCase() === value.toLowerCase(),
+  );
+  return (hit as LineEnding | undefined) ?? 'LF';
 }
 
 function readCap(): number {
@@ -113,6 +120,10 @@ interface PortSession {
   kind: 'port';
   id: number;
   controller: MonitorController;
+  /** The port this session was created for — the tag persistence key. It
+   * survives disconnect (unlike controller.activePath), so edits made while
+   * the pane is stopped still land under the right port (ADR-0006). */
+  portPath: string;
   logDesired: boolean;
   sessionLogFile?: string;
   /** Set while a live param-edit reconnect is in flight: the idle hop must
@@ -139,6 +150,7 @@ export class MonitorViewProvider implements vscode.WebviewViewProvider {
 
   private view: vscode.WebviewView | undefined;
   private readonly sessions = new Map<number, ProviderSession>();
+  private tagStore?: PortTagStore;
   private nextId = 1;
 
   /** All live port sessions, in id order. */
@@ -168,21 +180,12 @@ export class MonitorViewProvider implements vscode.WebviewViewProvider {
     };
     this.post = post;
 
-    const tagStore = new TagStore(workspaceTagStorage());
+    const tagStore = new PortTagStore(workspacePortTagStorage());
+    this.tagStore = tagStore;
     const sendDisplayState = () => {
       post({ type: 'timestamps', enabled: readTimestamps() });
     };
-    const sendTags = () => {
-      // The view may already be disposed when a late change arrives.
-      void Promise.resolve(view.webview.postMessage({ type: 'tags', tags: tagStore.getTags() })).catch(
-        () => undefined,
-      );
-    };
-    const unsubscribeTags = tagStore.onChange(sendTags);
     const configWatcher = vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration('serialMonitor.tags')) {
-        tagStore.reload(); // also fires sendTags via onChange
-      }
       if (e.affectsConfiguration('serialMonitor.maxBufferLines')) {
         for (const s of this.portSessions) {
           s.controller.setCap(readCap());
@@ -200,7 +203,6 @@ export class MonitorViewProvider implements vscode.WebviewViewProvider {
         }
       }
     });
-    sendTags();
 
     view.webview.onDidReceiveMessage((msg: WebviewToHost) => {
       switch (msg.type) {
@@ -213,7 +215,7 @@ export class MonitorViewProvider implements vscode.WebviewViewProvider {
           }
           break;
         case 'connect':
-          void this.handleConnect(toSettings(msg));
+          void this.handleConnect(toSettings(msg), msg.lineEnding);
           break;
         case 'reconnect': {
           // A param edit on a connected pane: tear the connection down and
@@ -317,23 +319,20 @@ export class MonitorViewProvider implements vscode.WebviewViewProvider {
             void this.completeExport(msg.sessionId, msg.entries);
           }
           break;
-        case 'createTag':
-          void tagStore.add(String(msg.pattern));
+        case 'saveTags': {
+          // The webview owns its pane's list (ADR-0006); the host persists it
+          // under the pane's port so the set survives close/reopen.
+          const ts = this.sessions.get(msg.sessionId);
+          if (ts?.kind !== 'port') {
+            break;
+          }
+          void tagStore.save(ts.portPath, msg.tags);
           break;
-        case 'updateTag':
-          void tagStore.update(String(msg.id), msg.patch);
-          break;
-        case 'removeTag':
-          void tagStore.remove(String(msg.id));
-          break;
-        case 'clearTags':
-          void tagStore.clearAll();
-          break;
+        }
       }
     });
 
     view.onDidDispose(() => {
-      unsubscribeTags();
       configWatcher.dispose();
       for (const id of [...this.sessions.keys()]) {
         void this.destroySession(id);
@@ -370,8 +369,10 @@ export class MonitorViewProvider implements vscode.WebviewViewProvider {
         },
       },
     );
-    const session: PortSession = { kind: 'port', id, controller, logDesired: Boolean(readLogDirectory()) };
+    const session: PortSession = { kind: 'port', id, controller, portPath: settings.path, logDesired: Boolean(readLogDirectory()) };
     this.sessions.set(id, session);
+    // Tags belong to the port (ADR-0006): the pane starts with this port's set.
+    this.post({ type: 'tags', sessionId: id, tags: this.tagStore?.load(settings.path) ?? [] });
     // Per-session log lifecycle: a configured log directory means every new
     // session logs by default; each connection writes a fresh file.
     controller.onStateChange((s) => {
@@ -408,10 +409,15 @@ export class MonitorViewProvider implements vscode.WebviewViewProvider {
     return session;
   }
 
-  private async handleConnect(settings: SerialPortSettings): Promise<void> {
+  private async handleConnect(settings: SerialPortSettings, uiLineEnding?: string): Promise<void> {
     const session = this.createPortSession(settings.path, settings);
     await session.controller.connect(settings);
     if (session.controller.state === 'connected') {
+      // A start-bar line-ending choice seeds the new session's send format
+      // (the pane's own select stays authoritative afterwards).
+      if (uiLineEnding && UI_LINE_ENDINGS.includes(uiLineEnding)) {
+        this.post({ type: 'lineEnding', sessionId: session.id, value: uiLineEnding });
+      }
       void this.pushRecentBaud(settings.baudRate);
       return;
     }
@@ -687,13 +693,13 @@ function describe(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-function workspaceTagStorage(): TagStorage {
-  const read = (): Tag[] | undefined =>
-    vscode.workspace.getConfiguration('serialMonitor').get<Tag[]>('tags');
+function workspacePortTagStorage(): PortTagStorage {
+  const read = (): Record<string, Tag[]> | undefined =>
+    vscode.workspace.getConfiguration('serialMonitor').get<Record<string, Tag[]>>('portTags');
   return {
     get: read,
-    update: async (tags) => {
-      await updateSerialMonitorSetting('tags', tags);
+    update: async (map) => {
+      await updateSerialMonitorSetting('portTags', map);
     },
   };
 }

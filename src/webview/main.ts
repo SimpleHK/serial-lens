@@ -2,6 +2,7 @@ declare function acquireVsCodeApi(): { postMessage(msg: unknown): void };
 
 import { LineDecision, matchLine } from '../shared/tagMatching';
 import { FilterMode, Tag } from '../shared/tag';
+import { makeTag, patchedTag, sanitizeTags, withoutTag } from '../shared/tagList';
 import { scrollReducer, ScrollState } from '../shared/scrollState';
 import { BAUD_RATE_PRESETS, DEFAULT_BAUD_RATE } from '../shared/baudPresets';
 import { formatLineText } from '../shared/lineText';
@@ -12,6 +13,13 @@ import { rowHeightFor } from './rowHeight';
 
 const vscode = acquireVsCodeApi();
 const post = (msg: WebviewToHost) => vscode.postMessage(msg);
+
+/** Icon-only controls carry their tooltip as a real accessible name too —
+ * title alone is a weak name for assistive tech. */
+function setTip(el: HTMLElement, text: string): void {
+  el.title = text;
+  el.setAttribute('aria-label', text);
+}
 
 const panesArea = document.getElementById('panes') as HTMLDivElement;
 
@@ -60,6 +68,8 @@ interface PaneDom {
   sendInput: HTMLInputElement;
   sendBtn: HTMLButtonElement;
   hint: HTMLDivElement;
+  /** Tag chips row, doubled per pane; hidden while there are no tags. */
+  tags: HTMLDivElement;
   /** This pane's own copy of the global controls and its status readout. */
   globalSeg: HTMLDivElement;
   status: HTMLSpanElement;
@@ -129,6 +139,11 @@ interface PaneSession {
   sendHistory: string[];
   sendIndex: number;
   sendDraft: string;
+  /** This pane's own tags (ADR-0006) — created here, applied here, saved
+   * here; other panes are never touched. */
+  tags: Tag[];
+  /** This pane's own display-layer filter mode over its tags. */
+  filterMode: FilterMode;
 }
 
 const sessions: PaneSession[] = [];
@@ -139,10 +154,7 @@ let focusedId: number | undefined;
 let pendingReplaceOldId: number | undefined;
 let pendingReplaceNewId: number | undefined;
 
-// Display-layer globals shared by every pane.
-let filterMode: FilterMode = 'off';
 let showTimestamps = false;
-let tags: Tag[] = [];
 let recentBauds: number[] = [];
 let lastPorts: { path: string; description?: string }[] = [];
 
@@ -160,6 +172,8 @@ const controlRegistry = {
 };
 let emptyStatus: HTMLSpanElement | undefined;
 let emptyAddMenu: HTMLDivElement | undefined;
+let emptyRefreshStartSelect: (() => void) | undefined;
+let startPortSelect!: HTMLSelectElement;
 
 function unregisterControls(ctlRefs?: PaneDom['ctlRefs']): void {
   if (!ctlRefs) {
@@ -173,7 +187,7 @@ function unregisterControls(ctlRefs?: PaneDom['ctlRefs']): void {
 
 /** Builds one copy of the global controls: ＋ port menu, refresh, filter,
  * timestamps, log dir, open file, tag, manage, and a status readout. */
-function buildGlobalControls(): {
+function buildGlobalControls(owner: PaneSession | undefined): {
   seg: HTMLDivElement;
   status: HTMLSpanElement;
   addMonitorBtn: HTMLButtonElement;
@@ -188,7 +202,7 @@ function buildGlobalControls(): {
     const b = document.createElement('button');
     b.className = cls;
     b.innerHTML = glyph;
-    b.title = title;
+    setTip(b, title);
     seg.appendChild(b);
     return b;
   };
@@ -199,7 +213,7 @@ function buildGlobalControls(): {
   const addMonitorBtn = document.createElement('button');
   addMonitorBtn.className = 'icon-btn add-monitor';
   addMonitorBtn.innerHTML = '&#65291;';
-  addMonitorBtn.title = 'Add a monitor — pick a port';
+  setTip(addMonitorBtn, 'Add a monitor — pick a port');
   const addMenu = document.createElement('div');
   addMenu.className = 'menu add-menu';
   addWrap.append(addMonitorBtn, addMenu);
@@ -219,8 +233,7 @@ function buildGlobalControls(): {
   filterWrap.className = 'menu-wrap';
   const filterToggleBtn = document.createElement('button');
   filterToggleBtn.className = 'icon-btn filter-toggle';
-  filterToggleBtn.setAttribute('aria-label', 'Filter');
-  filterToggleBtn.title = 'Filter';
+  setTip(filterToggleBtn, 'Filter');
   const glyph = document.createElement('span');
   glyph.className = 'filter-glyph';
   glyph.innerHTML =
@@ -230,13 +243,17 @@ function buildGlobalControls(): {
   filterMenu.className = 'menu filter-menu';
   filterWrap.append(filterToggleBtn, filterMenu);
   seg.appendChild(filterWrap);
+  filterToggleBtn.disabled = !owner; // no pane, nothing to filter
   filterToggleBtn.addEventListener('click', (e) => {
     e.stopPropagation();
+    if (!owner) {
+      return; // no pane, nothing to filter — never open a dead menu
+    }
     if (filterMenu.style.display === 'block') {
       filterMenu.style.display = 'none';
       return;
     }
-    renderFilterMenu(filterMenu);
+    renderFilterMenu(filterMenu, owner);
     filterMenu.style.display = 'block';
   });
 
@@ -263,15 +280,17 @@ function buildGlobalControls(): {
   tagBtn.disabled = true;
   tagBtn.addEventListener('click', () => {
     const selected = window.getSelection()?.toString().trim() ?? '';
-    if (!selected) {
+    const f = focusedSession();
+    if (!selected || !f) {
       return;
     }
-    post({ type: 'createTag', pattern: selected });
+    applyTagEdit(f, [...f.tags, makeTag(f.tags, selected)]);
   });
   // Keep the selection alive: clicking the button must not collapse it.
   tagBtn.addEventListener('mousedown', (e) => e.preventDefault());
 
   const manageToggleBtn = mkBtn('icon-btn manage-toggle', '&#9881;&#65039;', 'Manage tags');
+  manageToggleBtn.disabled = !owner; // tags live on panes (ADR-0006)
   manageToggleBtn.addEventListener('click', () => {
     manageOpen = !manageOpen;
     renderManagePanel();
@@ -279,6 +298,8 @@ function buildGlobalControls(): {
 
   const status = document.createElement('span');
   status.className = 'pane-status';
+  status.setAttribute('role', 'status'); // connection changes announce politely
+  status.setAttribute('aria-live', 'polite');
   status.textContent = 'Idle';
   seg.appendChild(status);
 
@@ -305,7 +326,9 @@ function toggleAddMenu(menu: HTMLDivElement): void {
 function renderBaudMenuInto(menu: HTMLDivElement, input: HTMLInputElement): void {
   menu.textContent = '';
   const push = (b: number, recent: boolean) => {
-    const item = document.createElement('div');
+    // buttons, not divs: keyboard focus + Enter activation for free
+    const item = document.createElement('button');
+    item.type = 'button';
     item.className = 'menu-item' + (recent ? ' recent' : '');
     item.textContent = (String(b) === input.value.trim() ? '✔︎ ' : '') + String(b);
     item.title = recent ? 'Recently used' : '';
@@ -344,6 +367,86 @@ function renderBaudMenuInto(menu: HTMLDivElement, input: HTMLInputElement): void
   }
 }
 
+const mkSelect = (options: string[], value: string, cls: string, ctlTitle: string) => {
+  const sel = document.createElement('select');
+  sel.className = `ph-ctl ${cls}`;
+  sel.title = ctlTitle;
+  for (const o of options) {
+    const e = document.createElement('option');
+    e.value = o;
+    e.textContent = o;
+    sel.appendChild(e);
+  }
+  sel.value = value;
+  return sel;
+};
+
+interface SerialConfigControls {
+  baudWrap: HTMLSpanElement;
+  baudInput: HTMLInputElement;
+  paramsToggle: HTMLButtonElement;
+  params: HTMLSpanElement;
+  dbSel: HTMLSelectElement;
+  paritySel: HTMLSelectElement;
+  sbSel: HTMLSelectElement;
+  leSel: HTMLSelectElement;
+}
+
+/** The serial config block shared by every pane bar AND the empty-state
+ * start bar: a baud quick-pick (▾ menu with recents + presets) plus the
+ * rarely-used params (data bits, parity, stop bits, line ending) collapsed
+ * behind a ☰ toggle. Toggle behavior is self-contained; callers wire their
+ * own change semantics. One builder, so the two surfaces cannot drift. */
+function buildSerialConfigControls(
+  cfg: { baudRate: number; dataBits: number; stopBits: number; parity: string },
+  lineEnding: string,
+): SerialConfigControls {
+  const baudWrap = document.createElement('span');
+  baudWrap.className = 'menu-wrap';
+  const baudInput = document.createElement('input');
+  baudInput.className = 'ph-ctl ph-baud';
+  baudInput.value = String(cfg.baudRate);
+  setTip(baudInput, 'Baud rate');
+  baudInput.inputMode = 'numeric';
+  baudInput.setAttribute('autocomplete', 'off');
+  const baudToggle = document.createElement('button');
+  baudToggle.className = 'pbtn baud-toggle';
+  baudToggle.innerHTML = '&#9662;';
+  setTip(baudToggle, 'Quick-pick baud rate');
+  const baudMenu = document.createElement('div');
+  baudMenu.className = 'menu baud-menu';
+  baudWrap.append(baudInput, baudToggle, baudMenu);
+  baudToggle.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (baudMenu.classList.contains('visible')) {
+      baudMenu.classList.remove('visible');
+      return;
+    }
+    renderBaudMenuInto(baudMenu, baudInput);
+    baudMenu.classList.add('visible');
+  });
+
+  const paramsToggle = document.createElement('button');
+  paramsToggle.className = 'pbtn params-toggle';
+  paramsToggle.innerHTML = '&#9776;';
+  setTip(paramsToggle, 'Serial params (data bits, parity, stop bits, line ending)');
+  const params = document.createElement('span');
+  params.className = 'pane-params';
+  params.style.display = 'none';
+  const dbSel = mkSelect(['8', '7', '6', '5'], String(cfg.dataBits), 'ph-db', 'Data bits');
+  const paritySel = mkSelect(['none', 'even', 'odd', 'mark', 'space'], cfg.parity, 'ph-parity', 'Parity');
+  const sbSel = mkSelect(['1', '1.5', '2'], String(cfg.stopBits), 'ph-sb', 'Stop bits');
+  const leSel = mkSelect(['LF', 'CRLF', 'CR', 'None'], lineEnding, 'ph-le', 'Line ending');
+  params.append(dbSel, paritySel, sbSel, leSel);
+  paramsToggle.addEventListener('click', (e) => {
+    e.stopPropagation();
+    params.style.display = params.style.display === 'none' ? 'flex' : 'none';
+    paramsToggle.classList.toggle('on', params.style.display === 'flex');
+  });
+
+  return { baudWrap, baudInput, paramsToggle, params, dbSel, paritySel, sbSel, leSel };
+}
+
 function renderAddMenu(menu: HTMLDivElement): void {
   menu.textContent = '';
   const header = document.createElement('div');
@@ -358,7 +461,8 @@ function renderAddMenu(menu: HTMLDivElement): void {
     return;
   }
   for (const p of lastPorts) {
-    const item = document.createElement('div');
+    const item = document.createElement('button');
+    item.type = 'button';
     item.className = 'menu-item';
     item.dataset.path = p.path;
     item.textContent = p.description ? `${p.path} — ${p.description}` : p.path;
@@ -772,7 +876,7 @@ function dropOldest(s: PaneSession, count: number): void {
 function appendToSession(s: PaneSession, entries: { text: string; ts?: number }[], dropCount: number): void {
   dropOldest(s, dropCount);
   for (const entry of entries) {
-    s.decisions.push(matchLine(entry.text, tags, filterMode));
+    s.decisions.push(matchLine(entry.text, s.tags, s.filterMode));
     if (s.decisions[s.decisions.length - 1].visible) {
       s.visibleIndexes.push(s.lineStore.length);
     }
@@ -791,47 +895,66 @@ function appendToSession(s: PaneSession, entries: { text: string; ts?: number }[
   refreshPaneControls(s);
 }
 
+function restylePane(s: PaneSession): void {
+  for (let i = 0; i < s.lineStore.length; i++) {
+    s.decisions[i] = matchLine(s.lineStore[i].text, s.tags, s.filterMode);
+  }
+  rebuildVisibleIndexes(s);
+  s.marksDirty = true;
+  scheduleRender(s);
+  if (s.find.open) {
+    scheduleFindRecompute(s);
+  }
+}
+
 function restyleAllRows(): void {
   for (const s of sessions) {
-    for (let i = 0; i < s.lineStore.length; i++) {
-      s.decisions[i] = matchLine(s.lineStore[i].text, tags, filterMode);
-    }
-    rebuildVisibleIndexes(s);
-    s.marksDirty = true;
-    scheduleRender(s);
-    if (s.find.open) {
-      scheduleFindRecompute(s);
-    }
+    restylePane(s);
   }
+}
+
+/** The one gateway for a pane's tag edits (ADR-0006): persist the pane's
+ * list, restyle THAT pane, refresh its chips. The ⚙ panel re-renders on its
+ * own whenever chips do. */
+function applyTagEdit(s: PaneSession, tags: Tag[]): void {
+  s.tags = tags;
+  commitTags(s);
+  restylePane(s);
+  renderChips();
 }
 
 function updateTagButton(): void {
   const selected = window.getSelection()?.toString().trim() ?? '';
   for (const btn of controlRegistry.tagButtons) {
-    btn.disabled = selected.length === 0;
-    btn.title = selected
-      ? `Create a tag from "${selected.length > 24 ? selected.slice(0, 24) + '…' : selected}"`
-      : 'Create a tag from the selected text (or type one in the ⚙ panel)';
+    // tags live on panes (ADR-0006): with none open, the button stays dead
+    btn.disabled = selected.length === 0 || sessions.length === 0;
+    setTip(
+      btn,
+      selected
+        ? `Create a tag from "${selected.length > 24 ? selected.slice(0, 24) + '…' : selected}"`
+        : 'Create a tag from the selected text (or type one in the ⚙ panel)',
+    );
   }
 }
 
 function renderTimestampsControl(): void {
   for (const btn of controlRegistry.timestampsButtons) {
     btn.classList.toggle('on', showTimestamps);
-    btn.title = `Timestamps: ${showTimestamps ? 'on' : 'off'} — click to ${showTimestamps ? 'hide' : 'show'} them`;
+    setTip(btn, `Timestamps: ${showTimestamps ? 'on' : 'off'} — click to ${showTimestamps ? 'hide' : 'show'} them`);
   }
 }
 
 function stateText(s: PaneSession): string {
-  return s.state === 'connected' ? 'Connected' : s.state === 'connecting' ? 'Connecting...' : 'Idle';
+  return s.state === 'connected' ? 'Connected' : s.state === 'connecting' ? 'Connecting…' : 'Idle';
 }
 
-/** The pane's status readout: an iconized connection state (✔/⌛/○, title
- * carries the full text) unless a transient message is on display. */
+/** The pane's status readout: an iconized connection state (✔/⌛/○, the
+ * accessible name carries the full text) unless a transient message is on
+ * display. */
 function renderPaneStatus(s: PaneSession): void {
   const el = s.dom.status;
   const text = s.message || stateText(s);
-  el.title = text;
+  setTip(el, text);
   if (s.transientMessage && s.transientUntil !== undefined && Date.now() < s.transientUntil) {
     el.textContent = s.transientMessage;
     return;
@@ -917,11 +1040,64 @@ function syncEmptyState(): void {
   if (sessions.length === 0) {
     const row = document.createElement('div');
     row.className = 'empty-row';
-    const controls = buildGlobalControls();
+    const controls = buildGlobalControls(undefined);
+
+    // Direct start bar: the serial config is visible without opening the
+    // ＋ menu — pick a port, press Start.
+    const startBar = document.createElement('span');
+    startBar.className = 'start-bar';
+    startPortSelect = document.createElement('select');
+    startPortSelect.className = 'ph-ctl start-port';
+    startPortSelect.title = 'Port';
+    // The same serial config block as a pane bar: baud quick-pick plus the
+    // rarely-used params collapsed behind ☰ — pick a port, press Start.
+    const ctl = buildSerialConfigControls(
+      { baudRate: DEFAULT_BAUD_RATE, dataBits: 8, stopBits: 1, parity: 'none' },
+      'LF',
+    );
+    const startBtn = document.createElement('button');
+    startBtn.className = 'start-btn';
+    startBtn.innerHTML = '&#9654; Start Monitoring';
+    startBtn.disabled = true;
+    startBtn.addEventListener('click', () => {
+      const port = startPortSelect.value;
+      if (!port) {
+        return;
+      }
+      post({
+        type: 'connect',
+        port,
+        baudRate: Number(ctl.baudInput.value) || DEFAULT_BAUD_RATE,
+        dataBits: Number(ctl.dbSel.value) || 8,
+        stopBits: Number(ctl.sbSel.value) || 1,
+        parity: ctl.paritySel.value,
+        lineEnding: ctl.leSel.value,
+      });
+    });
+    const refreshStartSelect = () => {
+      // fillPortOptions preserves the user's pick and skips the DOM rewrite
+      // when nothing changed — a rebuild here would reset the selection to
+      // the first port and slam the popup shut mid-pick. Unlike a pane, the
+      // start bar has no port identity: a pick that vanished from the list
+      // falls back to the first new port instead of lingering as a ghost.
+      const picked = startPortSelect.value;
+      const current =
+        picked && lastPorts.some((p) => p.path === picked) ? picked : lastPorts[0]?.path || '';
+      fillPortOptions(startPortSelect, current);
+      startBtn.disabled = !lastPorts.length;
+    };
+    startPortSelect.addEventListener('click', () => {
+      vscode.postMessage({ type: 'refreshPorts' }); // keep the list fresh
+    });
+    startBar.append(startPortSelect, ctl.baudWrap, ctl.paramsToggle, ctl.params, startBtn);
+    refreshStartSelect();
+    emptyRefreshStartSelect = refreshStartSelect;
+
     const hint = document.createElement('span');
-    hint.textContent = 'No monitors open — press ＋ to add one, or open a saved log file.';
+    hint.textContent = 'No monitors open — or open a saved log file.';
     panesArea.appendChild(row);
-    row.appendChild(controls.seg); // actions lead, hint follows
+    row.appendChild(startBar); // config leads: pick a port, press Start
+    row.appendChild(controls.seg);
     row.appendChild(hint);
     emptyStatus = controls.status;
     emptyAddMenu = controls.seg.querySelector<HTMLDivElement>('.add-menu') ?? undefined;
@@ -931,6 +1107,7 @@ function syncEmptyState(): void {
   } else {
     emptyStatus = undefined;
     emptyAddMenu = undefined;
+    emptyRefreshStartSelect = undefined;
   }
 }
 
@@ -949,14 +1126,14 @@ function refreshPaneControls(s: PaneSession): void {
     d.play.style.display = isPort ? '' : 'none';
     d.play.innerHTML = isConnected ? '&#9632;' : '&#9654;';
     d.play.classList.toggle('on', isConnected);
-    d.play.title = isConnected ? `Stop monitoring ${s.title}` : `Start monitoring ${s.title}`;
+    setTip(d.play, isConnected ? `Stop monitoring ${s.title}` : `Start monitoring ${s.title}`);
     d.play.disabled = s.state === 'connecting';
   }
 
   d.clearBtn.disabled = s.lineStore.length === 0 && !isConnected;
-  d.clearBtn.title = `Clear ${s.title}`;
+  setTip(d.clearBtn, `Clear ${s.title}`);
   d.exportBtn.disabled = s.lineStore.length === 0;
-  d.exportBtn.title = `Export ${s.title}'s buffered log to a file`;
+  setTip(d.exportBtn, `Export ${s.title}'s buffered log to a file`);
 
   if (d.logBtn) {
     d.logBtn.style.display = isPort ? '' : 'none';
@@ -966,29 +1143,30 @@ function refreshPaneControls(s: PaneSession): void {
     d.logBtn.innerHTML = logOn ? '&#128308;&#65039;' : '&#9898;&#65039;';
     if (logOn) {
       const where = s.logFile ? ` (now: ${s.logFile})` : s.logDirectory ? ` into ${s.logDirectory}` : '';
-      d.logBtn.title = `Log to file: on${where} — click to stop`;
+      setTip(d.logBtn, `Log to file: on${where} — click to stop`);
     } else {
-      d.logBtn.title = 'Log to file: off — click to log this session to a .log file';
+      setTip(d.logBtn, 'Log to file: off — click to log this session to a .log file');
     }
   }
 
   d.scrollBtn.innerHTML = s.scroll === 'follow' ? '&#8681;' : '&#128274;';
   d.scrollBtn.classList.toggle('locked', s.scroll === 'locked');
-  d.scrollBtn.title =
+  setTip(
+    d.scrollBtn,
     s.scroll === 'follow'
       ? 'Viewport follows new lines — click to lock'
-      : 'Scroll locked, data keeps arriving — click to rejoin';
+      : 'Scroll locked, data keeps arriving — click to rejoin',
+  );
 
   // Serial config: the PORT is locked while connected, but the parameters
   // stay editable — an edit reconnects the pane with the new settings
-  // (MS-parity behavior). Everything locks while connecting.
-  const portLocked = s.state !== 'idle';
+  // (MS-parity behavior). The port picker follows the same philosophy:
+  // picking another port live MOVES the pane there. Everything locks
+  // while connecting.
+  const portLocked = s.state === 'connecting';
   const paramsLocked = s.state === 'connecting';
   if (d.portSelect) {
     d.portSelect.disabled = portLocked;
-    if (s.state === 'connected') {
-      d.portSelect.value = s.title;
-    }
   }
   if (d.baudInput) d.baudInput.disabled = paramsLocked;
   if (d.dbSel) d.dbSel.disabled = paramsLocked;
@@ -999,12 +1177,19 @@ function refreshPaneControls(s: PaneSession): void {
   if (d.sendToggle) {
     d.sendToggle.style.display = isPort ? '' : 'none';
     d.sendToggle.classList.toggle('on', isPort && !s.sendCollapsed);
-    d.sendToggle.title = !isPort ? '' : s.sendCollapsed ? 'Show the send bar' : 'Hide the send bar';
+    setTip(d.sendToggle, !isPort ? '' : s.sendCollapsed ? 'Show the send bar' : 'Hide the send bar');
   }
   d.sendRow.style.display = isPort && !s.sendCollapsed ? 'flex' : 'none';
+  // This pane's funnel shows ITS filter mode, not some global one. The
+  // aria-label stays the stable name; the mode detail rides in the tooltip.
+  if (d.ctlRefs) {
+    d.ctlRefs.filterToggleBtn.classList.toggle('on', s.filterMode !== 'off');
+    d.ctlRefs.filterToggleBtn.setAttribute('aria-label', 'Filter');
+    d.ctlRefs.filterToggleBtn.title = `Filter: ${s.filterMode} — click to choose`;
+  }
   d.sendInput.disabled = !isConnected;
   d.sendBtn.disabled = !isConnected;
-  d.sendInput.placeholder = isConnected ? `To ${s.title}: type a message to send...` : 'Start monitoring to send';
+  d.sendInput.placeholder = isConnected ? `To ${s.title}: type a message to send…` : 'Start monitoring to send';
 
   // Empty-pane hint: connect/wait/stop states would otherwise look frozen.
   let hintText = '';
@@ -1041,23 +1226,9 @@ function buildPane(s: PaneSession): PaneDom {
     const b = document.createElement('button');
     b.className = cls;
     b.innerHTML = glyph;
-    b.title = title;
+    setTip(b, title);
     return b;
   };
-  const mkSelect = (options: string[], value: string, cls: string, ctlTitle: string) => {
-    const sel = document.createElement('select');
-    sel.className = `ph-ctl ${cls}`;
-    sel.title = ctlTitle;
-    for (const o of options) {
-      const e = document.createElement('option');
-      e.value = o;
-      e.textContent = o;
-      sel.appendChild(e);
-    }
-    sel.value = value;
-    return sel;
-  };
-
   const play = mkBtn('&#9654;', `Start monitoring ${s.title}`);
   const sendToggle = mkBtn('&#9000;&#65038;', 'Show the send bar');
   const clearBtn = mkBtn('&#128465;&#65039;', `Clear ${s.title}`);
@@ -1065,10 +1236,12 @@ function buildPane(s: PaneSession): PaneDom {
   const exportBtn = mkBtn('&#128228;', `Export ${s.title}'s buffered log to a file`);
   const scrollBtn = mkBtn('&#8681;', 'Viewport follows new lines — click to lock');
   const findBtn = mkBtn('&#128269;', 'Find in this pane (Ctrl+F)');
-  const close = document.createElement('span');
+  // A real button (not a span with a click handler): keyboard focus + Enter.
+  const close = document.createElement('button');
+  close.type = 'button';
   close.className = 'pane-close';
   close.textContent = '\u00d7';
-  close.title = 'Close this pane';
+  setTip(close, 'Close this pane');
 
   let portSelect: HTMLSelectElement | undefined;
   let baudInput: HTMLInputElement | undefined;
@@ -1080,43 +1253,34 @@ function buildPane(s: PaneSession): PaneDom {
   if (s.kind === 'port') {
     title.style.display = 'none'; // the port select shows the identity
     portSelect = document.createElement('select');
+    const portSel = portSelect; // narrowed alias for the closures below
     portSelect.className = 'ph-ctl ph-port';
-    portSelect.title = 'Port (stop to change)';
-    const opt = document.createElement('option');
-    opt.value = s.title;
-    opt.textContent = s.title;
-    portSelect.appendChild(opt);
-    portSelect.value = s.title;
+    setTip(portSelect, 'Port — picking another port moves this pane to it');
+    fillPortOptions(portSelect, s.title); // every known port, not just this one
+    // Keep the list fresh while the picker is usable, like the start bar.
+    portSel.addEventListener('click', () => {
+      if (s.state !== 'connecting') {
+        post({ type: 'refreshPorts' });
+      }
+    });
+    // A port pick is an edit like any other: while stopped it applies on ▶
+    // (startPane reads the select); while connected it moves the pane live
+    // through the replace flow. Picking the pane's own port does nothing.
+    portSel.addEventListener('change', () => {
+      if (s.state === 'connected' && portSel.value && portSel.value !== s.title) {
+        startPane(s);
+      }
+    });
 
     const cfg = s.settings ?? DEFAULT_PORT_SETTINGS;
-    // Baud keeps a VISIBLE quick-pick (▾ menu with recents + presets) — a
-    // bare native datalist regressed to an invisible single-option picker.
-    const baudWrap = document.createElement('span');
-    baudWrap.className = 'menu-wrap';
-    baudInput = document.createElement('input');
-    baudInput.className = 'ph-ctl ph-baud';
-    baudInput.value = String(cfg.baudRate);
-    baudInput.title = 'Baud rate';
-    const baudToggle = document.createElement('button');
-    baudToggle.className = 'pbtn baud-toggle';
-    baudToggle.innerHTML = '&#9662;';
-    baudToggle.title = 'Quick-pick baud rate';
-    const baudMenu = document.createElement('div');
-    baudMenu.className = 'menu baud-menu';
-    baudWrap.append(baudInput, baudToggle, baudMenu);
-    baudToggle.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (baudMenu.classList.contains('visible')) {
-        baudMenu.classList.remove('visible');
-        return;
-      }
-      renderBaudMenuInto(baudMenu, baudInput!);
-      baudMenu.classList.add('visible');
-    });
-    dbSel = mkSelect(['8', '7', '6', '5'], String(cfg.dataBits), 'ph-db', 'Data bits');
-    paritySel = mkSelect(['none', 'even', 'odd', 'mark', 'space'], cfg.parity, 'ph-parity', 'Parity');
-    sbSel = mkSelect(['1', '1.5', '2'], String(cfg.stopBits), 'ph-sb', 'Stop bits');
-    leSel = mkSelect(['LF', 'CRLF', 'CR', 'None'], s.lineEnding, 'ph-le', 'Line ending');
+    // Baud quick-pick + collapsible params come from the shared builder —
+    // the same block the empty-state start bar renders.
+    const ctl = buildSerialConfigControls(cfg, s.lineEnding);
+    baudInput = ctl.baudInput;
+    dbSel = ctl.dbSel;
+    paritySel = ctl.paritySel;
+    sbSel = ctl.sbSel;
+    leSel = ctl.leSel;
 
     // Control edits become the pane's settings; while connected a param
     // edit also reconnects the pane with the new settings.
@@ -1153,13 +1317,20 @@ function buildPane(s: PaneSession): PaneDom {
       s.lineEnding = leSel!.value;
     });
 
-    bar.append(dot, title, portSelect, baudWrap, dbSel, paritySel, sbSel, leSel);
+    bar.append(dot, title, portSelect, ctl.baudWrap, ctl.paramsToggle, ctl.params);
   } else {
     bar.append(dot, title);
   }
 
   bar.append(play, sendToggle, clearBtn, logBtn, exportBtn, scrollBtn, findBtn, close);
   root.appendChild(bar);
+
+  // Tag chips row: a copy under this pane's control bar (doubled like the
+  // global controls); hidden while there are no tags.
+  const paneTags = document.createElement('div');
+  paneTags.className = 'pane-tags';
+  paneTags.style.display = 'none';
+  root.appendChild(paneTags);
 
   // Body: console + marks strips + floating find widget + state hint.
   const body = document.createElement('div');
@@ -1169,17 +1340,21 @@ function buildPane(s: PaneSession): PaneDom {
   const marks = document.createElement('div');
   marks.className = 'log-marks';
   marks.title = 'Highlighted lines — click to jump';
+  marks.setAttribute('aria-hidden', 'true'); // decorative: the same data is in the stream
   const findMarks = document.createElement('div');
   findMarks.className = 'find-marks';
   findMarks.title = 'Find matches — click to jump to the nearest one';
+  findMarks.setAttribute('aria-hidden', 'true');
   const hint = document.createElement('div');
   hint.className = 'pane-hint';
+  hint.setAttribute('aria-live', 'polite'); // state hints announce
 
   const findBar = document.createElement('div');
   findBar.className = 'find-bar';
   const findInput = document.createElement('input');
   findInput.placeholder = 'Find';
   findInput.spellcheck = false;
+  findInput.setAttribute('autocomplete', 'off');
   const findCase = document.createElement('button');
   findCase.className = 'fbtn';
   findCase.textContent = 'Aa';
@@ -1194,18 +1369,19 @@ function buildPane(s: PaneSession): PaneDom {
   findRegex.title = 'Use regular expression';
   const findCount = document.createElement('span');
   findCount.className = 'find-count';
+  findCount.setAttribute('aria-live', 'polite'); // the counter updates per keystroke
   const findPrev = document.createElement('button');
   findPrev.className = 'fbtn';
   findPrev.innerHTML = '&#8593;';
-  findPrev.title = 'Previous match (Shift+Enter)';
+  setTip(findPrev, 'Previous match (Shift+Enter)');
   const findNext = document.createElement('button');
   findNext.className = 'fbtn';
   findNext.innerHTML = '&#8595;';
-  findNext.title = 'Next match (Enter)';
+  setTip(findNext, 'Next match (Enter)');
   const findClose = document.createElement('button');
   findClose.className = 'fbtn';
   findClose.innerHTML = '&#10005;';
-  findClose.title = 'Close find (Escape)';
+  setTip(findClose, 'Close find (Escape)');
   findBar.append(findInput, findCase, findWord, findRegex, findCount, findPrev, findNext, findClose);
   body.append(logEl, marks, findMarks, findBar, hint);
 
@@ -1213,8 +1389,11 @@ function buildPane(s: PaneSession): PaneDom {
   const sendRow = document.createElement('div');
   sendRow.className = 'pane-send';
   const sendInput = document.createElement('input');
+  sendInput.spellcheck = false; // machine data, not prose
+  sendInput.setAttribute('autocomplete', 'off');
   const sendBtn = document.createElement('button');
   sendBtn.textContent = 'Send';
+  setTip(sendBtn, 'Send the message with the pane\'s line ending');
   sendRow.append(sendInput, sendBtn);
 
   root.append(body, sendRow);
@@ -1400,10 +1579,10 @@ function buildPane(s: PaneSession): PaneDom {
   spacerBottom.className = 'log-spacer';
 
   // This pane's own copy of the global controls, at the end of its bar.
-  const controls = buildGlobalControls();
+  const controls = buildGlobalControls(s);
   bar.appendChild(controls.seg);
 
-  return { root, bar, dot, title, play, sendToggle, clearBtn, logBtn, exportBtn, scrollBtn, findBtn, close, portSelect, baudInput, dbSel, paritySel, sbSel, leSel, log: logEl, marks, findMarks, findBar, findInput, findCase, findWord, findRegex, findCount, findPrev, findNext, findClose, sendRow, sendInput, sendBtn, hint, spacerTop, spacerBottom, globalSeg: controls.seg, status: controls.status, ctlRefs: { tagBtn: controls.tagBtn, filterToggleBtn: controls.filterToggleBtn, timestampsBtn: controls.timestampsBtn, logDirBtn: controls.logDirBtn } };
+  return { root, bar, tags: paneTags, dot, title, play, sendToggle, clearBtn, logBtn, exportBtn, scrollBtn, findBtn, close, portSelect, baudInput, dbSel, paritySel, sbSel, leSel, log: logEl, marks, findMarks, findBar, findInput, findCase, findWord, findRegex, findCount, findPrev, findNext, findClose, sendRow, sendInput, sendBtn, hint, spacerTop, spacerBottom, globalSeg: controls.seg, status: controls.status, ctlRefs: { tagBtn: controls.tagBtn, filterToggleBtn: controls.filterToggleBtn, timestampsBtn: controls.timestampsBtn, logDirBtn: controls.logDirBtn } };
 }
 
 function createSession(m: {
@@ -1421,6 +1600,8 @@ function createSession(m: {
     state: m.state,
     settings: m.settings,
     lineEnding: 'LF',
+    tags: [],
+    filterMode: 'off',
     sendCollapsed: true,
     lineStore: [],
     decisions: [],
@@ -1579,9 +1760,23 @@ function clearBuffer(s: PaneSession): void {
 }
 
 function renderChips(): void {
-  tagsRow.textContent = '';
-  tagsRow.style.display = tags.length ? 'flex' : 'none';
-  for (const t of tags) {
+  // Doubled like every other control, but each pane renders ITS OWN tags
+  // (ADR-0006) — a pane's chips are never another pane's list.
+  for (const s of sessions) {
+    renderChipsInto(s);
+  }
+}
+
+/** Persists a pane's tag list; the host keys it by the pane's port. */
+function commitTags(s: PaneSession): void {
+  post({ type: 'saveTags', sessionId: s.id, tags: s.tags });
+}
+
+function renderChipsInto(s: PaneSession): void {
+  const row = s.dom.tags;
+  row.textContent = '';
+  row.style.display = s.tags.length ? 'flex' : 'none';
+  for (const t of s.tags) {
     const chip = document.createElement('div');
     chip.className = 'chip' + (t.highlight || t.filter ? '' : ' chip-off');
     chip.style.borderColor = t.color;
@@ -1594,7 +1789,7 @@ function renderChips(): void {
     segH.title = t.highlight ? 'Highlighting ON — click to turn off' : 'Highlighting OFF — click to turn on';
     segH.addEventListener('click', (e) => {
       e.stopPropagation();
-      post({ type: 'updateTag', id: t.id, patch: { highlight: !t.highlight } });
+      applyTagEdit(s, patchedTag(s.tags, t.id, { highlight: !t.highlight }));
     });
     const segF = document.createElement('span');
     segF.className = 'seg' + (t.filter ? ' on' : '');
@@ -1602,18 +1797,19 @@ function renderChips(): void {
     segF.title = t.filter ? 'Filtering ON — click to turn off' : 'Filtering OFF — click to turn on';
     segF.addEventListener('click', (e) => {
       e.stopPropagation();
-      post({ type: 'updateTag', id: t.id, patch: { filter: !t.filter } });
+      applyTagEdit(s, patchedTag(s.tags, t.id, { filter: !t.filter }));
     });
     chip.title = `"${t.name}" — H: highlight on/off, F: filter on/off, double-click: delete`;
-    chip.addEventListener('dblclick', () => post({ type: 'removeTag', id: t.id }));
+    chip.addEventListener('dblclick', () => {
+      applyTagEdit(s, withoutTag(s.tags, t.id));
+    });
     chip.append(nameSpan, segH, segF);
-    tagsRow.appendChild(chip);
+    row.appendChild(chip);
   }
   renderManagePanel();
 }
 
 let manageOpen = false;
-let tagsRow: HTMLDivElement;
 let managePanel: HTMLDivElement;
 
 function renderManagePanel(): void {
@@ -1623,21 +1819,31 @@ function renderManagePanel(): void {
     return;
   }
   managePanel.textContent = '';
+  // The panel edits the FOCUSED pane's list (ADR-0006) — never another's.
+  const owner = focusedSession();
+  const paneLabel = document.createElement('div');
+  paneLabel.className = 'menu-header';
+  paneLabel.textContent = owner ? 'Tags — ' + owner.title : 'Tags — no monitor focused';
+  managePanel.appendChild(paneLabel);
   const addRow = document.createElement('div');
   addRow.className = 'tag-edit-row';
   const addInput = document.createElement('input');
   addInput.type = 'text';
   addInput.className = 'tag-pattern';
   addInput.placeholder = 'New tag pattern — type and press Enter (or click + Add)';
+  addInput.disabled = !owner;
   const addBtn = document.createElement('button');
   addBtn.className = 'tag-add';
   addBtn.textContent = '+ Add';
+  addBtn.disabled = !owner;
   const addTag = () => {
     const value = addInput.value.trim();
-    if (!value) {
+    if (!value || !owner) {
       return;
     }
-    post({ type: 'createTag', pattern: value });
+    applyTagEdit(owner, [...owner.tags, makeTag(owner.tags, value)]);
+    addInput.value = '';
+    renderManagePanel();
   };
   addBtn.addEventListener('click', addTag);
   addInput.addEventListener('keydown', (e) => {
@@ -1649,13 +1855,17 @@ function renderManagePanel(): void {
   clearAllBtn.className = 'tag-delete';
   clearAllBtn.textContent = 'Delete all';
   clearAllBtn.title = 'Remove every tag';
-  clearAllBtn.disabled = tags.length === 0;
+  clearAllBtn.disabled = !owner || owner.tags.length === 0;
   clearAllBtn.addEventListener('click', () => {
-    post({ type: 'clearTags' });
+    if (!owner) {
+      return;
+    }
+    applyTagEdit(owner, []);
+    renderManagePanel();
   });
   addRow.append(addInput, addBtn, clearAllBtn);
   managePanel.appendChild(addRow);
-  for (const t of tags) {
+  for (const t of owner?.tags ?? []) {
     const row = document.createElement('div');
     row.className = 'tag-edit-row';
 
@@ -1665,7 +1875,8 @@ function renderManagePanel(): void {
     nameInput.value = t.name;
     nameInput.title = 'Tag name';
     nameInput.addEventListener('change', () => {
-      post({ type: 'updateTag', id: t.id, patch: { name: nameInput.value } });
+      if (!owner) return;
+      applyTagEdit(owner, patchedTag(owner.tags, t.id, { name: nameInput.value }));
     });
 
     const patternInput = document.createElement('input');
@@ -1674,7 +1885,8 @@ function renderManagePanel(): void {
     patternInput.value = t.pattern;
     patternInput.placeholder = 'Match pattern (substring or regex source)';
     patternInput.addEventListener('change', () => {
-      post({ type: 'updateTag', id: t.id, patch: { pattern: patternInput.value } });
+      if (!owner) return;
+      applyTagEdit(owner, patchedTag(owner.tags, t.id, { pattern: patternInput.value }));
     });
 
     const hlLabel = document.createElement('label');
@@ -1682,7 +1894,8 @@ function renderManagePanel(): void {
     hlInput.type = 'checkbox';
     hlInput.checked = t.highlight;
     hlInput.addEventListener('change', () => {
-      post({ type: 'updateTag', id: t.id, patch: { highlight: hlInput.checked } });
+      if (!owner) return;
+      applyTagEdit(owner, patchedTag(owner.tags, t.id, { highlight: hlInput.checked }));
     });
     hlLabel.appendChild(hlInput);
     hlLabel.appendChild(document.createTextNode('H'));
@@ -1692,7 +1905,8 @@ function renderManagePanel(): void {
     flInput.type = 'checkbox';
     flInput.checked = t.filter;
     flInput.addEventListener('change', () => {
-      post({ type: 'updateTag', id: t.id, patch: { filter: flInput.checked } });
+      if (!owner) return;
+      applyTagEdit(owner, patchedTag(owner.tags, t.id, { filter: flInput.checked }));
     });
     flLabel.appendChild(flInput);
     flLabel.appendChild(document.createTextNode('F'));
@@ -1702,7 +1916,8 @@ function renderManagePanel(): void {
     regexInput.type = 'checkbox';
     regexInput.checked = t.isRegex;
     regexInput.addEventListener('change', () => {
-      post({ type: 'updateTag', id: t.id, patch: { isRegex: regexInput.checked } });
+      if (!owner) return;
+      applyTagEdit(owner, patchedTag(owner.tags, t.id, { isRegex: regexInput.checked }));
     });
     regexLabel.appendChild(regexInput);
     regexLabel.appendChild(document.createTextNode('regex'));
@@ -1711,7 +1926,8 @@ function renderManagePanel(): void {
     colorInput.type = 'color';
     colorInput.value = t.color;
     colorInput.addEventListener('change', () => {
-      post({ type: 'updateTag', id: t.id, patch: { color: colorInput.value } });
+      if (!owner) return;
+      applyTagEdit(owner, patchedTag(owner.tags, t.id, { color: colorInput.value }));
     });
 
     const deleteBtn = document.createElement('button');
@@ -1719,13 +1935,20 @@ function renderManagePanel(): void {
     deleteBtn.textContent = 'Delete';
     deleteBtn.title = `Delete tag "${t.name}"`;
     deleteBtn.addEventListener('click', () => {
-      post({ type: 'removeTag', id: t.id });
+      if (!owner) return;
+      applyTagEdit(owner, withoutTag(owner.tags, t.id));
+      renderManagePanel();
     });
 
     row.append(nameInput, patternInput, regexLabel, hlLabel, flLabel, colorInput, deleteBtn);
     managePanel.appendChild(row);
   }
-  if (!tags.length) {
+  if (!owner) {
+    const hint = document.createElement('div');
+    hint.className = 'panel-hint';
+    hint.textContent = 'Open a monitor to manage its tags.';
+    managePanel.appendChild(hint);
+  } else if (!owner.tags.length) {
     const hint = document.createElement('div');
     hint.className = 'panel-hint';
     hint.textContent = 'No tags yet — type a pattern above, or select text in the output and press the tag button.';
@@ -1748,6 +1971,7 @@ window.addEventListener('message', (e: MessageEvent<HostToWebview>) => {
         rebuildPortOptions(s);
       }
     }
+    emptyRefreshStartSelect?.();
     updateTagButton();
   } else if (m.type === 'state') {
     const s = sessionFor(m.sessionId);
@@ -1827,9 +2051,12 @@ window.addEventListener('message', (e: MessageEvent<HostToWebview>) => {
       }
     }
   } else if (m.type === 'tags') {
-    tags = m.tags;
-    renderChips();
-    restyleAllRows();
+    const ts = sessions.find((x) => x.id === m.sessionId);
+    if (ts) {
+      ts.tags = sanitizeTags(m.tags);
+      restylePane(ts);
+      renderChips();
+    }
   } else if (m.type === 'sessionCreated') {
     if (pendingReplaceOldId !== undefined && pendingReplaceNewId === undefined) {
       pendingReplaceNewId = m.sessionId; // bind the created session to the restart request
@@ -1837,7 +2064,12 @@ window.addEventListener('message', (e: MessageEvent<HostToWebview>) => {
     createSession(m);
   } else if (m.type === 'sessionFailed') {
     if (pendingReplaceNewId === m.sessionId) {
-      // The restart's open failed: keep the old pane and its buffer.
+      // The restart's open failed: keep the old pane and its buffer, and
+      // snap its picker back to the port it is actually still on.
+      const old = pendingReplaceOldId !== undefined ? sessions.find((x) => x.id === pendingReplaceOldId) : undefined;
+      if (old?.dom.portSelect) {
+        old.dom.portSelect.value = old.title;
+      }
       pendingReplaceOldId = undefined;
       pendingReplaceNewId = undefined;
     }
@@ -1851,29 +2083,50 @@ window.addEventListener('message', (e: MessageEvent<HostToWebview>) => {
   }
 });
 
+/** The option list a port picker should show: every known port, plus
+ * `current` kept selectable when it vanished from the list (the pane must
+ * keep its identity). */
+function portOptionList(current: string): { value: string; label: string }[] {
+  const wanted: { value: string; label: string }[] = [];
+  if (current !== '' && !lastPorts.some((p) => p.path === current)) {
+    wanted.push({ value: current, label: current });
+  }
+  for (const p of lastPorts) {
+    wanted.push({ value: p.path, label: p.description ? `${p.path} — ${p.description}` : p.path });
+  }
+  return wanted;
+}
+
+function fillPortOptions(sel: HTMLSelectElement, current: string): void {
+  // Rebuilding the options while the native popup is open SLAMS IT SHUT —
+  // and the click-triggered refreshPorts reply lands exactly mid-pick. Skip
+  // the DOM rewrite when the wanted list is already what's on screen.
+  const wanted = portOptionList(current);
+  const existing = Array.from(sel.options);
+  const same =
+    sel.value === current &&
+    existing.length === wanted.length &&
+    wanted.every((w, i) => existing[i].value === w.value && existing[i].textContent === w.label);
+  if (same) {
+    return;
+  }
+  sel.textContent = '';
+  for (const w of wanted) {
+    const o = document.createElement('option');
+    o.value = w.value;
+    o.textContent = w.label;
+    sel.appendChild(o);
+  }
+  sel.value = current;
+}
+
 function rebuildPortOptions(s: PaneSession): void {
   const sel = s.dom.portSelect;
   if (!sel) {
     return;
   }
-  const current = sel.value || s.title;
-  sel.textContent = '';
-  const paths = new Set(lastPorts.map((p) => p.path));
-  if (!paths.has(current)) {
-    // Keep the pane's identity visible even if the port vanished.
-    const o = document.createElement('option');
-    o.value = current;
-    o.textContent = current;
-    sel.appendChild(o);
-  }
-  for (const p of lastPorts) {
-    const o = document.createElement('option');
-    o.value = p.path;
-    o.textContent = p.description ? `${p.path} — ${p.description}` : p.path;
-    sel.appendChild(o);
-  }
-  sel.value = current;
-  sel.disabled = s.state !== 'idle';
+  fillPortOptions(sel, sel.value || s.title);
+  sel.disabled = s.state === 'connecting';
 }
 
 // Ctrl+F finds in the focused pane; F3 / Shift+F3 walk the matches.
@@ -1897,16 +2150,16 @@ document.addEventListener('keydown', (e) => {
 
 // Filtering is display-layer only (ADR-0004): switching modes recomputes
 // visibility for every pane and never changes Follow/locked state.
-function setFilterMode(mode: FilterMode): void {
-  filterMode = mode;
-  for (const btn of controlRegistry.filterToggles) {
-    btn.classList.toggle('on', mode !== 'off');
-    btn.title = `Filter: ${mode === 'off' ? 'off' : mode} — click to choose`;
+function setFilterMode(s: PaneSession | undefined, mode: FilterMode): void {
+  if (!s) {
+    return; // the empty row's funnel has no pane to filter
   }
-  restyleAllRows();
+  s.filterMode = mode;
+  restylePane(s);
+  refreshPaneControls(s); // the pane's own funnel shows the new mode
 }
 
-function renderFilterMenu(filterMenu: HTMLDivElement): void {
+function renderFilterMenu(filterMenu: HTMLDivElement, owner: PaneSession | undefined): void {
   filterMenu.textContent = '';
   const options: { mode: FilterMode; label: string; hint: string }[] = [
     { mode: 'off', label: 'Off', hint: 'Show every line' },
@@ -1914,13 +2167,15 @@ function renderFilterMenu(filterMenu: HTMLDivElement): void {
     { mode: 'exclude', label: 'Exclude', hint: 'Hide lines matching a filter tag' },
   ];
   for (const o of options) {
-    const item = document.createElement('div');
-    item.className = 'menu-item' + (o.mode === filterMode ? ' current' : '');
-    item.textContent = (o.mode === filterMode ? '\u2714\uFE0E ' : '') + o.label;
+    const item = document.createElement('button');
+    item.type = 'button';
+    const current = owner?.filterMode ?? 'off';
+    item.className = 'menu-item' + (o.mode === current ? ' current' : '');
+    item.textContent = (o.mode === current ? '\u2714\uFE0E ' : '') + o.label;
     item.title = o.hint;
     item.addEventListener('click', () => {
       filterMenu.style.display = 'none';
-      setFilterMode(o.mode);
+      setFilterMode(owner, o.mode);
     });
     filterMenu.appendChild(item);
   }
@@ -1952,14 +2207,10 @@ document.addEventListener('click', (e) => {
 
 // --- Init ----------------------------------------------------------------------
 
-tagsRow = document.createElement('div');
-tagsRow.id = 'tags-row';
 managePanel = document.createElement('div');
 managePanel.id = 'manage-panel';
-document.body.insertBefore(tagsRow, panesArea);
 document.body.insertBefore(managePanel, panesArea);
 syncEmptyState();
 renderTimestampsControl();
-setFilterMode('off');
 updateTagButton();
 post({ type: 'ready' });

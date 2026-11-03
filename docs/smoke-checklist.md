@@ -24,7 +24,7 @@ Open the monitor: bottom panel → SERIAL MONITOR tab (or `Serial Monitor: Open 
 
 - [ ] Empty state shows one controls row (＋ refresh filter timestamps log-dir open-file tag manage) with `Idle`
 - [ ] **＋** opens a port quick-pick listing friendly names; picking COM10 opens a pane (yellow dot → green) streaming `lines` data
-- [ ] The pane bar carries its own serial config: `[●] [COM10 ▾] [115200] [8 ▾] [none ▾] [1 ▾] [LF ▾]` — port locked while connected
+- [ ] The pane bar carries its own serial config: `[●] [COM10 ▾] [115200] [8 ▾] [none ▾] [1 ▾] [LF ▾]` — port picker lists every port; picking another port while connected moves the pane (ADR-0005 amendment)
 - [ ] Each pane also carries its own global controls (＋ refresh filter timestamps log-dir open-file tag manage) and its own status (`Connected`) — nothing moves when you click the other pane
 - [ ] **＋** again → pick COM12 → the view splits into two streaming panes; picking an already-monitored port focuses its pane instead of failing
 

@@ -48,11 +48,11 @@ describe('functional coverage round', () => {
   it('renders tag chips, row tints, and marks from the tags message', async () => {
     fire({ type: 'sessionCreated', sessionId: 70, kind: 'port', title: 'COM130', state: 'connected', settings: { ...S } });
     fire({ type: 'append', sessionId: 70, dropCount: 0, lines: ['[ERROR] bad line', 'ok line'] });
-    fire({ type: 'tags', tags: [TAG] });
+    fire({ type: 'tags', sessionId: 70, tags: [TAG] });
     await tick();
 
     const pane = paneByTitle('COM130');
-    const chip = pane.ownerDocument.querySelector('#tags-row .chip') as HTMLElement;
+    const chip = pane.querySelector('.pane-tags .chip') as HTMLElement;
     expect(chip?.textContent).toContain('ERR');
     const errRow = Array.from(pane.querySelectorAll('.row-line')).find((r) => r.textContent?.includes('[ERROR]'));
     const okRow = Array.from(pane.querySelectorAll('.row-line')).find((r) => r.textContent === 'ok line');
@@ -65,7 +65,7 @@ describe('functional coverage round', () => {
   it('include filter hides unmatched rows; off restores them', async () => {
     const pane = paneByTitle('COM130');
     (pane.querySelector('.filter-toggle') as HTMLButtonElement).click();
-    const include = Array.from(document.querySelectorAll('.filter-menu .menu-item')).find((i) =>
+    const include = Array.from(pane.querySelectorAll('.filter-menu .menu-item')).find((i) =>
       i.textContent?.includes('Include'),
     ) as HTMLElement;
     include.click();
@@ -73,7 +73,7 @@ describe('functional coverage round', () => {
     expect(pane.querySelectorAll('.row-line').length).toBe(1); // only the [ERROR] line
 
     (pane.querySelector('.filter-toggle') as HTMLButtonElement).click();
-    const off = Array.from(document.querySelectorAll('.filter-menu .menu-item')).find((i) =>
+    const off = Array.from(pane.querySelectorAll('.filter-menu .menu-item')).find((i) =>
       i.textContent?.includes('Off'),
     ) as HTMLElement;
     off.click();
@@ -85,16 +85,22 @@ describe('functional coverage round', () => {
     (paneByTitle('COM130').querySelector('.manage-toggle') as HTMLButtonElement).click();
     const panel = document.querySelector('#manage-panel') as HTMLElement;
     expect(panel.style.display).toBe('flex');
+    expect(panel.textContent).toContain('COM130'); // the panel names its pane
     posted.length = 0;
     const nameInput = panel.querySelector('.tag-name') as HTMLInputElement;
     nameInput.value = 'ERRORS';
     nameInput.dispatchEvent(new Event('change'));
-    expect(posted).toContainEqual(
-      expect.objectContaining({ type: 'updateTag', id: 't1', patch: { name: 'ERRORS' } }),
-    );
+    const renamed = expect.objectContaining({
+      type: 'saveTags',
+      sessionId: 70,
+      tags: [expect.objectContaining({ id: 't1', name: 'ERRORS' })],
+    });
+    expect(posted).toContainEqual(renamed);
     const row = nameInput.closest('.tag-edit-row') as HTMLElement;
     (row.querySelector('.tag-delete') as HTMLButtonElement).click();
-    expect(posted).toContainEqual(expect.objectContaining({ type: 'removeTag', id: 't1' }));
+    expect(posted.at(-1)).toEqual(
+      expect.objectContaining({ type: 'saveTags', sessionId: 70, tags: [] }),
+    );
   });
 
   it('gives file panes read-only chrome', async () => {

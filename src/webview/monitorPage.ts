@@ -30,6 +30,11 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   button:hover:enabled { background: var(--vscode-toolbar-hoverBackground); }
   button:disabled { opacity: 0.4; cursor: default; }
   button:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
+  /* Native popup chrome (select dropdowns, scrollbars) follows the theme. */
+  body.vscode-dark, body.vscode-high-contrast { color-scheme: dark; }
+  body.vscode-light { color-scheme: light; }
+  /* Drop the mobile double-tap zoom delay on every control. */
+  button, select { touch-action: manipulation; }
   .icon-btn { width: 30px; min-width: 30px; height: 26px; padding: 0; font-size: 17px; display: inline-flex; align-items: center; justify-content: center; }
   .icon-btn.on { color: var(--vscode-focusBorder); background: var(--vscode-toolbar-hoverBackground); }
   #log-dir.logging, .log-dir.logging { color: var(--vscode-charts-red, #f14c4c); }
@@ -50,11 +55,21 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
     border-radius: 6px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45); padding: 4px;
   }
   .menu-header { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--vscode-descriptionForeground); padding: 4px 8px 2px; user-select: none; white-space: nowrap; }
-  .menu-item { padding: 4px 10px; border-radius: 3px; cursor: pointer; white-space: nowrap; font-size: 12px; }
+  .menu-item { display: block; width: 100%; text-align: left; padding: 4px 10px; border-radius: 3px; cursor: pointer; white-space: nowrap; font-size: 12px; font-family: inherit; }
   .menu-item:hover { background: var(--vscode-list-hoverBackground); }
   .menu-item.current { color: var(--vscode-focusBorder); }
   .menu-item.hint { color: var(--vscode-descriptionForeground); cursor: default; }
-  #tags-row { display: none; gap: 8px; align-items: center; padding: 6px 10px; flex-wrap: wrap; border-bottom: 1px solid var(--vscode-panel-border); }
+  /* Per-pane tag chips row (doubled like every control), under the bar. */
+  .pane-tags { display: none; gap: 8px; align-items: center; padding: 4px 8px; flex-wrap: wrap; border-bottom: 1px solid var(--vscode-panel-border); }
+  /* Collapsible rarely-used serial params. */
+  .pane-params { display: none; align-items: center; gap: 3px; }
+  .pane-params select { cursor: pointer; }
+  /* Empty-state direct start bar. */
+  .start-bar { display: inline-flex; align-items: center; gap: 6px; }
+  .start-btn { height: 26px; padding: 0 12px; font-weight: 600; background: var(--vscode-button-background); color: var(--vscode-button-foreground); border-radius: var(--sm-radius); }
+  .start-btn:hover:enabled { background: var(--vscode-button-hoverBackground); }
+  .start-btn:disabled { opacity: 0.4; cursor: default; }
+  .start-port { min-width: 140px; }
   .chip { border: 1px solid; border-radius: 999px; padding: 2px 12px; font-size: 1em; height: auto; background: transparent; color: var(--vscode-foreground); }
   .chip:hover:enabled { filter: brightness(1.2); }
   .chip-off { opacity: 0.45; }
@@ -86,6 +101,8 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   .ph-ctl { height: 24px; font-size: 13px; background: var(--vscode-dropdown-background); color: var(--vscode-dropdown-foreground); border: 1px solid transparent; border-radius: 3px; padding: 0 5px; outline: none; font-family: inherit; }
   .ph-ctl:hover:enabled { border-color: var(--vscode-dropdown-border); }
   .ph-ctl:focus:enabled { border-color: var(--vscode-focusBorder); }
+  /* A locked control must LOOK locked, or it reads as broken. */
+  .ph-ctl:disabled { opacity: 0.5; cursor: default; }
   select.ph-ctl { cursor: pointer; }
   .ph-port { flex: 0 1 140px; min-width: 92px; }
   .ph-baud { width: 70px; text-align: right; font-variant-numeric: tabular-nums; }
@@ -97,8 +114,10 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   .pane-close { width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; border-radius: 3px; font-size: 14px; color: inherit; opacity: 0.7; cursor: pointer; flex: none; }
   .pane-close:hover { background: rgba(128, 128, 128, 0.35); opacity: 1; }
   /* Variant B: the global actions exist on EVERY pane's bar (all controls
-   * doubled) plus the empty-state row. */
-  .global-seg { display: flex; align-items: center; gap: 2px; margin-left: auto; padding-left: 6px; border-left: 1px solid var(--vscode-panel-border); align-self: stretch; }
+   * doubled) plus the empty-state row. They sit ADJACENT to the pane's own
+   * controls — never pushed to the far edge (that made them jump after
+   * opening a port). */
+  .global-seg { display: flex; align-items: center; gap: 2px; padding-left: 6px; border-left: 1px solid var(--vscode-panel-border); align-self: stretch; }
   .pane-status { display: inline-flex; align-items: center; font-size: 11px; color: var(--vscode-descriptionForeground); padding: 0 4px; white-space: nowrap; }
   /* Iconized connection state: ✔ connected, ⌛ connecting, ○ idle. */
   .pane-status .status-icon { font-size: 13px; line-height: 1; }

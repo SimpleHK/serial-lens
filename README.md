@@ -2,49 +2,52 @@
 
 [![CI](https://github.com/SimpleHK/vscode-serial-monitor-oss/actions/workflows/ci.yml/badge.svg)](https://github.com/SimpleHK/vscode-serial-monitor-oss/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.2.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.3.0-blue.svg)](CHANGELOG.md)
 
-**Monitor serial ports inside VS Code — several at once, side by side.** An
-open-source (MIT) rebuild of the archived Microsoft Serial Monitor, with the
-features no other serial monitor has: tag highlighting, a display-layer
-filter, per-pane search with an editor-style find widget, and a console that
-stays smooth at 2000 lines/second.
+**Serial streams you can actually read.** Tag any pattern and every matching
+line lights up in its color; collapse ten thousand lines of noise to the ten
+that matter with a display-layer filter; and search any pane with the same
+find widget your editor has. An open-source (MIT) rebuild of the archived
+Microsoft Serial Monitor — with the features no other serial monitor has.
 
-![Split view: two ports streaming side by side with tag highlighting and overview marks](docs/media/demo-split-view.gif)
+![Tags: a tag lands mid-stream, matching lines light up, and include-filter collapses the view to just the matches](docs/media/demo-tags.gif)
 
 ## Why this one
 
-- **Multiple ports, one view.** Open COM10 and COM12 simultaneously — each
-  pane keeps its own buffer, serial settings, log file, and scroll position
-  while the other keeps streaming.
-- **Nothing is ever lost.** The filter is display-layer only: include or
-  exclude tag matches and every line is still in the buffer when you switch
-  back.
+- **Tag highlighting.** Select text or type a pattern, tag it, and every
+  matching line is highlighted across the full line with that tag's color —
+  several tags stack, and matches are pinned on the overview strip beside
+  the scrollbar (click to jump). No other serial monitor highlights
+  per-line.
+- **A filter that hides nothing.** Include or exclude tag matches as a
+  display-layer view. Every line stays in the buffer; switching the filter
+  back restores the full stream for as long as it's in the ring buffer.
 - **Search that feels like your editor.** Ctrl+F in any pane: match case,
   whole word, regex, occurrence counter, F3 navigation — highlights don't
   break text selection.
-- **Open and honest.** MIT-licensed, from-scratch, architecture decisions and
-  a domain glossary checked in; no telemetry, no closed blobs.
+- **Open and honest.** MIT-licensed, from-scratch, architecture decisions
+  and a domain glossary checked in; no telemetry, no closed blobs.
 
 ## Features
 
-### Split view, self-contained panes
-
-Every pane is a full monitor: its own serial config (port, baud, data bits,
-parity, stop bits, line ending), start/stop, clear, log-to-file, export,
-follow/lock, find, and a send bar with arrow-key history. Click **＋**, pick a
-port, and the view splits — settings clone from the newest pane so a second
-device is two clicks away. Change baud **while connected** and the port
-reopens live, keeping the pane, its buffer, and its log file.
-
 ### Tags: highlight and filter
 
-Select text → tag it. Every matching line is highlighted across the full line
-with that tag's color (multiple tags stack), marked on the overview strip
-beside the scrollbar, and can drive the include/exclude filter. Chips toggle
-highlight and filter independently; the funnel menu switches the filter mode.
-Nothing is discarded — switching the filter back recovers every line still in
-the buffer.
+Select text → tag it. Every matching line is highlighted across the full
+line with that tag's color (multiple tags stack), marked on the overview
+strip beside the scrollbar, and can drive the include/exclude filter. Chips
+toggle highlight and filter independently per tag; the funnel menu switches
+the filter mode. Nothing is discarded — switching the filter back recovers
+every line still in the buffer. The demo at the top shows the whole arc: a
+tag lands mid-stream, matches light up, and include-mode collapses the view
+to just them.
+
+### Display-layer filter
+
+![Funnel filter: include collapses the view to matching lines, off restores](docs/media/demo-filter.gif)
+
+Three states — off / include / exclude — over tag matches. Toggling is
+instant and reversible for as long as lines stay in the capped ring buffer
+(10,000 lines by default).
 
 ### Find per pane
 
@@ -55,13 +58,17 @@ whole-word, and **.*** regex toggles, a live occurrence counter, and F3 /
 Shift+F3 navigation. Matches are highlighted in place and pinned on the
 overview strip; clicking the strip jumps to the nearest match.
 
-### Display-layer filter
+### Several ports, side by side
 
-![Funnel filter: include collapses the view to matching lines, off restores](docs/media/demo-filter.gif)
+![Split view: two ports streaming side by side](docs/media/demo-split-view.gif)
 
-Three states — off / include / exclude — over tag matches. Toggling is
-instant and reversible for as long as lines stay in the capped ring buffer
-(10,000 lines by default).
+Open COM10 and COM12 simultaneously — each pane keeps its own buffer,
+serial settings, log file, and scroll position while the other keeps
+streaming. Every pane is a full monitor: its own serial config (port, baud,
+data bits, parity, stop bits, line ending), start/stop, clear, log-to-file,
+export, follow/lock, find, and a send bar with arrow-key history. Change
+baud **while connected** and the port reopens live, keeping the pane, its
+buffer, and its log file.
 
 ### The rest of a real monitor
 
@@ -91,6 +98,10 @@ Install the generated `.vsix` (`Extensions: Install from VSIX…`) or press
 No hardware? A com0com virtual pair works: `npm run smoke:check`, then feed
 it with `npm run smoke:device -- --scenario lines`.
 
+> [!NOTE]
+> Working with real hardware is at your own risk — double-check baud rates
+> and voltage levels before connecting anything you care about.
+
 ## Public API
 
 Other extensions can drive it through the vendored
@@ -101,7 +112,7 @@ version negotiation. TCP monitoring reports unsupported.
 ## Testing & architecture
 
 ```bash
-npm test                # 126 unit tests (pure seams + webview DOM via happy-dom)
+npm test                # 141 unit tests (pure seams + webview DOM via happy-dom)
 npm run test:integration   # 10 tests on a real VS Code host + com0com pair
 npm run preview:webview # drive the real webview UI in a plain browser
 ```

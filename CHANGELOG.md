@@ -4,6 +4,37 @@ All notable changes to Serial Monitor (OSS) are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-11-03
+
+### Added
+
+- **The start bar carries the full serial config** — the same baud
+  quick-pick (▾ recents + presets) and collapsible params (☰ data bits /
+  parity / stop bits / line ending) that pane bars have, built from one
+  shared builder so the two surfaces cannot drift. Chosen values, including
+  line ending, flow into the connect.
+
+### Changed
+
+- **Send with line ending `None`** no longer falls back to `LF` (UI form
+  `None` vs host form `none` is now normalized case-insensitively).
+- **Port picker is a live edit** — it stays usable while connected and
+  picking another port moves the pane through the replace flow (only the
+  connecting state locks it, visibly); the picker's own refresh no longer
+  resets a pick that is still in the list.
+- **Tags and filter mode are per pane (ADR-0006)** — a tag created from a
+  pane belongs to that pane: its chips, highlighting, find, and include/
+  exclude filter apply there alone. Each port's tag set persists separately
+  (`serialMonitor.portTags`, keyed from session creation so stopped-pane
+  edits are not lost) and survives close/reopen; the global
+  `serialMonitor.tags` setting is no longer used.
+
+### Fixed
+
+- Port pickers survive their own refresh round-trip: an unchanged list is
+  not rebuilt mid-pick (the popup stays open), and the start bar keeps a
+  pick that still exists in the refreshed list.
+
 ## [0.2.0] - 2026-11-02
 
 ### Added

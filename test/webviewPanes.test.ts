@@ -94,7 +94,15 @@ describe('split-view panes', () => {
     const tagBtn = document.querySelector('.create-tag') as HTMLButtonElement;
     expect(tagBtn.disabled).toBe(false);
     tagBtn.click();
-    expect(posted).toContainEqual(expect.objectContaining({ type: 'createTag', pattern: 'error line one' }));
+    // the tag lands on THIS pane's chips row and is persisted for its session
+    const chips = pane.querySelector('.pane-tags') as HTMLElement;
+    expect(chips.textContent).toContain('error line one');
+    expect(posted).toContainEqual(
+      expect.objectContaining({
+        type: 'saveTags',
+        tags: [expect.objectContaining({ pattern: 'error line one', name: 'error line one' })],
+      }),
+    );
   });
 
   it('refuses to start a second monitor on an already-connected port', async () => {
@@ -240,7 +248,7 @@ describe('per-pane config and doubled controls', () => {
     expect(html).not.toContain('Start Monitoring');
   });
 
-  it('keeps the port locked while connected but params editable', async () => {
+  it('keeps the port picker usable while connected; params stay editable', async () => {
     fire({
       type: 'sessionCreated',
       sessionId: 40,
@@ -256,7 +264,8 @@ describe('per-pane config and doubled controls', () => {
     const port = pane.querySelector('select.ph-port') as HTMLSelectElement;
     expect(port).toBeTruthy();
     expect(port.value).toBe('COM96');
-    expect(port.disabled).toBe(true); // the port itself cannot change live
+    expect(port.disabled).toBe(false); // the picker stays open: picking = live move
+    expect(port.options.length).toBe(2); // full list, not just the current port
     const baud = pane.querySelector('input.ph-baud') as HTMLInputElement;
     expect(baud.value).toBe('9600');
     expect(baud.disabled).toBe(false); // params stay editable while connected

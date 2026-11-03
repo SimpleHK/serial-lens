@@ -1,8 +1,8 @@
 {
   "name": "vscode-serial-monitor-oss",
   "displayName": "Serial Monitor (OSS)",
-  "description": "Monitor several serial ports side by side in VS Code — tag highlighting, display-layer filtering, per-pane find, live reconnect, log to file. Open-source rebuild of the Microsoft Serial Monitor.",
-  "version": "0.2.0",
+  "description": "Tag highlighting, a display-layer filter, and editor-style find for serial streams in VS Code. Multiple ports side by side, live reconnect, log to file. Open-source rebuild of the Microsoft Serial Monitor. Independent, MIT, no telemetry.",
+  "version": "0.3.0",
   "license": "MIT",
   "publisher": "simplehk",
   "repository": {
@@ -73,11 +73,11 @@
           "default": true,
           "description": "Show a receive timestamp at the start of each line (display decoration only; tag matching always uses raw line content)."
         },
-        "serialMonitor.tags": {
-          "type": "array",
-          "default": [],
-          "markdownDescription": "Tags: named row-matching rules (pattern + color + highlight/filter flags) consumed by highlighting and filtering. Usually managed from the monitor UI.",
-          "items": {
+        "serialMonitor.portTags": {
+          "type": "object",
+          "default": {},
+          "markdownDescription": "Per-port tag sets (ADR-0006): a map of port path to that port’s tags. Usually managed from the monitor UI.",
+          "additionalProperties": {
             "type": "object",
             "required": [
               "name",
