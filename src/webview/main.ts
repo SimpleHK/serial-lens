@@ -1051,13 +1051,15 @@ function syncEmptyState(): void {
       });
     });
     const refreshStartSelect = () => {
-      startPortSelect.textContent = '';
-      for (const p of lastPorts) {
-        const o = document.createElement('option');
-        o.value = p.path;
-        o.textContent = p.description ? `${p.path} — ${p.description}` : p.path;
-        startPortSelect.appendChild(o);
-      }
+      // fillPortOptions preserves the user's pick and skips the DOM rewrite
+      // when nothing changed — a rebuild here would reset the selection to
+      // the first port and slam the popup shut mid-pick. Unlike a pane, the
+      // start bar has no port identity: a pick that vanished from the list
+      // falls back to the first new port instead of lingering as a ghost.
+      const picked = startPortSelect.value;
+      const current =
+        picked && lastPorts.some((p) => p.path === picked) ? picked : lastPorts[0]?.path || '';
+      fillPortOptions(startPortSelect, current);
       startBtn.disabled = !lastPorts.length;
     };
     startPortSelect.addEventListener('click', () => {
@@ -2010,21 +2012,38 @@ window.addEventListener('message', (e: MessageEvent<HostToWebview>) => {
   }
 });
 
-/** Fills a port picker with every known port, keeping `current` selectable
- * even when it vanished from the list (the pane must keep its identity). */
-function fillPortOptions(sel: HTMLSelectElement, current: string): void {
-  sel.textContent = '';
-  const paths = new Set(lastPorts.map((p) => p.path));
-  if (!paths.has(current)) {
-    const o = document.createElement('option');
-    o.value = current;
-    o.textContent = current;
-    sel.appendChild(o);
+/** The option list a port picker should show: every known port, plus
+ * `current` kept selectable when it vanished from the list (the pane must
+ * keep its identity). */
+function portOptionList(current: string): { value: string; label: string }[] {
+  const wanted: { value: string; label: string }[] = [];
+  if (current !== '' && !lastPorts.some((p) => p.path === current)) {
+    wanted.push({ value: current, label: current });
   }
   for (const p of lastPorts) {
+    wanted.push({ value: p.path, label: p.description ? `${p.path} — ${p.description}` : p.path });
+  }
+  return wanted;
+}
+
+function fillPortOptions(sel: HTMLSelectElement, current: string): void {
+  // Rebuilding the options while the native popup is open SLAMS IT SHUT —
+  // and the click-triggered refreshPorts reply lands exactly mid-pick. Skip
+  // the DOM rewrite when the wanted list is already what's on screen.
+  const wanted = portOptionList(current);
+  const existing = Array.from(sel.options);
+  const same =
+    sel.value === current &&
+    existing.length === wanted.length &&
+    wanted.every((w, i) => existing[i].value === w.value && existing[i].textContent === w.label);
+  if (same) {
+    return;
+  }
+  sel.textContent = '';
+  for (const w of wanted) {
     const o = document.createElement('option');
-    o.value = p.path;
-    o.textContent = p.description ? `${p.path} — ${p.description}` : p.path;
+    o.value = w.value;
+    o.textContent = w.label;
     sel.appendChild(o);
   }
   sel.value = current;

@@ -250,4 +250,35 @@ describe('port switching & control placement', () => {
     const css = document.querySelector('style')?.textContent ?? '';
     expect(css).toMatch(/\.ph-ctl:disabled/); // the lock must be visible
   });
+
+  it('a no-change port refresh must not rebuild the pickers (popup survives)', () => {
+    fire({ type: 'ports', ports: [{ path: 'COM96', description: 'USB' }, { path: 'COM12', description: 'pair' }] });
+    const pane = paneByTitle('COM96');
+    const sel = pane.querySelector('.ph-port') as HTMLSelectElement;
+    sel.value = 'COM12';
+    const firstOption = sel.options[0];
+    // the click-triggered refreshPorts reply lands while the popup is open —
+    // rebuilding the options here would slam the popup shut mid-pick
+    fire({ type: 'ports', ports: [{ path: 'COM96', description: 'USB' }, { path: 'COM12', description: 'pair' }] });
+    expect(sel.options[0]).toBe(firstOption); // same <option> nodes: nothing rebuilt
+    expect(sel.value).toBe('COM12');
+    // a genuinely different list still lands
+    fire({ type: 'ports', ports: [{ path: 'COM96' }, { path: 'COM12' }, { path: 'COM99' }] });
+    expect(sel.options.length).toBe(3);
+    expect(sel.value).toBe('COM12');
+  });
+
+  it('start bar keeps the picked port across a refresh', () => {
+    for (const btn of Array.from(document.querySelectorAll('.pane-close'))) {
+      (btn as HTMLButtonElement).click(); // back to the empty state
+    }
+    fire({ type: 'ports', ports: [{ path: 'COM10' }, { path: 'COM12' }, { path: 'COM13' }] });
+    const sel = document.querySelector('.start-port') as HTMLSelectElement;
+    sel.value = 'COM12';
+    fire({ type: 'ports', ports: [{ path: 'COM10' }, { path: 'COM12' }, { path: 'COM13' }] });
+    expect(sel.value).toBe('COM12'); // the refresh used to reset it to the first port
+    posted.length = 0;
+    (document.querySelector('.start-btn') as HTMLButtonElement).click();
+    expect(posted).toContainEqual(expect.objectContaining({ type: 'connect', port: 'COM12' }));
+  });
 });
