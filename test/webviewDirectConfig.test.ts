@@ -109,26 +109,69 @@ describe('direct config bar', () => {
     expect(params.style.display).toBe('flex');
   });
 
-  it('duplicates the tag chips row under every pane bar', async () => {
+  it('tag chips are per pane: a push lands only on its session', async () => {
     fire({ type: 'sessionCreated', sessionId: 81, kind: 'port', title: 'COM161', state: 'connected', settings: { ...S } });
-    fire({ type: 'tags', tags: [
+    fire({ type: 'sessionCreated', sessionId: 82, kind: 'port', title: 'COM162', state: 'connected', settings: { ...S } });
+    fire({ type: 'tags', sessionId: 81, tags: [
       { id: 't1', name: 'ERROR', pattern: '[ERROR]', isRegex: false, color: '#ff0000', highlight: true, filter: true },
     ] });
     await tick();
-    const panes = Array.from(document.querySelectorAll('.pane'));
-    expect(panes.length).toBeGreaterThan(1);
-    for (const pane of panes) {
-      const row = pane.querySelector('.pane-tags') as HTMLElement;
-      expect(row.style.display).toBe('flex'); // below the control bar
-      expect(row.querySelectorAll('.chip').length).toBe(1);
-    }
-    // toggling H from one pane's copy affects the global tag
+    // COM161 shows its chip; COM162 shows nothing of it
+    const p1 = paneByTitle('COM161');
+    expect((p1.querySelector('.pane-tags') as HTMLElement).style.display).toBe('flex');
+    expect(p1.querySelectorAll('.chip').length).toBe(1);
+    const p2 = paneByTitle('COM162');
+    expect((p2.querySelector('.pane-tags') as HTMLElement).style.display).toBe('none');
+    expect(p2.querySelectorAll('.chip').length).toBe(0);
+    // toggling H in COM161 commits COM161's list only
     posted.length = 0;
-    const seg = paneByTitle('COM161').querySelector('.pane-tags .chip .seg') as HTMLElement;
+    const seg = p1.querySelector('.pane-tags .chip .seg') as HTMLElement;
     seg.click();
     expect(posted).toContainEqual(
-      expect.objectContaining({ type: 'updateTag', id: 't1', patch: { highlight: false } }),
+      expect.objectContaining({
+        type: 'saveTags',
+        sessionId: 81,
+        tags: [expect.objectContaining({ id: 't1', highlight: false })],
+      }),
     );
+  });
+
+  it('a tag from pane 1 does not highlight pane 2', async () => {
+    fire({ type: 'tags', sessionId: 81, tags: [
+      { id: 't1', name: 'ERROR', pattern: '[ERROR]', isRegex: false, color: '#ff0000', highlight: true, filter: true },
+    ] });
+    await tick();
+    fire({ type: 'append', sessionId: 81, dropCount: 0, lines: ['[ERROR] one'] });
+    fire({ type: 'append', sessionId: 82, dropCount: 0, lines: ['[ERROR] two'] });
+    await tick();
+    const row1 = Array.from(paneByTitle('COM161').querySelectorAll('.row-line')).find((r) =>
+      r.textContent?.includes('[ERROR]'),
+    ) as HTMLElement;
+    const row2 = Array.from(paneByTitle('COM162').querySelectorAll('.row-line')).find((r) =>
+      r.textContent?.includes('[ERROR]'),
+    ) as HTMLElement;
+    expect(row1.getAttribute('style')).toContain('#ff000045');
+    expect(row2.getAttribute('style') ?? '').not.toContain('#ff000045');
+  });
+
+  it('the filter funnel is per pane', async () => {
+    fire({ type: 'append', sessionId: 81, dropCount: 0, lines: ['[ERROR] x', 'plain y'] });
+    fire({ type: 'append', sessionId: 82, dropCount: 0, lines: ['[ERROR] z', 'plain w'] });
+    await tick();
+    const p1 = paneByTitle('COM161');
+    (p1.querySelector('.filter-toggle') as HTMLButtonElement).click();
+    const include = Array.from(p1.querySelectorAll('.filter-menu .menu-item')).find((i) =>
+      i.textContent?.includes('Include'),
+    ) as HTMLElement;
+    include.click();
+    await tick();
+    // COM161 collapses to its matching lines only; COM162 keeps everything
+    const p1Rows = Array.from(p1.querySelectorAll('.row-line')).map((r) => r.textContent);
+    expect(p1Rows.length).toBeGreaterThan(0);
+    expect(p1Rows.every((t) => t?.includes('[ERROR]'))).toBe(true);
+    const p2 = paneByTitle('COM162');
+    const p2Rows = Array.from(p2.querySelectorAll('.row-line')).map((r) => r.textContent);
+    expect(p2Rows.some((t) => t === 'plain w')).toBe(true); // unfiltered
   });
 });
 

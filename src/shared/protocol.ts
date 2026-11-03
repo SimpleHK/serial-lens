@@ -50,7 +50,7 @@ export type HostToWebview =
   | { type: 'status'; message: string }
   | { type: 'clear' }
   | { type: 'lineEnding'; sessionId: number; value: string }
-  | { type: 'tags'; tags: Tag[] };
+  | { type: 'tags'; sessionId: number; tags: Tag[] };
 
 /** Messages the webview sends to the host. */
 export type WebviewToHost =
@@ -69,11 +69,4 @@ export type WebviewToHost =
   | { type: 'clearLogDirectory' }
   | { type: 'export'; sessionId: number }
   | { type: 'exportData'; sessionId: number; entries: { text: string; ts?: number }[] }
-  | { type: 'createTag'; pattern: string }
-  | {
-      type: 'updateTag';
-      id: string;
-      patch: { name?: string; pattern?: string; isRegex?: boolean; color?: string; highlight?: boolean; filter?: boolean };
-    }
-  | { type: 'removeTag'; id: string }
-  | { type: 'clearTags' };
+  | { type: 'saveTags'; sessionId: number; tags: Tag[] }

@@ -14,7 +14,7 @@ import {
 import { ControllerState, ControllerToWebview, MonitorController, TimedLine } from './host/monitorController';
 import { NodeSerialPortBackend } from './host/nodeSerialPortBackend';
 import { LineEnding, SerialPortSettings } from './host/serialPortAdapter';
-import { TagStorage, TagStore } from './host/tagStore';
+import { PortTagStorage, PortTagStore } from './host/tagStore';
 import { Tag } from './shared/tag';
 import { formatLineText } from './shared/lineText';
 import { HostToWebview, WebviewToHost } from './shared/protocol';
@@ -144,6 +144,7 @@ export class MonitorViewProvider implements vscode.WebviewViewProvider {
 
   private view: vscode.WebviewView | undefined;
   private readonly sessions = new Map<number, ProviderSession>();
+  private tagStore?: PortTagStore;
   private nextId = 1;
 
   /** All live port sessions, in id order. */
@@ -173,21 +174,12 @@ export class MonitorViewProvider implements vscode.WebviewViewProvider {
     };
     this.post = post;
 
-    const tagStore = new TagStore(workspaceTagStorage());
+    const tagStore = new PortTagStore(workspacePortTagStorage());
+    this.tagStore = tagStore;
     const sendDisplayState = () => {
       post({ type: 'timestamps', enabled: readTimestamps() });
     };
-    const sendTags = () => {
-      // The view may already be disposed when a late change arrives.
-      void Promise.resolve(view.webview.postMessage({ type: 'tags', tags: tagStore.getTags() })).catch(
-        () => undefined,
-      );
-    };
-    const unsubscribeTags = tagStore.onChange(sendTags);
     const configWatcher = vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration('serialMonitor.tags')) {
-        tagStore.reload(); // also fires sendTags via onChange
-      }
       if (e.affectsConfiguration('serialMonitor.maxBufferLines')) {
         for (const s of this.portSessions) {
           s.controller.setCap(readCap());
@@ -205,7 +197,6 @@ export class MonitorViewProvider implements vscode.WebviewViewProvider {
         }
       }
     });
-    sendTags();
 
     view.webview.onDidReceiveMessage((msg: WebviewToHost) => {
       switch (msg.type) {
@@ -322,23 +313,20 @@ export class MonitorViewProvider implements vscode.WebviewViewProvider {
             void this.completeExport(msg.sessionId, msg.entries);
           }
           break;
-        case 'createTag':
-          void tagStore.add(String(msg.pattern));
+        case 'saveTags': {
+          // The webview owns its pane's list (ADR-0006); the host persists it
+          // under the pane's port so the set survives close/reopen.
+          const ts = this.sessions.get(msg.sessionId);
+          if (ts?.kind !== 'port') {
+            break;
+          }
+          void tagStore.save(ts.controller.activePath ?? '', msg.tags);
           break;
-        case 'updateTag':
-          void tagStore.update(String(msg.id), msg.patch);
-          break;
-        case 'removeTag':
-          void tagStore.remove(String(msg.id));
-          break;
-        case 'clearTags':
-          void tagStore.clearAll();
-          break;
+        }
       }
     });
 
     view.onDidDispose(() => {
-      unsubscribeTags();
       configWatcher.dispose();
       for (const id of [...this.sessions.keys()]) {
         void this.destroySession(id);
@@ -377,6 +365,8 @@ export class MonitorViewProvider implements vscode.WebviewViewProvider {
     );
     const session: PortSession = { kind: 'port', id, controller, logDesired: Boolean(readLogDirectory()) };
     this.sessions.set(id, session);
+    // Tags belong to the port (ADR-0006): the pane starts with this port's set.
+    this.post({ type: 'tags', sessionId: id, tags: this.tagStore?.load(settings.path) ?? [] });
     // Per-session log lifecycle: a configured log directory means every new
     // session logs by default; each connection writes a fresh file.
     controller.onStateChange((s) => {
@@ -697,13 +687,13 @@ function describe(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-function workspaceTagStorage(): TagStorage {
-  const read = (): Tag[] | undefined =>
-    vscode.workspace.getConfiguration('serialMonitor').get<Tag[]>('tags');
+function workspacePortTagStorage(): PortTagStorage {
+  const read = (): Record<string, Tag[]> | undefined =>
+    vscode.workspace.getConfiguration('serialMonitor').get<Record<string, Tag[]>>('portTags');
   return {
     get: read,
-    update: async (tags) => {
-      await updateSerialMonitorSetting('tags', tags);
+    update: async (map) => {
+      await updateSerialMonitorSetting('portTags', map);
     },
   };
 }

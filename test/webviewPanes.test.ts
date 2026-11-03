@@ -94,7 +94,15 @@ describe('split-view panes', () => {
     const tagBtn = document.querySelector('.create-tag') as HTMLButtonElement;
     expect(tagBtn.disabled).toBe(false);
     tagBtn.click();
-    expect(posted).toContainEqual(expect.objectContaining({ type: 'createTag', pattern: 'error line one' }));
+    // the tag lands on THIS pane's chips row and is persisted for its session
+    const chips = pane.querySelector('.pane-tags') as HTMLElement;
+    expect(chips.textContent).toContain('error line one');
+    expect(posted).toContainEqual(
+      expect.objectContaining({
+        type: 'saveTags',
+        tags: [expect.objectContaining({ pattern: 'error line one', name: 'error line one' })],
+      }),
+    );
   });
 
   it('refuses to start a second monitor on an already-connected port', async () => {

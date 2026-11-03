@@ -8,6 +8,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { NodeSerialPortBackend } from '../src/host/nodeSerialPortBackend';
 import type * as vscodeMockTypes from './vscodeMock';
+import type { Tag } from '../src/shared/tag';
 
 // One mock instance for the WHOLE module graph (extension.ts included): the
 // async factory imports the same mock file, so this suite and the host share
@@ -336,6 +337,38 @@ describe('MonitorViewProvider (host layer, vscode-mocked)', () => {
     fire({ type: 'disconnect', sessionId: sid });
     await tick();
     expect(findLastMsg('state')).toEqual(expect.objectContaining({ sessionId: sid, state: 'idle' }));
+  });
+
+  it('scopes tags per port: session push, save, independence, restore', async () => {
+    fire({ type: 'connect', port: 'COM10', baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' });
+    await tick();
+    const sid1 = (findLastMsg('sessionCreated') as { sessionId: number }).sessionId;
+    expect(findMsg('tags', { sessionId: sid1 })).toEqual({ type: 'tags', sessionId: sid1, tags: [] });
+    // pane 1 saves a tag — it lands under COM10, nothing global
+    fire({
+      type: 'saveTags',
+      sessionId: sid1,
+      tags: [{ id: 't1', name: 'ERROR', pattern: '[ERROR]', isRegex: false, color: '#ff0000', highlight: true, filter: true }],
+    });
+    await tick();
+    expect(getConfigUpdates()).toContainEqual({
+      key: 'portTags',
+      value: expect.objectContaining({ COM10: expect.arrayContaining([expect.objectContaining({ name: 'ERROR' })]) }),
+    });
+    // a second port starts with an independent (empty) set
+    fire({ type: 'connect', port: 'COM12', baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' });
+    await tick();
+    const sid2 = (findLastMsg('sessionCreated') as { sessionId: number }).sessionId;
+    expect((findMsg('tags', { sessionId: sid2 }) as { tags: Tag[] } | undefined)?.tags).toEqual([]);
+    // teardown, then reconnect COM10: its tags come back
+    fire({ type: 'closeSession', sessionId: sid2 });
+    fire({ type: 'closeSession', sessionId: sid1 });
+    await tick();
+    fire({ type: 'connect', port: 'COM10', baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' });
+    await tick();
+    const sid3 = (findLastMsg('sessionCreated') as { sessionId: number }).sessionId;
+    const pushed = findLastMsg('tags', { sessionId: sid3 }) as { tags: { name: string }[] } | undefined;
+    expect(pushed?.tags.map((t) => t.name)).toEqual(['ERROR']);
   });
 
   it('persists serialMonitor settings through the config watcher', async () => {

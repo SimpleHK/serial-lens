@@ -2,6 +2,7 @@ declare function acquireVsCodeApi(): { postMessage(msg: unknown): void };
 
 import { LineDecision, matchLine } from '../shared/tagMatching';
 import { FilterMode, Tag } from '../shared/tag';
+import { makeTag, patchedTag, sanitizeTags, withoutTag } from '../shared/tagList';
 import { scrollReducer, ScrollState } from '../shared/scrollState';
 import { BAUD_RATE_PRESETS, DEFAULT_BAUD_RATE } from '../shared/baudPresets';
 import { formatLineText } from '../shared/lineText';
@@ -138,6 +139,11 @@ interface PaneSession {
   sendHistory: string[];
   sendIndex: number;
   sendDraft: string;
+  /** This pane's own tags (ADR-0006) — created here, applied here, saved
+   * here; other panes are never touched. */
+  tags: Tag[];
+  /** This pane's own display-layer filter mode over its tags. */
+  filterMode: FilterMode;
 }
 
 const sessions: PaneSession[] = [];
@@ -148,10 +154,7 @@ let focusedId: number | undefined;
 let pendingReplaceOldId: number | undefined;
 let pendingReplaceNewId: number | undefined;
 
-// Display-layer globals shared by every pane.
-let filterMode: FilterMode = 'off';
 let showTimestamps = false;
-let tags: Tag[] = [];
 let recentBauds: number[] = [];
 let lastPorts: { path: string; description?: string }[] = [];
 
@@ -184,7 +187,7 @@ function unregisterControls(ctlRefs?: PaneDom['ctlRefs']): void {
 
 /** Builds one copy of the global controls: ＋ port menu, refresh, filter,
  * timestamps, log dir, open file, tag, manage, and a status readout. */
-function buildGlobalControls(): {
+function buildGlobalControls(owner: PaneSession | undefined): {
   seg: HTMLDivElement;
   status: HTMLSpanElement;
   addMonitorBtn: HTMLButtonElement;
@@ -246,8 +249,11 @@ function buildGlobalControls(): {
       filterMenu.style.display = 'none';
       return;
     }
-    renderFilterMenu(filterMenu);
+    renderFilterMenu(filterMenu, owner);
     filterMenu.style.display = 'block';
+    if (!owner) {
+      filterToggleBtn.disabled = true; // no pane, nothing to filter
+    }
   });
 
   const timestampsBtn = mkBtn('icon-btn timestamps', '&#9201;&#65039;', 'Timestamps: off');
@@ -273,15 +279,22 @@ function buildGlobalControls(): {
   tagBtn.disabled = true;
   tagBtn.addEventListener('click', () => {
     const selected = window.getSelection()?.toString().trim() ?? '';
-    if (!selected) {
+    const f = focusedSession();
+    if (!selected || !f) {
       return;
     }
-    post({ type: 'createTag', pattern: selected });
+    f.tags = [...f.tags, makeTag(f.tags, selected)];
+    commitTags(f);
+    restyleAllRows();
+    renderChips();
+    renderManagePanel();
+    scheduleFindRecompute(f);
   });
   // Keep the selection alive: clicking the button must not collapse it.
   tagBtn.addEventListener('mousedown', (e) => e.preventDefault());
 
   const manageToggleBtn = mkBtn('icon-btn manage-toggle', '&#9881;&#65039;', 'Manage tags');
+  manageToggleBtn.disabled = !owner; // tags live on panes (ADR-0006)
   manageToggleBtn.addEventListener('click', () => {
     manageOpen = !manageOpen;
     renderManagePanel();
@@ -867,7 +880,7 @@ function dropOldest(s: PaneSession, count: number): void {
 function appendToSession(s: PaneSession, entries: { text: string; ts?: number }[], dropCount: number): void {
   dropOldest(s, dropCount);
   for (const entry of entries) {
-    s.decisions.push(matchLine(entry.text, tags, filterMode));
+    s.decisions.push(matchLine(entry.text, s.tags, s.filterMode));
     if (s.decisions[s.decisions.length - 1].visible) {
       s.visibleIndexes.push(s.lineStore.length);
     }
@@ -889,7 +902,7 @@ function appendToSession(s: PaneSession, entries: { text: string; ts?: number }[
 function restyleAllRows(): void {
   for (const s of sessions) {
     for (let i = 0; i < s.lineStore.length; i++) {
-      s.decisions[i] = matchLine(s.lineStore[i].text, tags, filterMode);
+      s.decisions[i] = matchLine(s.lineStore[i].text, s.tags, s.filterMode);
     }
     rebuildVisibleIndexes(s);
     s.marksDirty = true;
@@ -1016,7 +1029,7 @@ function syncEmptyState(): void {
   if (sessions.length === 0) {
     const row = document.createElement('div');
     row.className = 'empty-row';
-    const controls = buildGlobalControls();
+    const controls = buildGlobalControls(undefined);
 
     // Direct start bar: the serial config is visible without opening the
     // ＋ menu — pick a port, press Start.
@@ -1549,7 +1562,7 @@ function buildPane(s: PaneSession): PaneDom {
   spacerBottom.className = 'log-spacer';
 
   // This pane's own copy of the global controls, at the end of its bar.
-  const controls = buildGlobalControls();
+  const controls = buildGlobalControls(s);
   bar.appendChild(controls.seg);
 
   return { root, bar, tags: paneTags, dot, title, play, sendToggle, clearBtn, logBtn, exportBtn, scrollBtn, findBtn, close, portSelect, baudInput, dbSel, paritySel, sbSel, leSel, log: logEl, marks, findMarks, findBar, findInput, findCase, findWord, findRegex, findCount, findPrev, findNext, findClose, sendRow, sendInput, sendBtn, hint, spacerTop, spacerBottom, globalSeg: controls.seg, status: controls.status, ctlRefs: { tagBtn: controls.tagBtn, filterToggleBtn: controls.filterToggleBtn, timestampsBtn: controls.timestampsBtn, logDirBtn: controls.logDirBtn } };
@@ -1570,6 +1583,8 @@ function createSession(m: {
     state: m.state,
     settings: m.settings,
     lineEnding: 'LF',
+    tags: [],
+    filterMode: 'off',
     sendCollapsed: true,
     lineStore: [],
     decisions: [],
@@ -1728,16 +1743,23 @@ function clearBuffer(s: PaneSession): void {
 }
 
 function renderChips(): void {
-  // Doubled like every other control: each pane carries its own chips row.
+  // Doubled like every other control, but each pane renders ITS OWN tags
+  // (ADR-0006) — a pane's chips are never another pane's list.
   for (const s of sessions) {
-    renderChipsInto(s.dom.tags);
+    renderChipsInto(s);
   }
 }
 
-function renderChipsInto(row: HTMLDivElement): void {
+/** Persists a pane's tag list; the host keys it by the pane's port. */
+function commitTags(s: PaneSession): void {
+  post({ type: 'saveTags', sessionId: s.id, tags: s.tags });
+}
+
+function renderChipsInto(s: PaneSession): void {
+  const row = s.dom.tags;
   row.textContent = '';
-  row.style.display = tags.length ? 'flex' : 'none';
-  for (const t of tags) {
+  row.style.display = s.tags.length ? 'flex' : 'none';
+  for (const t of s.tags) {
     const chip = document.createElement('div');
     chip.className = 'chip' + (t.highlight || t.filter ? '' : ' chip-off');
     chip.style.borderColor = t.color;
@@ -1750,7 +1772,10 @@ function renderChipsInto(row: HTMLDivElement): void {
     segH.title = t.highlight ? 'Highlighting ON — click to turn off' : 'Highlighting OFF — click to turn on';
     segH.addEventListener('click', (e) => {
       e.stopPropagation();
-      post({ type: 'updateTag', id: t.id, patch: { highlight: !t.highlight } });
+      s.tags = patchedTag(s.tags, t.id, { highlight: !t.highlight });
+      commitTags(s);
+      restyleAllRows();
+      renderChips();
     });
     const segF = document.createElement('span');
     segF.className = 'seg' + (t.filter ? ' on' : '');
@@ -1758,10 +1783,20 @@ function renderChipsInto(row: HTMLDivElement): void {
     segF.title = t.filter ? 'Filtering ON — click to turn off' : 'Filtering OFF — click to turn on';
     segF.addEventListener('click', (e) => {
       e.stopPropagation();
-      post({ type: 'updateTag', id: t.id, patch: { filter: !t.filter } });
+      s.tags = patchedTag(s.tags, t.id, { filter: !t.filter });
+      commitTags(s);
+      restyleAllRows();
+      renderChips();
+      scheduleFindRecompute(s);
     });
     chip.title = `"${t.name}" — H: highlight on/off, F: filter on/off, double-click: delete`;
-    chip.addEventListener('dblclick', () => post({ type: 'removeTag', id: t.id }));
+    chip.addEventListener('dblclick', () => {
+      s.tags = withoutTag(s.tags, t.id);
+      commitTags(s);
+      restyleAllRows();
+      renderChips();
+      scheduleFindRecompute(s);
+    });
     chip.append(nameSpan, segH, segF);
     row.appendChild(chip);
   }
@@ -1778,21 +1813,35 @@ function renderManagePanel(): void {
     return;
   }
   managePanel.textContent = '';
+  // The panel edits the FOCUSED pane's list (ADR-0006) — never another's.
+  const owner = focusedSession();
+  const paneLabel = document.createElement('div');
+  paneLabel.className = 'menu-header';
+  paneLabel.textContent = owner ? 'Tags — ' + owner.title : 'Tags — no monitor focused';
+  managePanel.appendChild(paneLabel);
   const addRow = document.createElement('div');
   addRow.className = 'tag-edit-row';
   const addInput = document.createElement('input');
   addInput.type = 'text';
   addInput.className = 'tag-pattern';
   addInput.placeholder = 'New tag pattern — type and press Enter (or click + Add)';
+  addInput.disabled = !owner;
   const addBtn = document.createElement('button');
   addBtn.className = 'tag-add';
   addBtn.textContent = '+ Add';
+  addBtn.disabled = !owner;
   const addTag = () => {
     const value = addInput.value.trim();
-    if (!value) {
+    if (!value || !owner) {
       return;
     }
-    post({ type: 'createTag', pattern: value });
+    owner.tags = [...owner.tags, makeTag(owner.tags, value)];
+    addInput.value = '';
+    commitTags(owner);
+    restyleAllRows();
+    renderChips();
+    renderManagePanel();
+    scheduleFindRecompute(owner);
   };
   addBtn.addEventListener('click', addTag);
   addInput.addEventListener('keydown', (e) => {
@@ -1804,13 +1853,21 @@ function renderManagePanel(): void {
   clearAllBtn.className = 'tag-delete';
   clearAllBtn.textContent = 'Delete all';
   clearAllBtn.title = 'Remove every tag';
-  clearAllBtn.disabled = tags.length === 0;
+  clearAllBtn.disabled = !owner || owner.tags.length === 0;
   clearAllBtn.addEventListener('click', () => {
-    post({ type: 'clearTags' });
+    if (!owner) {
+      return;
+    }
+    owner.tags = [];
+    commitTags(owner);
+    restyleAllRows();
+    renderChips();
+    renderManagePanel();
+    scheduleFindRecompute(owner);
   });
   addRow.append(addInput, addBtn, clearAllBtn);
   managePanel.appendChild(addRow);
-  for (const t of tags) {
+  for (const t of owner?.tags ?? []) {
     const row = document.createElement('div');
     row.className = 'tag-edit-row';
 
@@ -1820,7 +1877,10 @@ function renderManagePanel(): void {
     nameInput.value = t.name;
     nameInput.title = 'Tag name';
     nameInput.addEventListener('change', () => {
-      post({ type: 'updateTag', id: t.id, patch: { name: nameInput.value } });
+      if (!owner) return;
+      owner.tags = patchedTag(owner.tags, t.id, { name: nameInput.value });
+      commitTags(owner);
+      renderChips();
     });
 
     const patternInput = document.createElement('input');
@@ -1829,7 +1889,11 @@ function renderManagePanel(): void {
     patternInput.value = t.pattern;
     patternInput.placeholder = 'Match pattern (substring or regex source)';
     patternInput.addEventListener('change', () => {
-      post({ type: 'updateTag', id: t.id, patch: { pattern: patternInput.value } });
+      if (!owner) return;
+      owner.tags = patchedTag(owner.tags, t.id, { pattern: patternInput.value });
+      commitTags(owner);
+      restyleAllRows();
+      scheduleFindRecompute(owner);
     });
 
     const hlLabel = document.createElement('label');
@@ -1837,7 +1901,11 @@ function renderManagePanel(): void {
     hlInput.type = 'checkbox';
     hlInput.checked = t.highlight;
     hlInput.addEventListener('change', () => {
-      post({ type: 'updateTag', id: t.id, patch: { highlight: hlInput.checked } });
+      if (!owner) return;
+      owner.tags = patchedTag(owner.tags, t.id, { highlight: hlInput.checked });
+      commitTags(owner);
+      restyleAllRows();
+      renderChips();
     });
     hlLabel.appendChild(hlInput);
     hlLabel.appendChild(document.createTextNode('H'));
@@ -1847,7 +1915,12 @@ function renderManagePanel(): void {
     flInput.type = 'checkbox';
     flInput.checked = t.filter;
     flInput.addEventListener('change', () => {
-      post({ type: 'updateTag', id: t.id, patch: { filter: flInput.checked } });
+      if (!owner) return;
+      owner.tags = patchedTag(owner.tags, t.id, { filter: flInput.checked });
+      commitTags(owner);
+      restyleAllRows();
+      renderChips();
+      scheduleFindRecompute(owner);
     });
     flLabel.appendChild(flInput);
     flLabel.appendChild(document.createTextNode('F'));
@@ -1857,7 +1930,11 @@ function renderManagePanel(): void {
     regexInput.type = 'checkbox';
     regexInput.checked = t.isRegex;
     regexInput.addEventListener('change', () => {
-      post({ type: 'updateTag', id: t.id, patch: { isRegex: regexInput.checked } });
+      if (!owner) return;
+      owner.tags = patchedTag(owner.tags, t.id, { isRegex: regexInput.checked });
+      commitTags(owner);
+      restyleAllRows();
+      scheduleFindRecompute(owner);
     });
     regexLabel.appendChild(regexInput);
     regexLabel.appendChild(document.createTextNode('regex'));
@@ -1866,7 +1943,10 @@ function renderManagePanel(): void {
     colorInput.type = 'color';
     colorInput.value = t.color;
     colorInput.addEventListener('change', () => {
-      post({ type: 'updateTag', id: t.id, patch: { color: colorInput.value } });
+      if (!owner) return;
+      owner.tags = patchedTag(owner.tags, t.id, { color: colorInput.value });
+      commitTags(owner);
+      renderChips();
     });
 
     const deleteBtn = document.createElement('button');
@@ -1874,13 +1954,24 @@ function renderManagePanel(): void {
     deleteBtn.textContent = 'Delete';
     deleteBtn.title = `Delete tag "${t.name}"`;
     deleteBtn.addEventListener('click', () => {
-      post({ type: 'removeTag', id: t.id });
+      if (!owner) return;
+      owner.tags = withoutTag(owner.tags, t.id);
+      commitTags(owner);
+      restyleAllRows();
+      renderChips();
+      renderManagePanel();
+      scheduleFindRecompute(owner);
     });
 
     row.append(nameInput, patternInput, regexLabel, hlLabel, flLabel, colorInput, deleteBtn);
     managePanel.appendChild(row);
   }
-  if (!tags.length) {
+  if (!owner) {
+    const hint = document.createElement('div');
+    hint.className = 'panel-hint';
+    hint.textContent = 'Open a monitor to manage its tags.';
+    managePanel.appendChild(hint);
+  } else if (!owner.tags.length) {
     const hint = document.createElement('div');
     hint.className = 'panel-hint';
     hint.textContent = 'No tags yet — type a pattern above, or select text in the output and press the tag button.';
@@ -1983,9 +2074,15 @@ window.addEventListener('message', (e: MessageEvent<HostToWebview>) => {
       }
     }
   } else if (m.type === 'tags') {
-    tags = m.tags;
-    renderChips();
-    restyleAllRows();
+    const ts = sessions.find((x) => x.id === m.sessionId);
+    if (ts) {
+      ts.tags = sanitizeTags(m.tags);
+      renderChips();
+      restyleAllRows();
+      if (ts.find.open) {
+        scheduleFindRecompute(ts);
+      }
+    }
   } else if (m.type === 'sessionCreated') {
     if (pendingReplaceOldId !== undefined && pendingReplaceNewId === undefined) {
       pendingReplaceNewId = m.sessionId; // bind the created session to the restart request
@@ -2079,16 +2176,15 @@ document.addEventListener('keydown', (e) => {
 
 // Filtering is display-layer only (ADR-0004): switching modes recomputes
 // visibility for every pane and never changes Follow/locked state.
-function setFilterMode(mode: FilterMode): void {
-  filterMode = mode;
-  for (const btn of controlRegistry.filterToggles) {
-    btn.classList.toggle('on', mode !== 'off');
-    btn.title = `Filter: ${mode === 'off' ? 'off' : mode} — click to choose`;
+function setFilterMode(s: PaneSession | undefined, mode: FilterMode): void {
+  if (!s) {
+    return; // the empty row's funnel has no pane to filter
   }
+  s.filterMode = mode;
   restyleAllRows();
 }
 
-function renderFilterMenu(filterMenu: HTMLDivElement): void {
+function renderFilterMenu(filterMenu: HTMLDivElement, owner: PaneSession | undefined): void {
   filterMenu.textContent = '';
   const options: { mode: FilterMode; label: string; hint: string }[] = [
     { mode: 'off', label: 'Off', hint: 'Show every line' },
@@ -2098,12 +2194,13 @@ function renderFilterMenu(filterMenu: HTMLDivElement): void {
   for (const o of options) {
     const item = document.createElement('button');
     item.type = 'button';
-    item.className = 'menu-item' + (o.mode === filterMode ? ' current' : '');
-    item.textContent = (o.mode === filterMode ? '\u2714\uFE0E ' : '') + o.label;
+    const current = owner?.filterMode ?? 'off';
+    item.className = 'menu-item' + (o.mode === current ? ' current' : '');
+    item.textContent = (o.mode === current ? '\u2714\uFE0E ' : '') + o.label;
     item.title = o.hint;
     item.addEventListener('click', () => {
       filterMenu.style.display = 'none';
-      setFilterMode(o.mode);
+      setFilterMode(owner, o.mode);
     });
     filterMenu.appendChild(item);
   }
@@ -2140,6 +2237,5 @@ managePanel.id = 'manage-panel';
 document.body.insertBefore(managePanel, panesArea);
 syncEmptyState();
 renderTimestampsControl();
-setFilterMode('off');
 updateTagButton();
 post({ type: 'ready' });
