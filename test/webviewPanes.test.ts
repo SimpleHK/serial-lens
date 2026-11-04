@@ -423,12 +423,38 @@ describe('per-pane config and doubled controls', () => {
       state: 'connecting',
       settings: { baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' },
     });
-    expect(document.querySelectorAll('.pane').length).toBe(2); // both until connected
+    expect(document.querySelectorAll('.pane').length).toBe(2); // both in the DOM until connected
+    // …but the replacement stays HIDDEN and sits in the old pane's slot —
+    // no second view flashes while the restart is in flight (and the new
+    // pane takes the old pane's exact position, not the strip end).
+    const oldRoot = pane;
+    const newRoot = Array.from(document.querySelectorAll('.pane')).find(
+      (p) => p !== oldRoot,
+    ) as HTMLElement;
+    expect(newRoot.style.display).toBe('none');
+    expect(oldRoot.compareDocumentPosition(newRoot) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
     fire({ type: 'state', sessionId: 61, state: 'connected', path: 'COM120' });
     expect(posted).toContainEqual(expect.objectContaining({ type: 'closeSession', sessionId: 60 }));
     fire({ type: 'sessionClosed', sessionId: 60 });
     const remaining = Array.from(document.querySelectorAll('.pane .pane-title')).map((t) => t.textContent);
     expect(remaining.filter((x) => x?.includes('COM120')).length).toBe(1);
+    const shown = Array.from(document.querySelectorAll('.pane')).find(
+      (p) => p.querySelector('.pane-title')?.textContent?.includes('COM120'),
+    ) as HTMLElement;
+    expect(shown.style.display).not.toBe('none'); // revealed in place
+  });
+
+  it('a rapid second ▶ on a restarting pane does not stack sessions', async () => {
+    fire({ type: 'sessionCreated', sessionId: 62, kind: 'port', title: 'COM121', state: 'idle' });
+    const pane = Array.from(document.querySelectorAll('.pane')).find(
+      (p) => p.querySelector('.pane-title')?.textContent?.includes('COM121'),
+    ) as HTMLElement;
+    const play = pane.querySelector('button[title="Start monitoring COM121"]') as HTMLButtonElement;
+    posted.length = 0;
+    play.click();
+    play.click(); // still idle (the state message has not landed) — must be swallowed
+    play.click();
+    expect(posted.filter((m) => (m as { type: string }).type === 'connect')).toHaveLength(1);
   });
 
   it('keeps the old pane when a restart fails, immune to later connects', async () => {

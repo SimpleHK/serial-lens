@@ -1732,6 +1732,19 @@ function createSession(m: {
     panesArea.insertBefore(divider, s.dom.root);
     s.dividerLeft = divider;
   }
+  // A restart in flight: mount the replacement HIDDEN, adjacent to the pane
+  // it replaces — no second view flashes during the hop, and on connect it
+  // takes over the old pane's exact slot (the strip-end jump is gone too).
+  if (pendingReplaceNewId === m.sessionId && pendingReplaceOldId !== undefined) {
+    const oldPane = sessions.find((x) => x.id === pendingReplaceOldId);
+    if (oldPane) {
+      panesArea.insertBefore(s.dom.root, oldPane.dom.root);
+      if (s.dividerLeft) {
+        panesArea.insertBefore(s.dividerLeft, s.dom.root);
+      }
+      s.dom.root.style.display = 'none';
+    }
+  }
   refreshPaneControls(s);
   setFocused(s.id);
   return s;
@@ -1803,6 +1816,9 @@ function removeSession(id: number): void {
 function startPane(s: PaneSession): void {
   if (s.kind !== 'port') {
     return;
+  }
+  if (pendingReplaceOldId === s.id) {
+    return; // this pane's restart is already in flight — rapid ▶ must not stack sessions
   }
   const port = (s.dom.portSelect?.value || s.title).trim();
   pendingReplaceOldId = s.id; // replaced by the new session on success
@@ -2070,12 +2086,14 @@ window.addEventListener('message', (e: MessageEvent<HostToWebview>) => {
     s.state = m.state;
     s.message = m.message;
     if (m.state === 'connected' && pendingReplaceNewId === m.sessionId && pendingReplaceOldId !== undefined) {
-      // The pane's ▶ restart went live: close the pane it replaces.
+      // The pane's ▶ restart went live: close the pane it replaces and
+      // reveal the replacement in the slot it occupied.
       const replacedId = pendingReplaceOldId;
       pendingReplaceOldId = undefined;
       pendingReplaceNewId = undefined;
       post({ type: 'closeSession', sessionId: replacedId });
       removeSession(replacedId);
+      s.dom.root.style.display = '';
     }
     refreshPaneControls(s);
     if (s.id === focusedId) {
