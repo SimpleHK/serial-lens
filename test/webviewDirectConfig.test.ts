@@ -36,11 +36,11 @@ describe('direct config bar', () => {
   it('shows a start bar with a port picker in the empty state', () => {
     fire({ type: 'ports', ports: [{ path: 'COM150', description: 'USB' }] });
     const row = document.querySelector('#panes .empty-row') as HTMLElement;
-    expect(row?.querySelector('select.start-port'), row?.outerHTML.slice(0, 500) ?? 'ROW IS NULL').toBeTruthy();
+    expect(row?.querySelector('select.ph-port'), row?.outerHTML.slice(0, 500) ?? 'ROW IS NULL').toBeTruthy();
     const start = row.querySelector('.start-btn') as HTMLButtonElement;
     expect(start).toBeTruthy();
     posted.length = 0;
-    (row.querySelector('select.start-port') as HTMLSelectElement).value = 'COM150';
+    (row.querySelector('select.ph-port') as HTMLSelectElement).value = 'COM150';
     start.click();
     expect(posted).toContainEqual(
       expect.objectContaining({ type: 'connect', port: 'COM150', baudRate: 115200 }),
@@ -319,7 +319,7 @@ describe('port switching & control placement', () => {
       (btn as HTMLButtonElement).click(); // back to the empty state
     }
     fire({ type: 'ports', ports: [{ path: 'COM10' }, { path: 'COM12' }, { path: 'COM13' }] });
-    const sel = document.querySelector('.start-port') as HTMLSelectElement;
+    const sel = document.querySelector('.start-bar select.ph-port') as HTMLSelectElement;
     sel.value = 'COM12';
     fire({ type: 'ports', ports: [{ path: 'COM10' }, { path: 'COM12' }, { path: 'COM13' }] });
     expect(sel.value).toBe('COM12'); // the refresh used to reset it to the first port
@@ -380,6 +380,22 @@ describe('port switching & control placement', () => {
     expect(seg.querySelector('.add-monitor')).toBeNull();
     expect(seg.querySelector('.refresh-btn')).toBeNull();
     (pane.querySelector('.pane-close') as HTMLButtonElement).click(); // restore the empty row
+  });
+
+  it('empty state reuses the pane port select and remembers the last-used port', async () => {
+    fire({ type: 'ports', ports: [{ path: 'COM10' }, { path: 'COM12', description: 'pair' }] });
+    // the select is the SAME control the pane bars use — same class, and
+    // options show the bare path (description rides in the tooltip)
+    const row = document.querySelector('#panes .empty-row') as HTMLElement;
+    const sel = row.querySelector('select.ph-port') as HTMLSelectElement;
+    expect(sel.className).toContain('ph-port');
+    expect(sel.options[0].textContent).toBe('COM10');
+    expect(sel.options[1].getAttribute('title')).toBe('COM12 — pair');
+    // open COM12, then close it: the empty bar keeps COM12 selected
+    fire({ type: 'sessionCreated', sessionId: 130, kind: 'port', title: 'COM12', state: 'connected', settings: { ...S } });
+    fire({ type: 'sessionClosed', sessionId: 130 });
+    const sel2 = document.querySelector('#panes .start-bar select.ph-port') as HTMLSelectElement;
+    expect(sel2.value).toBe('COM12'); // not reset to the first port
   });
 
   it('empty row: funnel and tag controls are dead until a pane exists', async () => {

@@ -156,6 +156,9 @@ let pendingReplaceNewId: number | undefined;
 
 let showTimestamps = false;
 let recentBauds: number[] = [];
+/** The most recently used port — the start bar re-selects it after the
+ * last pane closes, so closing a monitor keeps your context. */
+let lastUsedPort = '';
 let lastPorts: { path: string; description?: string }[] = [];
 
 function focusedSession(): PaneSession | undefined {
@@ -1095,7 +1098,7 @@ function syncEmptyState(): void {
     const startBar = document.createElement('span');
     startBar.className = 'start-bar';
     startPortSelect = document.createElement('select');
-    startPortSelect.className = 'ph-ctl start-port';
+    startPortSelect.className = 'ph-ctl ph-port'; // the pane's own control, unmodified
     startPortSelect.title = 'Port';
     // The same serial config block as a pane bar: baud quick-pick plus the
     // rarely-used params collapsed behind ☰ — pick a port, press Start.
@@ -1112,6 +1115,7 @@ function syncEmptyState(): void {
       if (!port) {
         return;
       }
+      lastUsedPort = port;
       post({
         type: 'connect',
         port,
@@ -1128,9 +1132,14 @@ function syncEmptyState(): void {
       // the first port and slam the popup shut mid-pick. Unlike a pane, the
       // start bar has no port identity: a pick that vanished from the list
       // falls back to the first new port instead of lingering as a ghost.
+      const inList = (path: string) => lastPorts.some((p) => p.path === path);
       const picked = startPortSelect.value;
       const current =
-        picked && lastPorts.some((p) => p.path === picked) ? picked : lastPorts[0]?.path || '';
+        picked && inList(picked)
+          ? picked
+          : lastUsedPort && inList(lastUsedPort)
+            ? lastUsedPort // the pane just closed: keep its port selected
+            : lastPorts[0]?.path || '';
       fillPortOptions(startPortSelect, current);
       startBtn.disabled = !lastPorts.length;
     };
@@ -1666,6 +1675,9 @@ function createSession(m: {
   settings?: PortSettings;
 }): PaneSession {
   const isFirst = sessions.length === 0;
+  if (m.kind === 'port') {
+    lastUsedPort = m.title; // closing the last pane re-selects this port
+  }
   const s: PaneSession = {
     id: m.sessionId,
     kind: m.kind,
@@ -2159,13 +2171,19 @@ window.addEventListener('message', (e: MessageEvent<HostToWebview>) => {
 /** The option list a port picker should show: every known port, plus
  * `current` kept selectable when it vanished from the list (the pane must
  * keep its identity). */
-function portOptionList(current: string): { value: string; label: string }[] {
-  const wanted: { value: string; label: string }[] = [];
+function portOptionList(current: string): { value: string; label: string; tip: string }[] {
+  // Options show the bare path — the SAME face the pane bars present; a
+  // port description rides in the tooltip.
+  const wanted: { value: string; label: string; tip: string }[] = [];
   if (current !== '' && !lastPorts.some((p) => p.path === current)) {
-    wanted.push({ value: current, label: current });
+    wanted.push({ value: current, label: current, tip: '' });
   }
   for (const p of lastPorts) {
-    wanted.push({ value: p.path, label: p.description ? `${p.path} — ${p.description}` : p.path });
+    wanted.push({
+      value: p.path,
+      label: p.path,
+      tip: p.description ? `${p.path} — ${p.description}` : '',
+    });
   }
   return wanted;
 }
@@ -2179,7 +2197,12 @@ function fillPortOptions(sel: HTMLSelectElement, current: string): void {
   const same =
     sel.value === current &&
     existing.length === wanted.length &&
-    wanted.every((w, i) => existing[i].value === w.value && existing[i].textContent === w.label);
+    wanted.every(
+      (w, i) =>
+        existing[i].value === w.value &&
+        existing[i].textContent === w.label &&
+        existing[i].getAttribute('title') === w.tip,
+    );
   if (same) {
     return;
   }
@@ -2188,6 +2211,9 @@ function fillPortOptions(sel: HTMLSelectElement, current: string): void {
     const o = document.createElement('option');
     o.value = w.value;
     o.textContent = w.label;
+    if (w.tip) {
+      o.title = w.tip;
+    }
     sel.appendChild(o);
   }
   sel.value = current;
