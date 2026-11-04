@@ -37,7 +37,7 @@ describe('direct config bar', () => {
     fire({ type: 'ports', ports: [{ path: 'COM150', description: 'USB' }] });
     const row = document.querySelector('#panes .empty-row') as HTMLElement;
     expect(row?.querySelector('select.ph-port'), row?.outerHTML.slice(0, 500) ?? 'ROW IS NULL').toBeTruthy();
-    const start = row.querySelector('.start-btn') as HTMLButtonElement;
+    const start = row.querySelector('.start-stop') as HTMLButtonElement;
     expect(start).toBeTruthy();
     posted.length = 0;
     (row.querySelector('select.ph-port') as HTMLSelectElement).value = 'COM150';
@@ -74,7 +74,7 @@ describe('direct config bar', () => {
     (row.querySelector('select.ph-parity') as HTMLSelectElement).value = 'even';
     (row.querySelector('select.ph-sb') as HTMLSelectElement).value = '2';
     (row.querySelector('select.ph-le') as HTMLSelectElement).value = 'CRLF';
-    (row.querySelector('.start-btn') as HTMLButtonElement).click();
+    (row.querySelector('.start-stop') as HTMLButtonElement).click();
     expect(posted).toContainEqual(
       expect.objectContaining({
         type: 'connect',
@@ -324,7 +324,7 @@ describe('port switching & control placement', () => {
     fire({ type: 'ports', ports: [{ path: 'COM10' }, { path: 'COM12' }, { path: 'COM13' }] });
     expect(sel.value).toBe('COM12'); // the refresh used to reset it to the first port
     posted.length = 0;
-    (document.querySelector('.start-btn') as HTMLButtonElement).click();
+    (document.querySelector('.start-stop') as HTMLButtonElement).click();
     expect(posted).toContainEqual(expect.objectContaining({ type: 'connect', port: 'COM12' }));
   });
 
@@ -336,13 +336,18 @@ describe('port switching & control placement', () => {
     expect(add.disabled).toBe(true); // ＋ is for the SECOND monitor
     const refresh = row.querySelector('.refresh-btn') as HTMLElement;
     expect(refresh).toBeTruthy();
-    const start = row.querySelector('.start-btn') as HTMLElement;
+    const start = row.querySelector('.start-stop') as HTMLElement;
     // Order checks use the start-bar child index: happy-dom's
     // compareDocumentPosition is unreliable for same-parent siblings, and
     // the browser DOM is the ground truth for the real order.
     const bar = row.querySelector('.start-bar') as HTMLElement;
+    // the empty bar mirrors the connected one: a status dot leads it
+    expect(bar.querySelector('.tab-dot')).toBeTruthy();
+    const startEl = row.querySelector('.start-stop') as HTMLButtonElement;
+    expect(startEl.textContent).toContain('Start Monitoring');
+    expect(startEl.classList.contains('live')).toBe(false); // secondary style, same slot
     const barIndex = (sel: string) => Array.from(bar.children).findIndex((c) => c.matches(sel));
-    const startIndex = barIndex('.start-btn');
+    const startIndex = barIndex('.start-stop');
     expect(startIndex).toBeGreaterThan(-1);
     expect(barIndex('.add-monitor')).toBeLessThan(startIndex);
     expect(barIndex('.refresh-btn')).toBeLessThan(startIndex);

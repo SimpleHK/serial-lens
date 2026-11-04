@@ -1093,10 +1093,13 @@ function syncEmptyState(): void {
     row.className = 'empty-row';
     const controls = buildGlobalControls(undefined);
 
-    // Direct start bar: the serial config is visible without opening the
-    // ＋ menu — pick a port, press Start.
+    // Direct start bar: THE SAME bar a connected pane shows — status dot,
+    // serial config, ＋/refresh, wide primary button, pane actions.
     const startBar = document.createElement('span');
     startBar.className = 'start-bar';
+    const dot = document.createElement('span');
+    dot.className = 'tab-dot'; // gray while idle; green once a session is live
+    startBar.appendChild(dot);
     startPortSelect = document.createElement('select');
     startPortSelect.className = 'ph-ctl ph-port'; // the pane's own control, unmodified
     startPortSelect.title = 'Port';
@@ -1107,7 +1110,8 @@ function syncEmptyState(): void {
       'LF',
     );
     const startBtn = document.createElement('button');
-    startBtn.className = 'start-btn';
+    startBtn.type = 'button';
+    startBtn.className = 'start-stop';
     startBtn.innerHTML = '&#9654; Start Monitoring';
     startBtn.disabled = true;
     startBtn.addEventListener('click', () => {
@@ -1208,7 +1212,7 @@ function refreshPaneControls(s: PaneSession): void {
 
   if (d.play) {
     d.play.style.display = isPort ? '' : 'none';
-    d.play.className = 'start-stop ' + (isConnected ? 'live' : 'idle');
+    d.play.className = 'start-stop';
     d.play.innerHTML = isConnected ? '&#9632; Stop Monitoring' : '&#9654; Start Monitoring';
     setTip(d.play, isConnected ? `Stop monitoring ${s.title}` : `Start monitoring ${s.title}`);
     d.play.disabled = s.state === 'connecting';

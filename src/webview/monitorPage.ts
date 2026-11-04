@@ -66,18 +66,13 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   .pane-params select { cursor: pointer; }
   /* Empty-state direct start bar. */
   .start-bar { display: inline-flex; align-items: center; gap: 6px; }
-  .start-btn { height: 26px; padding: 0 12px; font-weight: 600; background: var(--vscode-button-background); color: var(--vscode-button-foreground); border-radius: var(--sm-radius); }
-  .start-btn:hover:enabled { background: var(--vscode-button-hoverBackground); }
-  .start-btn:disabled { opacity: 0.4; cursor: default; }
-  /* The wide primary button shared by the start bar and every pane bar:
-   * blue while idle, secondary style while a session is live. */
+  /* The wide primary button shared by the start bar and every pane bar —
+   * one secondary style in every state; only the glyph/label flips. */
   .start-stop { height: 26px; padding: 0 12px; font-weight: 600; border: none; border-radius: var(--sm-radius);
+                background: var(--vscode-button-secondaryBackground, var(--vscode-dropdown-background));
+                color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
                 cursor: pointer; display: inline-flex; align-items: center; gap: 6px; font-family: inherit; flex: none; }
-  .start-stop.idle { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
-  .start-stop.idle:hover:enabled { background: var(--vscode-button-hoverBackground); }
-  .start-stop.live { background: var(--vscode-button-secondaryBackground, var(--vscode-dropdown-background));
-                     color: var(--vscode-button-secondaryForeground, var(--vscode-foreground)); }
-  .start-stop.live:hover:enabled { filter: brightness(1.15); }
+  .start-stop:hover:enabled { filter: brightness(1.15); }
   .start-stop:disabled { opacity: 0.4; cursor: default; }
   /* The empty state: bar on top, the old bar-hint now a content-area note. */
   .empty-state { flex: 1; min-width: 0; display: flex; flex-direction: column; }
