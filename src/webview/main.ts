@@ -392,6 +392,39 @@ const mkSelect = (options: string[], value: string, cls: string, ctlTitle: strin
   return sel;
 };
 
+interface PaneActionButtons {
+  sendToggle: HTMLButtonElement;
+  clearBtn: HTMLButtonElement;
+  logBtn: HTMLButtonElement;
+  exportBtn: HTMLButtonElement;
+  scrollBtn: HTMLButtonElement;
+  findBtn: HTMLButtonElement;
+  close: HTMLButtonElement;
+}
+
+/** Fresh pane-action buttons for ONE bar (send toggle, clear, log, export,
+ * follow, find, close). Handlers are attached by the caller; per-pane
+ * titles are set by refreshPaneControls — the empty row mounts its set
+ * disabled, so the two states share the full bar shape (ADR-0006). */
+function buildPaneActionButtons(): PaneActionButtons {
+  const mk = (cls: string, glyph: string, title: string) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = `pbtn ${cls}`;
+    b.innerHTML = glyph;
+    setTip(b, title);
+    return b;
+  };
+  const sendToggle = mk('send-toggle', '&#9000;&#65038;', 'Show the send bar');
+  const clearBtn = mk('clear-btn', '&#128465;&#65039;', 'Clear');
+  const logBtn = mk('log-btn', '&#9898;&#65039;', 'Log to file: off');
+  const exportBtn = mk('export-btn', '&#128228;', 'Export');
+  const scrollBtn = mk('scroll-btn', '&#8681;', 'Viewport follows new lines — click to lock');
+  const findBtn = mk('find-btn', '&#128269;', 'Find in this pane (Ctrl+F)');
+  const close = mk('pane-close', '\u00d7', 'Close this pane');
+  return { sendToggle, clearBtn, logBtn, exportBtn, scrollBtn, findBtn, close };
+}
+
 interface SerialConfigControls {
   baudWrap: HTMLSpanElement;
   baudInput: HTMLInputElement;
@@ -1106,6 +1139,12 @@ function syncEmptyState(): void {
     });
     // The SAME bar a connected pane shows: ＋ (dead here — it only opens a
     // SECOND monitor) and refresh sit left of the wide start button.
+    // Pane actions are ALWAYS present (prototype verdict): dead in the
+    // empty row, live on panes — the two states share the full bar shape.
+    const actions = buildPaneActionButtons();
+    for (const b of Object.values(actions)) {
+      b.disabled = true; // nothing to act on until a pane exists
+    }
     startBar.append(
       startPortSelect,
       ctl.baudWrap,
@@ -1114,6 +1153,13 @@ function syncEmptyState(): void {
       controls.addWrap,
       controls.refreshBtn,
       startBtn,
+      actions.sendToggle,
+      actions.clearBtn,
+      actions.logBtn,
+      actions.exportBtn,
+      actions.scrollBtn,
+      actions.findBtn,
+      actions.close,
     );
     refreshStartSelect();
     emptyRefreshStartSelect = refreshStartSelect;
@@ -1265,18 +1311,7 @@ function buildPane(s: PaneSession): PaneDom {
   play.className = 'start-stop idle';
   play.innerHTML = '&#9654; Start Monitoring';
   setTip(play, `Start monitoring ${s.title}`);
-  const sendToggle = mkBtn('&#9000;&#65038;', 'Show the send bar');
-  const clearBtn = mkBtn('&#128465;&#65039;', `Clear ${s.title}`);
-  const logBtn = mkBtn('&#9898;&#65039;', 'Log to file: off');
-  const exportBtn = mkBtn('&#128228;', `Export ${s.title}'s buffered log to a file`);
-  const scrollBtn = mkBtn('&#8681;', 'Viewport follows new lines — click to lock');
-  const findBtn = mkBtn('&#128269;', 'Find in this pane (Ctrl+F)');
-  // A real button (not a span with a click handler): keyboard focus + Enter.
-  const close = document.createElement('button');
-  close.type = 'button';
-  close.className = 'pane-close';
-  close.textContent = '\u00d7';
-  setTip(close, 'Close this pane');
+  const { sendToggle, clearBtn, logBtn, exportBtn, scrollBtn, findBtn, close } = buildPaneActionButtons();
 
   let portSelect: HTMLSelectElement | undefined;
   let baudInput: HTMLInputElement | undefined;

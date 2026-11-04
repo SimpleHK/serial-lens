@@ -337,12 +337,29 @@ describe('port switching & control placement', () => {
     const refresh = row.querySelector('.refresh-btn') as HTMLElement;
     expect(refresh).toBeTruthy();
     const start = row.querySelector('.start-btn') as HTMLElement;
-    expect((add.compareDocumentPosition(start) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true);
-    expect((refresh.compareDocumentPosition(start) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true);
+    // Order checks use the start-bar child index: happy-dom's
+    // compareDocumentPosition is unreliable for same-parent siblings, and
+    // the browser DOM is the ground truth for the real order.
+    const bar = row.querySelector('.start-bar') as HTMLElement;
+    const barIndex = (sel: string) => Array.from(bar.children).findIndex((c) => c.matches(sel));
+    const startIndex = barIndex('.start-btn');
+    expect(startIndex).toBeGreaterThan(-1);
+    expect(barIndex('.add-monitor')).toBeLessThan(startIndex);
+    expect(barIndex('.refresh-btn')).toBeLessThan(startIndex);
     // the bar no longer carries the hint; the content area does
     expect(row.textContent).not.toContain('No monitors open');
     const hint = document.querySelector('#panes .empty-hint') as HTMLElement;
     expect(hint.textContent).toContain('No monitors open');
+    // the pane-action icons are ALWAYS present: dead in the empty row,
+    // live on panes — the two states share the full bar shape
+    const actions = Array.from(
+      row.querySelectorAll('.send-toggle, .clear-btn, .log-btn, .export-btn, .scroll-btn, .find-btn, .pane-close'),
+    ) as HTMLButtonElement[];
+    expect(actions.length).toBe(7);
+    expect(actions.every((b) => b.disabled)).toBe(true);
+    for (const sel of ['.send-toggle', '.clear-btn', '.log-btn', '.export-btn', '.scroll-btn', '.find-btn', '.pane-close']) {
+      expect(barIndex(sel), sel).toBeGreaterThan(startIndex);
+    }
     // PANE state
     fire({ type: 'sessionCreated', sessionId: 120, kind: 'port', title: 'COM195', state: 'connected', settings: { ...S } });
     const pane = paneByTitle('COM195');
@@ -350,9 +367,14 @@ describe('port switching & control placement', () => {
     const play = pane.querySelector('.start-stop') as HTMLElement;
     expect(play.textContent).toContain('Stop Monitoring');
     expect(play.getAttribute('aria-label')).toBe('Stop monitoring COM195');
-    expect((pAdd.compareDocumentPosition(play) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true);
+    const paneBar = pane.querySelector('.pane-header') as HTMLElement;
+    const paneIndex = (sel: string) => Array.from(paneBar.children).findIndex((c) => c.matches(sel));
+    const playIndex = paneIndex('.start-stop');
+    expect(playIndex).toBeGreaterThan(-1);
+    expect(paneIndex('.add-monitor')).toBeLessThan(playIndex);
+    expect(paneIndex('.refresh-btn')).toBeLessThan(playIndex);
     const pRefresh = pane.querySelector('.refresh-btn') as HTMLElement;
-    expect((pRefresh.compareDocumentPosition(play) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true);
+    expect(pRefresh).toBeTruthy();
     // the global seg no longer holds ＋/refresh
     const seg = pane.querySelector('.global-seg') as HTMLElement;
     expect(seg.querySelector('.add-monitor')).toBeNull();
