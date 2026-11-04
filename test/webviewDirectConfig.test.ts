@@ -328,6 +328,37 @@ describe('port switching & control placement', () => {
     expect(posted).toContainEqual(expect.objectContaining({ type: 'connect', port: 'COM12' }));
   });
 
+  it('Ctrl+F and F3 are swallowed so the VS Code host never sees them', async () => {
+    fire({ type: 'sessionCreated', sessionId: 105, kind: 'port', title: 'COM195', state: 'connected', settings: { ...S } });
+    const pane = paneByTitle('COM195');
+    // a window-level forwarder, exactly like VS Code's injected script
+    const forwarded: KeyboardEvent[] = [];
+    const forwarder = (e: KeyboardEvent) => forwarded.push(e);
+    window.addEventListener('keydown', forwarder);
+    const press = (init: KeyboardEventInit) => {
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, ...init }));
+    };
+    try {
+      // Ctrl+F: ours opens, and the forwarder never receives it
+      press({ key: 'f', ctrlKey: true });
+      expect((pane.querySelector('.find-bar') as HTMLElement).classList.contains('visible')).toBe(true);
+      expect(forwarded.filter((e) => e.ctrlKey && e.key === 'f')).toHaveLength(0);
+      // F3 with find open: ours navigates; the host still sees nothing
+      (pane.querySelector('.find-bar input') as HTMLInputElement).value = 'ERROR';
+      (pane.querySelector('.find-bar input') as HTMLInputElement).dispatchEvent(new Event('input'));
+      await tick();
+      posted.length = 0;
+      press({ key: 'F3' });
+      expect(forwarded.filter((e) => e.key === 'F3')).toHaveLength(0);
+      // F3 with no pane would also be swallowed, not forwarded
+      press({ key: 'F3', shiftKey: true });
+      expect(forwarded.filter((e) => e.key === 'F3')).toHaveLength(0);
+    } finally {
+      window.removeEventListener('keydown', forwarder);
+    }
+    (pane.querySelector('.pane-close') as HTMLButtonElement).click(); // restore the empty row
+  });
+
   it('empty row: funnel and tag controls are dead until a pane exists', async () => {
     // the previous test closed every pane; the empty row is up
     const row = document.querySelector('.empty-row') as HTMLElement;

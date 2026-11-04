@@ -2130,19 +2130,32 @@ function rebuildPortOptions(s: PaneSession): void {
 }
 
 // Ctrl+F finds in the focused pane; F3 / Shift+F3 walk the matches.
+//
+// These keys are SWALLOWED at this layer — not just preventDefault'd. VS
+// Code injects a window-level keydown forwarder into every webview
+// (handleInnerKeydown in webview/browser/pre: it preventDefaults
+// isFindEvent(e) and STILL posts 'did-keydown' to the workbench, where the
+// keybinding re-opens the last editor's find widget and steals focus). Our
+// listener runs first (document bubble < window bubble), so
+// stopImmediatePropagation cuts the forward off before the injected script
+// ever sees the key.
+function swallowHostKey(e: KeyboardEvent): void {
+  e.preventDefault();
+  e.stopImmediatePropagation();
+}
 document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+    swallowHostKey(e);
     const f = focusedSession();
     if (f) {
-      e.preventDefault();
       openFind(f);
     }
     return;
   }
   if (e.key === 'F3') {
+    swallowHostKey(e);
     const f = focusedSession();
     if (f && f.find.open) {
-      e.preventDefault();
       navigateFind(f, e.shiftKey ? -1 : 1);
     }
   }
