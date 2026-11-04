@@ -36,7 +36,7 @@ describe('direct config bar', () => {
   it('shows a start bar with a port picker in the empty state', () => {
     fire({ type: 'ports', ports: [{ path: 'COM150', description: 'USB' }] });
     const row = document.querySelector('#panes .empty-row') as HTMLElement;
-    expect(row.querySelector('select.start-port')).toBeTruthy();
+    expect(row?.querySelector('select.start-port'), row?.outerHTML.slice(0, 500) ?? 'ROW IS NULL').toBeTruthy();
     const start = row.querySelector('.start-btn') as HTMLButtonElement;
     expect(start).toBeTruthy();
     posted.length = 0;
@@ -326,6 +326,38 @@ describe('port switching & control placement', () => {
     posted.length = 0;
     (document.querySelector('.start-btn') as HTMLButtonElement).click();
     expect(posted).toContainEqual(expect.objectContaining({ type: 'connect', port: 'COM12' }));
+  });
+
+  it('unified session bar: ＋/refresh left of start-stop; hint lives in the content area', () => {
+    fire({ type: 'ports', ports: [{ path: 'COM151', description: 'USB' }] });
+    // EMPTY state
+    const row = document.querySelector('#panes .empty-row') as HTMLElement;
+    const add = row.querySelector('.add-monitor') as HTMLButtonElement;
+    expect(add.disabled).toBe(true); // ＋ is for the SECOND monitor
+    const refresh = row.querySelector('.refresh-btn') as HTMLElement;
+    expect(refresh).toBeTruthy();
+    const start = row.querySelector('.start-btn') as HTMLElement;
+    expect((add.compareDocumentPosition(start) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true);
+    expect((refresh.compareDocumentPosition(start) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true);
+    // the bar no longer carries the hint; the content area does
+    expect(row.textContent).not.toContain('No monitors open');
+    const hint = document.querySelector('#panes .empty-hint') as HTMLElement;
+    expect(hint.textContent).toContain('No monitors open');
+    // PANE state
+    fire({ type: 'sessionCreated', sessionId: 120, kind: 'port', title: 'COM195', state: 'connected', settings: { ...S } });
+    const pane = paneByTitle('COM195');
+    const pAdd = pane.querySelector('.add-monitor') as HTMLElement;
+    const play = pane.querySelector('.start-stop') as HTMLElement;
+    expect(play.textContent).toContain('Stop Monitoring');
+    expect(play.getAttribute('aria-label')).toBe('Stop monitoring COM195');
+    expect((pAdd.compareDocumentPosition(play) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true);
+    const pRefresh = pane.querySelector('.refresh-btn') as HTMLElement;
+    expect((pRefresh.compareDocumentPosition(play) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true);
+    // the global seg no longer holds ＋/refresh
+    const seg = pane.querySelector('.global-seg') as HTMLElement;
+    expect(seg.querySelector('.add-monitor')).toBeNull();
+    expect(seg.querySelector('.refresh-btn')).toBeNull();
+    (pane.querySelector('.pane-close') as HTMLButtonElement).click(); // restore the empty row
   });
 
   it('empty row: funnel and tag controls are dead until a pane exists', async () => {

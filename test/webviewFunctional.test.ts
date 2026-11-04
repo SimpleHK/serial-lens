@@ -218,16 +218,16 @@ describe('functional coverage round', () => {
     expect(input.value).toBe('m104');
   });
 
-  it('falls back to default settings in the ＋ menu with no port sessions', async () => {
+  it('keeps ＋ dead in the empty row — the start bar owns the first monitor', async () => {
     for (const id of [70, 71, 72, 73, 74, 75]) {
       fire({ type: 'sessionClosed', sessionId: id });
     }
     fire({ type: 'ports', ports: [{ path: 'COM150' }] });
+    const add = document.querySelector('.empty-row .add-monitor') as HTMLButtonElement;
+    expect(add.disabled).toBe(true);
     posted.length = 0;
-    (document.querySelector('.empty-row .add-monitor') as HTMLButtonElement).click();
-    (document.querySelector('.add-menu .menu-item[data-path="COM150"]') as HTMLElement).click();
-    expect(posted).toContainEqual(
-      expect.objectContaining({ type: 'connect', port: 'COM150', baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' }),
-    );
+    add.click();
+    expect((document.querySelector('.add-menu') as HTMLElement).style.display).not.toBe('block');
+    expect(posted).toEqual([]);
   });
 });

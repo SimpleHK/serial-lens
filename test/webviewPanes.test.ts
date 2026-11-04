@@ -118,6 +118,9 @@ describe('split-view panes', () => {
     const addBtn = document.querySelector('.add-monitor') as HTMLButtonElement;
     expect(addBtn).toBeTruthy();
     addBtn.click();
+    console.log('DBG add disabled:', addBtn.disabled, '| menus:', document.querySelectorAll('.add-menu').length,
+      '| first menu display:', (document.querySelector('.add-menu') as HTMLElement)?.style.display,
+      '| items:', document.querySelectorAll('.add-menu .menu-item').length);
     // Variant B: ＋ opens a port menu; picking one starts a monitor.
     const item = document.querySelector('.add-menu .menu-item[data-path="COM90"]') as HTMLElement;
     expect(item).toBeTruthy();
@@ -395,8 +398,9 @@ describe('per-pane config and doubled controls', () => {
     const row = document.querySelector('#panes .empty-row') as HTMLElement;
     expect(row).toBeTruthy();
     expect(row.querySelector('.add-monitor')).toBeTruthy();
+    expect((row.querySelector('.add-monitor') as HTMLButtonElement).disabled).toBe(true); // ＋ = second monitor
     expect(row.querySelector('.global-seg')).toBeTruthy();
-    expect(row.textContent).toContain('No monitors open');
+    expect((document.querySelector('#panes .empty-hint') as HTMLElement).textContent).toContain('No monitors open');
   });
 
   it('replaces a stopped pane only after the restart connects', async () => {

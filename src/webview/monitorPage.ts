@@ -69,6 +69,20 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   .start-btn { height: 26px; padding: 0 12px; font-weight: 600; background: var(--vscode-button-background); color: var(--vscode-button-foreground); border-radius: var(--sm-radius); }
   .start-btn:hover:enabled { background: var(--vscode-button-hoverBackground); }
   .start-btn:disabled { opacity: 0.4; cursor: default; }
+  /* The wide primary button shared by the start bar and every pane bar:
+   * blue while idle, secondary style while a session is live. */
+  .start-stop { height: 26px; padding: 0 12px; font-weight: 600; border: none; border-radius: var(--sm-radius);
+                cursor: pointer; display: inline-flex; align-items: center; gap: 6px; font-family: inherit; flex: none; }
+  .start-stop.idle { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+  .start-stop.idle:hover:enabled { background: var(--vscode-button-hoverBackground); }
+  .start-stop.live { background: var(--vscode-button-secondaryBackground, var(--vscode-dropdown-background));
+                     color: var(--vscode-button-secondaryForeground, var(--vscode-foreground)); }
+  .start-stop.live:hover:enabled { filter: brightness(1.15); }
+  .start-stop:disabled { opacity: 0.4; cursor: default; }
+  /* The empty state: bar on top, the old bar-hint now a content-area note. */
+  .empty-state { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .empty-hint { flex: 1; display: flex; align-items: center; justify-content: center;
+                color: var(--vscode-descriptionForeground); padding: 12px; }
   .start-port { min-width: 140px; }
   .chip { border: 1px solid; border-radius: 999px; padding: 2px 12px; font-size: 1em; height: auto; background: transparent; color: var(--vscode-foreground); }
   .chip:hover:enabled { filter: brightness(1.2); }

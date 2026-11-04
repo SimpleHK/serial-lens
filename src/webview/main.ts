@@ -190,7 +190,10 @@ function unregisterControls(ctlRefs?: PaneDom['ctlRefs']): void {
 function buildGlobalControls(owner: PaneSession | undefined): {
   seg: HTMLDivElement;
   status: HTMLSpanElement;
+  /** ＋ lives inside this wrap together with its port quick-pick menu. */
+  addWrap: HTMLSpanElement;
   addMonitorBtn: HTMLButtonElement;
+  refreshBtn: HTMLButtonElement;
   filterToggleBtn: HTMLButtonElement;
   timestampsBtn: HTMLButtonElement;
   logDirBtn: HTMLButtonElement;
@@ -207,23 +210,31 @@ function buildGlobalControls(owner: PaneSession | undefined): {
     return b;
   };
 
-  // ＋ with its own port quick-pick.
+  // ＋ with its own port quick-pick, plus the refresh — both ride LEFT of
+  // the wide start/stop button, outside the global segment (the ＋ is for
+  // opening a SECOND monitor; the empty row disables it, ADR-0005 amended).
   const addWrap = document.createElement('span');
   addWrap.className = 'menu-wrap';
   const addMonitorBtn = document.createElement('button');
   addMonitorBtn.className = 'icon-btn add-monitor';
   addMonitorBtn.innerHTML = '&#65291;';
   setTip(addMonitorBtn, 'Add a monitor — pick a port');
+  addMonitorBtn.disabled = !owner;
   const addMenu = document.createElement('div');
   addMenu.className = 'menu add-menu';
   addWrap.append(addMonitorBtn, addMenu);
-  seg.appendChild(addWrap);
   addMonitorBtn.addEventListener('click', (e) => {
     e.stopPropagation();
+    if (!owner) {
+      return; // first monitor comes from the start bar, not ＋
+    }
     toggleAddMenu(addMenu);
   });
 
-  const refreshBtn = mkBtn('icon-btn refresh-btn', '&#128260;', 'Refresh port list');
+  const refreshBtn = document.createElement('button');
+  refreshBtn.className = 'icon-btn refresh-btn';
+  refreshBtn.innerHTML = '&#128260;';
+  setTip(refreshBtn, 'Refresh port list');
   refreshBtn.addEventListener('click', () => {
     post({ type: 'refreshPorts' });
   });
@@ -308,7 +319,7 @@ function buildGlobalControls(owner: PaneSession | undefined): {
   controlRegistry.timestampsButtons.add(timestampsBtn);
   controlRegistry.logDirButtons.add(logDirBtn);
 
-  return { seg, status, addMonitorBtn, filterToggleBtn, timestampsBtn, logDirBtn, tagBtn };
+  return { seg, status, addWrap, addMonitorBtn, refreshBtn, filterToggleBtn, timestampsBtn, logDirBtn, tagBtn };
 }
 
 function toggleAddMenu(menu: HTMLDivElement): void {
@@ -1036,8 +1047,12 @@ function startFromMenu(path: string): void {
 // --- Split-view panes --------------------------------------------------------
 
 function syncEmptyState(): void {
-  panesArea.querySelector('.empty-row')?.remove();
+  panesArea.querySelector('.empty-state')?.remove();
   if (sessions.length === 0) {
+    // One wrapper so the bar and the content-area hint stack vertically
+    // inside the horizontal #panes flex.
+    const wrap = document.createElement('div');
+    wrap.className = 'empty-state';
     const row = document.createElement('div');
     row.className = 'empty-row';
     const controls = buildGlobalControls(undefined);
@@ -1089,18 +1104,32 @@ function syncEmptyState(): void {
     startPortSelect.addEventListener('click', () => {
       vscode.postMessage({ type: 'refreshPorts' }); // keep the list fresh
     });
-    startBar.append(startPortSelect, ctl.baudWrap, ctl.paramsToggle, ctl.params, startBtn);
+    // The SAME bar a connected pane shows: ＋ (dead here — it only opens a
+    // SECOND monitor) and refresh sit left of the wide start button.
+    startBar.append(
+      startPortSelect,
+      ctl.baudWrap,
+      ctl.paramsToggle,
+      ctl.params,
+      controls.addWrap,
+      controls.refreshBtn,
+      startBtn,
+    );
     refreshStartSelect();
     emptyRefreshStartSelect = refreshStartSelect;
 
-    const hint = document.createElement('span');
-    hint.textContent = 'No monitors open — or open a saved log file.';
-    panesArea.appendChild(row);
+    // The hint lives in the CONTENT area, not in the bar.
+    const hint = document.createElement('div');
+    hint.className = 'empty-hint';
+    hint.setAttribute('role', 'note');
+    hint.textContent = 'No monitors open — pick a port above and press Start, or open a saved log file (📂).';
+    panesArea.appendChild(wrap);
     row.appendChild(startBar); // config leads: pick a port, press Start
     row.appendChild(controls.seg);
-    row.appendChild(hint);
+    wrap.appendChild(row);
+    wrap.appendChild(hint);
     emptyStatus = controls.status;
-    emptyAddMenu = controls.seg.querySelector<HTMLDivElement>('.add-menu') ?? undefined;
+    emptyAddMenu = controls.addWrap.querySelector<HTMLDivElement>('.add-menu') ?? undefined;
     updateTagButton();
     renderTimestampsControl();
     renderEmptyStatus(); // iconized summary into the empty row's status
@@ -1124,8 +1153,8 @@ function refreshPaneControls(s: PaneSession): void {
 
   if (d.play) {
     d.play.style.display = isPort ? '' : 'none';
-    d.play.innerHTML = isConnected ? '&#9632;' : '&#9654;';
-    d.play.classList.toggle('on', isConnected);
+    d.play.className = 'start-stop ' + (isConnected ? 'live' : 'idle');
+    d.play.innerHTML = isConnected ? '&#9632; Stop Monitoring' : '&#9654; Start Monitoring';
     setTip(d.play, isConnected ? `Stop monitoring ${s.title}` : `Start monitoring ${s.title}`);
     d.play.disabled = s.state === 'connecting';
   }
@@ -1229,7 +1258,13 @@ function buildPane(s: PaneSession): PaneDom {
     setTip(b, title);
     return b;
   };
-  const play = mkBtn('&#9654;', `Start monitoring ${s.title}`);
+  // The wide primary button, SAME position as the start bar's Start: the
+  // two states read as one bar (verdict from the unified-bar prototype).
+  const play = document.createElement('button');
+  play.type = 'button';
+  play.className = 'start-stop idle';
+  play.innerHTML = '&#9654; Start Monitoring';
+  setTip(play, `Start monitoring ${s.title}`);
   const sendToggle = mkBtn('&#9000;&#65038;', 'Show the send bar');
   const clearBtn = mkBtn('&#128465;&#65039;', `Clear ${s.title}`);
   const logBtn = mkBtn('&#9898;&#65039;', 'Log to file: off');
@@ -1578,8 +1613,11 @@ function buildPane(s: PaneSession): PaneDom {
   const spacerBottom = document.createElement('div');
   spacerBottom.className = 'log-spacer';
 
-  // This pane's own copy of the global controls, at the end of its bar.
+  // This pane's own copy of the global controls. ＋ and refresh slide in
+  // immediately LEFT of the wide start/stop button (unified-bar verdict).
   const controls = buildGlobalControls(s);
+  bar.insertBefore(controls.addWrap, play);
+  bar.insertBefore(controls.refreshBtn, play);
   bar.appendChild(controls.seg);
 
   return { root, bar, tags: paneTags, dot, title, play, sendToggle, clearBtn, logBtn, exportBtn, scrollBtn, findBtn, close, portSelect, baudInput, dbSel, paritySel, sbSel, leSel, log: logEl, marks, findMarks, findBar, findInput, findCase, findWord, findRegex, findCount, findPrev, findNext, findClose, sendRow, sendInput, sendBtn, hint, spacerTop, spacerBottom, globalSeg: controls.seg, status: controls.status, ctlRefs: { tagBtn: controls.tagBtn, filterToggleBtn: controls.filterToggleBtn, timestampsBtn: controls.timestampsBtn, logDirBtn: controls.logDirBtn } };
