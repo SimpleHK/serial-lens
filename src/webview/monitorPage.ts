@@ -160,21 +160,36 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   .find-marks { display: none; position: absolute; top: 4px; bottom: 4px; right: 19px; width: 3px; z-index: 5; cursor: pointer; }
   .find-marks .tick { position: absolute; left: 0; width: 100%; min-height: 2px; border-radius: 1px; background: rgba(255, 140, 0, 0.8); }
   /* Editor-style find widget: floats over the pane's top-right corner. */
-  .find-bar { display: none; position: absolute; top: 4px; right: 26px; z-index: 8; align-items: center; gap: 4px; padding: 4px 6px;
+  /* Editor-style find widget: segmented toggles glued to the input, count
+   * and nav on the right — mirrors the VS Code find widget anatomy. */
+  .find-bar { display: none; position: absolute; top: 6px; right: 28px; z-index: 8; align-items: center; gap: 6px; padding: 5px;
     background: var(--vscode-editorWidget-background, var(--vscode-dropdown-background));
     color: var(--vscode-editorWidget-foreground, var(--vscode-dropdown-foreground));
     border: 1px solid var(--vscode-editorWidget-border, var(--vscode-dropdown-border));
     border-radius: 6px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45); }
   .find-bar.visible { display: inline-flex; }
-  .find-bar input { width: 170px; height: 22px; box-sizing: border-box; padding: 0 6px; font-size: 12px; font-family: inherit;
+  .find-bar input { width: 168px; height: 24px; box-sizing: border-box; padding: 0 7px; font-size: 12.5px; font-family: inherit;
     background: var(--vscode-input-background); color: var(--vscode-input-foreground);
-    border: 1px solid var(--vscode-input-border, var(--vscode-panel-border)); border-radius: 3px; outline: none; }
+    border: 1px solid var(--vscode-input-border, var(--vscode-panel-border)); border-radius: 4px; outline: none; }
   .find-bar input:focus { border-color: var(--vscode-focusBorder); }
-  .fbtn { width: 26px; min-width: 26px; height: 26px; padding: 0; font-size: 13px; border-radius: 3px; flex: none; display: inline-flex; align-items: center; justify-content: center; }
+  /* no-results feedback on the input itself, like the VS Code find widget */
+  .find-bar:has(.find-count.error) input { border-color: var(--vscode-errorForeground, #f14c4c); }
+  .find-toggles { display: inline-flex; align-items: center; background: var(--vscode-input-background);
+    border: 1px solid var(--vscode-input-border, var(--vscode-panel-border)); border-radius: 4px; overflow: hidden; height: 24px; }
+  .fbtn { width: 25px; min-width: 25px; height: 22px; padding: 0; font-size: 12px; border: none; border-radius: 0;
+    background: transparent; color: var(--vscode-input-foreground, var(--vscode-foreground)); flex: none;
+    display: inline-flex; align-items: center; justify-content: center; font-family: inherit; }
   .fbtn svg { width: 14px; height: 14px; display: block; }
-  .fbtn.on { background: var(--vscode-inputOption-activeBackground, rgba(255, 255, 255, 0.15)); color: var(--vscode-inputOption-activeForeground, var(--vscode-focusBorder)); outline: 1px solid var(--vscode-inputOption-activeBorder, transparent); }
-  .find-count { font-size: 11px; color: var(--vscode-descriptionForeground); white-space: nowrap; min-width: 64px; text-align: center; user-select: none; }
+  .fbtn + .fbtn { border-left: 1px solid var(--vscode-input-border, var(--vscode-panel-border)); }
+  .fbtn:hover { background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.25)); }
+  .fbtn.on { background: var(--vscode-inputOption-activeBackground, rgba(255, 255, 255, 0.15));
+    color: var(--vscode-inputOption-activeForeground, var(--vscode-focusBorder));
+    box-shadow: inset 0 0 0 1px var(--vscode-inputOption-activeBorder, var(--vscode-focusBorder)); }
+  .find-count { font-size: 11px; color: var(--vscode-descriptionForeground); white-space: nowrap; min-width: 64px;
+    text-align: center; user-select: none; font-variant-numeric: tabular-nums; }
   .find-count.error { color: var(--vscode-errorForeground, #f14c4c); }
+  .find-nav { display: inline-flex; align-items: center; gap: 1px;
+    border-left: 1px solid var(--vscode-input-border, var(--vscode-panel-border)); padding-left: 4px; height: 24px; }
   ::highlight(sm-find) { background-color: rgba(236, 200, 96, 0.45); }
   ::highlight(sm-find-cur) { background-color: rgba(255, 140, 0, 0.65); color: #ffffff; }
   /* Port-local send bar, collapsed by default. */

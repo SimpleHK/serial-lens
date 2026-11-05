@@ -1475,7 +1475,13 @@ function buildPane(s: PaneSession): PaneDom {
   findClose.className = 'fbtn';
   findClose.innerHTML = icon('close');
   setTip(findClose, 'Close find (Escape)');
-  findBar.append(findInput, findCase, findWord, findRegex, findCount, findPrev, findNext, findClose);
+  const findToggles = document.createElement('span');
+  findToggles.className = 'find-toggles';
+  findToggles.append(findCase, findWord, findRegex);
+  const findNav = document.createElement('span');
+  findNav.className = 'find-nav';
+  findNav.append(findPrev, findNext, findClose);
+  findBar.append(findInput, findToggles, findCount, findNav);
   body.append(logEl, marks, findMarks, findBar, hint);
 
   // Port-local send bar (collapsed by default).
