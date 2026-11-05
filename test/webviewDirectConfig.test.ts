@@ -341,7 +341,7 @@ describe('port switching & control placement', () => {
       Array.from(scope.children)
         .map((c) => c.className + (c.children.length ? `[${c.children.length}]` : ''))
         .join(' | ');
-    expect(shape(bar)).toBe('bar-group[5] | bar-group[2] | start-stop[1] | bar-group[7]');
+    expect(shape(bar)).toBe('bar-group[5] | bar-group[2] | start-stop[1] | pbtn clear-btn[1] | bar-group[6]');
     const startEl = row.querySelector('.start-stop') as HTMLButtonElement;
     expect(startEl.querySelector('svg')).toBeTruthy(); // svg glyph, no text
     expect(startEl.textContent).toBe('');
@@ -360,7 +360,13 @@ describe('port switching & control placement', () => {
     ) as HTMLButtonElement[];
     expect(actions.length).toBe(7);
     expect(actions.every((b) => b.disabled)).toBe(true);
-    expect(new Set(actions.map((b) => b.parentElement))).toHaveLength(1); // one block
+    const sixActions = actions.filter((b) => !b.matches('.clear-btn'));
+    expect(new Set(sixActions.map((b) => b.parentElement))).toHaveLength(1); // one block
+    const clearEmpty = actions.find((b) => b.matches('.clear-btn')) as HTMLButtonElement;
+    expect(clearEmpty.parentElement).toBe(startEl.parentElement); // clear sits beside start/stop
+    // size comes from the CSS contract (happy-dom has no layout engine)
+    const cssText = document.querySelector('style')?.textContent ?? '';
+    expect(cssText).toMatch(/\.pbtn\.clear-btn\s*\{[^}]*width:\s*48px/);
 
     // PANE state — the same shape, everything live
     fire({ type: 'sessionCreated', sessionId: 120, kind: 'port', title: 'COM195', state: 'connected', settings: { ...S } });
@@ -374,9 +380,11 @@ describe('port switching & control placement', () => {
       pane.querySelectorAll('.send-toggle, .clear-btn, .log-btn, .export-btn, .scroll-btn, .find-btn, .pane-close'),
     ) as HTMLElement[];
     expect(paneActions.every((b) => (b as HTMLButtonElement).disabled === false)).toBe(true);
-    expect(new Set(paneActions.map((b) => b.parentElement))).toHaveLength(1);
+    const sixPane = paneActions.filter((b) => !b.matches('.clear-btn'));
+    expect(new Set(sixPane.map((b) => b.parentElement))).toHaveLength(1);
+    expect(paneActions.find((b) => b.matches('.clear-btn'))).toBeTruthy();
     const paneHeader = pane.querySelector('.pane-header') as HTMLElement;
-    expect(shape(paneHeader)).toBe('bar-group[6] | bar-group[2] | start-stop[1] | bar-group[7] | global-seg[7]');
+    expect(shape(paneHeader)).toBe('bar-group[6] | bar-group[2] | start-stop[1] | pbtn clear-btn[1] | bar-group[6] | global-seg[7]');
     // the global seg no longer holds ＋/refresh
     const seg = pane.querySelector('.global-seg') as HTMLElement;
     expect(seg.querySelector('.add-monitor')).toBeNull();

@@ -123,7 +123,7 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   .ph-baud { width: 70px; text-align: right; font-variant-numeric: tabular-nums; }
   .ph-db { width: 46px; } .ph-parity { width: 68px; } .ph-sb { width: 46px; } .ph-le { width: 58px; }
   .pbtn { width: 28px; min-width: 28px; height: 28px; padding: 0; border-radius: 3px; flex: none; display: inline-flex; align-items: center; justify-content: center; }
-  .pbtn.clear-btn { width: 34px; }
+  .pbtn.clear-btn { width: 48px; height: 28px; }
   .pbtn.on { color: var(--vscode-focusBorder); }
   .pbtn.rec { color: var(--vscode-charts-red, #f14c4c); }
   .pbtn.locked { color: var(--vscode-charts-yellow, #ddb100); }

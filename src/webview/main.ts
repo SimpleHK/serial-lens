@@ -1157,6 +1157,9 @@ function syncEmptyState(): void {
     const actions = buildPaneActionButtons();
     const actionGroup = newBarGroup();
     for (const b of Object.values(actions)) {
+      if (b === actions.clearBtn) {
+        continue; // clear rides beside the start button, at its size
+      }
       b.disabled = true; // nothing to act on until a pane exists
       actionGroup.appendChild(b);
     }
@@ -1164,7 +1167,8 @@ function syncEmptyState(): void {
     head.append(dot, startPortSelect, ctl.baudWrap, ctl.paramsToggle, ctl.params);
     const addRefresh = newBarGroup();
     addRefresh.append(controls.addWrap, controls.refreshBtn);
-    startBar.append(head, addRefresh, startBtn, actionGroup);
+    actions.clearBtn.disabled = true;
+    startBar.append(head, addRefresh, startBtn, actions.clearBtn, actionGroup);
     refreshStartSelect();
     emptyRefreshStartSelect = refreshStartSelect;
 
@@ -1323,7 +1327,6 @@ function buildPane(s: PaneSession): PaneDom {
   const actionGroup = newBarGroup();
   actionGroup.append(
     actions.sendToggle,
-    actions.clearBtn,
     actions.logBtn,
     actions.exportBtn,
     actions.scrollBtn,
@@ -1672,6 +1675,7 @@ function buildPane(s: PaneSession): PaneDom {
   // group that sits immediately LEFT of the wide start/stop button.
   const controls = buildGlobalControls(s);
   bar.appendChild(play);
+  bar.appendChild(actions.clearBtn); // clear is a primary action: same size, right beside start/stop
   const addRefresh = newBarGroup();
   addRefresh.append(controls.addWrap, controls.refreshBtn);
   bar.insertBefore(addRefresh, play);
