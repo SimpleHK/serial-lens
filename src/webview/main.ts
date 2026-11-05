@@ -1007,12 +1007,7 @@ function renderPaneStatus(s: PaneSession): void {
     return;
   }
   s.transientMessage = undefined;
-  el.textContent = '';
-  const icon = document.createElement('span');
-  icon.className = 'status-icon';
-  icon.dataset.state = s.state;
-  icon.textContent = s.state === 'connected' ? '✔' : s.state === 'connecting' ? '⌛' : '○';
-  el.appendChild(icon);
+  el.textContent = ''; // no icon at the bar tail — the leading dot carries the state
 }
 
 function renderEmptyStatus(message?: string): void {
@@ -1026,12 +1021,8 @@ function renderEmptyStatus(message?: string): void {
   }
   const live = sessions.filter((s) => s.kind === 'port' && s.state === 'connected').length;
   const text = live ? `${live} monitor${live > 1 ? 's' : ''} running` : 'Idle';
-  emptyStatus.textContent = '';
-  const icon = document.createElement('span');
-  icon.className = 'status-icon';
-  icon.dataset.state = 'idle';
-  icon.textContent = '○';
-  emptyStatus.appendChild(icon);
+  emptyStatus.textContent = ''; // no icon at the bar tail
+  emptyStatus.setAttribute('aria-label', text);
   emptyStatus.title = text;
 }
 
@@ -1112,7 +1103,8 @@ function syncEmptyState(): void {
     const startBtn = document.createElement('button');
     startBtn.type = 'button';
     startBtn.className = 'start-stop';
-    startBtn.innerHTML = '&#9654; Start Monitoring';
+    startBtn.innerHTML = '&#9654;'; // glyph only
+    setTip(startBtn, 'Start monitoring');
     startBtn.disabled = true;
     startBtn.addEventListener('click', () => {
       const port = startPortSelect.value;
@@ -1213,7 +1205,7 @@ function refreshPaneControls(s: PaneSession): void {
   if (d.play) {
     d.play.style.display = isPort ? '' : 'none';
     d.play.className = 'start-stop';
-    d.play.innerHTML = isConnected ? '&#9632; Stop Monitoring' : '&#9654; Start Monitoring';
+    d.play.innerHTML = isConnected ? '&#9632;' : '&#9654;'; // glyph only — no text
     setTip(d.play, isConnected ? `Stop monitoring ${s.title}` : `Start monitoring ${s.title}`);
     d.play.disabled = s.state === 'connecting';
   }
@@ -1321,8 +1313,8 @@ function buildPane(s: PaneSession): PaneDom {
   // two states read as one bar (verdict from the unified-bar prototype).
   const play = document.createElement('button');
   play.type = 'button';
-  play.className = 'start-stop idle';
-  play.innerHTML = '&#9654; Start Monitoring';
+  play.className = 'start-stop';
+  play.innerHTML = '&#9654;'; // glyph only — the wide button carries no text
   setTip(play, `Start monitoring ${s.title}`);
   const { sendToggle, clearBtn, logBtn, exportBtn, scrollBtn, findBtn, close } = buildPaneActionButtons();
 

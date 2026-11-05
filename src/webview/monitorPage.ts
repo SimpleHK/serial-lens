@@ -68,7 +68,7 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   .start-bar { display: inline-flex; align-items: center; gap: 6px; }
   /* The wide primary button shared by the start bar and every pane bar —
    * one secondary style in every state; only the glyph/label flips. */
-  .start-stop { height: 26px; padding: 0 12px; font-weight: 600; border: none; border-radius: var(--sm-radius);
+  .start-stop { width: 42px; height: 26px; padding: 0; justify-content: center; font-weight: 600; border: none; border-radius: var(--sm-radius);
                 background: var(--vscode-button-secondaryBackground, var(--vscode-dropdown-background));
                 color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
                 cursor: pointer; display: inline-flex; align-items: center; gap: 6px; font-family: inherit; flex: none; }
@@ -127,10 +127,6 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
    * opening a port). */
   .global-seg { display: flex; align-items: center; gap: 2px; padding-left: 6px; border-left: 1px solid var(--vscode-panel-border); align-self: stretch; }
   .pane-status { display: inline-flex; align-items: center; font-size: 11px; color: var(--vscode-descriptionForeground); padding: 0 4px; white-space: nowrap; }
-  /* Iconized connection state: ✔ connected, ⌛ connecting, ○ idle. */
-  .pane-status .status-icon { font-size: 13px; line-height: 1; }
-  .pane-status .status-icon[data-state='connected'] { color: var(--vscode-charts-green, #89d185); }
-  .pane-status .status-icon[data-state='connecting'] { color: var(--vscode-charts-yellow, #ddb100); }
   .empty-row { display: flex; flex: none; align-self: flex-start; width: 100%; flex-wrap: wrap; align-items: center; gap: 10px; min-height: 30px; padding: 2px 10px; border-bottom: 1px solid var(--vscode-panel-border); color: var(--vscode-descriptionForeground); font-size: 12px; }
   /* The segment loses its pane-bar divider styling inside the empty row. */
   .empty-row .global-seg { margin-left: 0; border-left: none; align-self: center; }

@@ -344,8 +344,8 @@ describe('port switching & control placement', () => {
     // the empty bar mirrors the connected one: a status dot leads it
     expect(bar.querySelector('.tab-dot')).toBeTruthy();
     const startEl = row.querySelector('.start-stop') as HTMLButtonElement;
-    expect(startEl.textContent).toContain('Start Monitoring');
-    expect(startEl.classList.contains('live')).toBe(false); // secondary style, same slot
+    expect(startEl.textContent).toBe('▶'); // glyph only — the wide button carries no text
+    expect(startEl.getAttribute('aria-label')).toBe('Start monitoring');
     const barIndex = (sel: string) => Array.from(bar.children).findIndex((c) => c.matches(sel));
     const startIndex = barIndex('.start-stop');
     expect(startIndex).toBeGreaterThan(-1);
@@ -370,7 +370,7 @@ describe('port switching & control placement', () => {
     const pane = paneByTitle('COM195');
     const pAdd = pane.querySelector('.add-monitor') as HTMLElement;
     const play = pane.querySelector('.start-stop') as HTMLElement;
-    expect(play.textContent).toContain('Stop Monitoring');
+    expect(play.textContent).toBe('■'); // glyph only
     expect(play.getAttribute('aria-label')).toBe('Stop monitoring COM195');
     const paneBar = pane.querySelector('.pane-header') as HTMLElement;
     const paneIndex = (sel: string) => Array.from(paneBar.children).findIndex((c) => c.matches(sel));

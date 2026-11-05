@@ -540,14 +540,18 @@ describe('per-pane config and doubled controls', () => {
       ) as HTMLElement;
       const status = pane.querySelector('.pane-status') as HTMLElement;
       fire({ type: 'state', sessionId: 51, state: 'connected' });
-      expect(status.querySelector('.status-icon')?.getAttribute('data-state')).toBe('connected');
+      // the iconized status is gone (the bar's dot carries the state); the
+      // accessible name still announces it
+      expect(status.querySelector('.status-icon')).toBeNull();
+      expect(status.getAttribute('aria-label')).toBe('Connected');
       expect(status.title).toContain('Connected');
 
-      // a transient message shows as text, then the icon returns
+      // a transient message shows as text, then the readout clears again
       fire({ type: 'status', message: 'Exported 12 lines to x.log' });
       expect(status.textContent).toContain('Exported 12 lines');
       vi.advanceTimersByTime(4100);
-      expect(status.querySelector('.status-icon')?.getAttribute('data-state')).toBe('connected');
+      expect(status.textContent).toBe('');
+      expect(status.getAttribute('aria-label')).toBe('Connected');
     } finally {
       vi.useRealTimers();
     }
