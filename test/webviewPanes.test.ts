@@ -386,8 +386,8 @@ describe('per-pane config and doubled controls', () => {
 
   it('renders bigger controls than the previous 22/26px set', () => {
     const html = monitorPageHtml({ scriptUri: 'x', cspSource: 'y' });
-    expect(html).toMatch(/\.pbtn\s*\{[^}]*width:\s*26px/);
-    expect(html).toMatch(/\.icon-btn\s*\{[^}]*width:\s*30px/);
+    expect(html).toMatch(/\.pbtn\s*\{[^}]*width:\s*28px/);
+    expect(html).toMatch(/\.icon-btn\s*\{[^}]*width:\s*32px/);
   });
 
   it('keeps a full controls row in the empty state', async () => {
