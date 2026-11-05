@@ -131,7 +131,9 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
    * opening a port). */
   .global-seg { display: flex; align-items: center; gap: 2px; padding-left: 6px; border-left: 1px solid var(--vscode-panel-border); align-self: stretch; }
   .pane-status { display: inline-flex; align-items: center; font-size: 11px; color: var(--vscode-descriptionForeground); padding: 0 4px; white-space: nowrap; }
-  .empty-row { display: flex; flex: none; align-self: flex-start; width: 100%; flex-wrap: wrap; align-items: center; gap: 10px; min-height: 30px; padding: 2px 10px; border-bottom: 1px solid var(--vscode-panel-border); color: var(--vscode-descriptionForeground); font-size: 12px; }
+  /* Matches .pane-header's box and inheritance exactly: same padding, same
+   * foreground, same font size — the two states render one identical bar. */
+  .empty-row { display: flex; flex: none; align-self: flex-start; width: 100%; flex-wrap: wrap; align-items: center; gap: 3px; min-height: 30px; padding: 2px 4px 2px 8px; border-bottom: 1px solid var(--vscode-panel-border); }
   /* The segment loses its pane-bar divider styling inside the empty row. */
   .empty-row .global-seg { margin-left: 0; border-left: none; align-self: center; }
   .pane-body { position: relative; flex: 1; min-height: 0; display: flex; }
