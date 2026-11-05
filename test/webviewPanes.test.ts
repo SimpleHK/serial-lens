@@ -457,6 +457,37 @@ describe('per-pane config and doubled controls', () => {
     expect(posted.filter((m) => (m as { type: string }).type === 'connect')).toHaveLength(1);
   });
 
+  it('closing the old pane mid-restart reveals the replacement (no stranded port)', async () => {
+    // LEAK guard: hiding the replacement during the hop + closing the old
+    // pane used to strand an INVISIBLE pane holding a serial port forever.
+    fire({ type: 'sessionCreated', sessionId: 160, kind: 'port', title: 'COM130', state: 'connected', settings: { baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' } });
+    const pane = Array.from(document.querySelectorAll('.pane')).find(
+      (p) => p.querySelector('.pane-title')?.textContent?.includes('COM130'),
+    ) as HTMLElement;
+    (pane.querySelector('button[title="Stop monitoring COM130"]') as HTMLButtonElement).click();
+    fire({ type: 'state', sessionId: 160, state: 'idle' }); // the host confirms the stop
+    (pane.querySelector('button[title="Start monitoring COM130"]') as HTMLButtonElement).click();
+    fire({
+      type: 'sessionCreated',
+      sessionId: 161,
+      kind: 'port',
+      title: 'COM130',
+      state: 'connecting',
+      settings: { baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' },
+    });
+    // the user closes the old pane while the restart is still in flight
+    (pane.querySelector('.pane-close') as HTMLButtonElement).click();
+    const surviving = Array.from(document.querySelectorAll('.pane')).find(
+      (p) => p.querySelector('.pane-title')?.textContent?.includes('COM130'),
+    ) as HTMLElement;
+    expect(surviving).toBeTruthy();
+    expect(surviving.style.display).not.toBe('none'); // revealed, never stranded
+    // when the replacement connects, the takeover still releases the OLD port
+    posted.length = 0;
+    fire({ type: 'state', sessionId: 161, state: 'connected', path: 'COM130' });
+    expect(posted).toContainEqual(expect.objectContaining({ type: 'closeSession', sessionId: 160 }));
+  });
+
   it('keeps the old pane when a restart fails, immune to later connects', async () => {
     // REGRESSION guard: a failed restart must not strand the replace request,
     // letting an unrelated session close the old pane later.

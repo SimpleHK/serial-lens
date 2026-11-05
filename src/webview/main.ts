@@ -1807,7 +1807,17 @@ function removeSession(id: number): void {
     sessions[0].dividerLeft = undefined;
   }
   pendingRenders.delete(gone);
-  if (pendingReplaceOldId === id) {
+  if (pendingReplaceOldId === id && pendingReplaceNewId !== undefined) {
+    // The old pane of an in-flight restart is being closed by hand: the
+    // HIDDEN replacement becomes the survivor — reveal it now and KEEP the
+    // binding, so its connect still closes the old HOST session (which
+    // releases the old port). Clearing the slots here would orphan that
+    // host session: no pane, port held, nothing in the UI to close.
+    const replacement = sessions.find((x) => x.id === pendingReplaceNewId);
+    if (replacement) {
+      replacement.dom.root.style.display = '';
+    }
+  } else if (pendingReplaceOldId === id) {
     pendingReplaceOldId = undefined;
     pendingReplaceNewId = undefined;
   }
