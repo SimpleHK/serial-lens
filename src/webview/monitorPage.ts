@@ -36,6 +36,9 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   /* Drop the mobile double-tap zoom delay on every control. */
   button, select { touch-action: manipulation; }
   .icon-btn { width: 30px; min-width: 30px; height: 26px; padding: 0; font-size: 17px; display: inline-flex; align-items: center; justify-content: center; }
+  .icon-btn svg, .pbtn svg, .start-stop svg { width: 16px; height: 16px; display: block; }
+  .pbtn { font-size: 0; } /* glyph sizing comes from the svg, not the font */
+  .start-stop { font-size: 0; }
   .icon-btn.on { color: var(--vscode-focusBorder); background: var(--vscode-toolbar-hoverBackground); }
   #log-dir.logging, .log-dir.logging { color: var(--vscode-charts-red, #f14c4c); }
   /* Funnel glyph for the tag-filter control (inline mask, tints via currentColor). */
@@ -166,7 +169,8 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
     background: var(--vscode-input-background); color: var(--vscode-input-foreground);
     border: 1px solid var(--vscode-input-border, var(--vscode-panel-border)); border-radius: 3px; outline: none; }
   .find-bar input:focus { border-color: var(--vscode-focusBorder); }
-  .fbtn { width: 24px; min-width: 24px; height: 24px; padding: 0; font-size: 13px; border-radius: 3px; flex: none; }
+  .fbtn { width: 24px; min-width: 24px; height: 24px; padding: 0; font-size: 13px; border-radius: 3px; flex: none; display: inline-flex; align-items: center; justify-content: center; }
+  .fbtn svg { width: 14px; height: 14px; display: block; }
   .fbtn.on { background: var(--vscode-inputOption-activeBackground, rgba(255, 255, 255, 0.15)); color: var(--vscode-inputOption-activeForeground, var(--vscode-focusBorder)); outline: 1px solid var(--vscode-inputOption-activeBorder, transparent); }
   .find-count { font-size: 11px; color: var(--vscode-descriptionForeground); white-space: nowrap; min-width: 64px; text-align: center; user-select: none; }
   .find-count.error { color: var(--vscode-errorForeground, #f14c4c); }

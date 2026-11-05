@@ -341,9 +341,10 @@ describe('port switching & control placement', () => {
       Array.from(scope.children)
         .map((c) => c.className + (c.children.length ? `[${c.children.length}]` : ''))
         .join(' | ');
-    expect(shape(bar)).toBe('bar-group[5] | bar-group[2] | start-stop | bar-group[7]');
+    expect(shape(bar)).toBe('bar-group[5] | bar-group[2] | start-stop[1] | bar-group[7]');
     const startEl = row.querySelector('.start-stop') as HTMLButtonElement;
-    expect(startEl.textContent).toBe('▶'); // glyph only — the wide button carries no text
+    expect(startEl.querySelector('svg')).toBeTruthy(); // svg glyph, no text
+    expect(startEl.textContent).toBe('');
     expect(startEl.getAttribute('aria-label')).toBe('Start monitoring');
     // wrap contract: without wrap the flex shrink squeezes the port select
     // down to its min-width and the two states render different widths
@@ -366,7 +367,8 @@ describe('port switching & control placement', () => {
     fire({ type: 'append', sessionId: 120, dropCount: 0, lines: ['hello'], timestamps: [1] });
     const pane = paneByTitle('COM195');
     const play = pane.querySelector('.start-stop') as HTMLElement;
-    expect(play.textContent).toBe('■'); // glyph only
+    expect(play.querySelector('svg')).toBeTruthy(); // svg glyph, no text
+    expect(play.textContent).toBe('');
     expect(play.getAttribute('aria-label')).toBe('Stop monitoring COM195');
     const paneActions = Array.from(
       pane.querySelectorAll('.send-toggle, .clear-btn, .log-btn, .export-btn, .scroll-btn, .find-btn, .pane-close'),
@@ -374,7 +376,7 @@ describe('port switching & control placement', () => {
     expect(paneActions.every((b) => (b as HTMLButtonElement).disabled === false)).toBe(true);
     expect(new Set(paneActions.map((b) => b.parentElement))).toHaveLength(1);
     const paneHeader = pane.querySelector('.pane-header') as HTMLElement;
-    expect(shape(paneHeader)).toBe('bar-group[6] | bar-group[2] | start-stop | bar-group[7] | global-seg[7]');
+    expect(shape(paneHeader)).toBe('bar-group[6] | bar-group[2] | start-stop[1] | bar-group[7] | global-seg[7]');
     // the global seg no longer holds ＋/refresh
     const seg = pane.querySelector('.global-seg') as HTMLElement;
     expect(seg.querySelector('.add-monitor')).toBeNull();
@@ -419,6 +421,25 @@ describe('port switching & control placement', () => {
     fire({ type: 'sessionClosed', sessionId: 130 });
     const sel2 = document.querySelector('#panes .start-bar select.ph-port') as HTMLSelectElement;
     expect(sel2.value).toBe('COM12'); // not reset to the first port
+  });
+
+  it('icon buttons render inline SVG glyphs, never emoji', () => {
+    fire({ type: 'ports', ports: [{ path: 'COM160' }] });
+    fire({ type: 'sessionCreated', sessionId: 125, kind: 'port', title: 'COM160', state: 'connected', settings: { ...S } });
+    // every icon button carries an inline svg (the funnel precedent, now
+    // universal); text-glyph exceptions are the monochrome carets
+    const textGlyphs = '.baud-toggle, .params-toggle, .start-stop, .pane-close, .fbtn';
+    const emojiRe = /[\u{1F000}-\u{1FAFF}\u{2190}-\u{21FF}\u{2300}-\u{23FF}\u{25A0}-\u{25FF}\u{2600}-\u{27BF}\u{FE0F}]/u;
+    const offenders: string[] = [];
+    for (const btn of Array.from(document.querySelectorAll('.icon-btn, .pbtn'))) {
+      const hasSvg = !!btn.querySelector('svg');
+      const isText = (btn as HTMLElement).matches(textGlyphs);
+      if (!hasSvg && !isText) offenders.push(btn.className);
+      if (emojiRe.test(btn.textContent || '')) offenders.push(btn.className + ' (emoji text)');
+    }
+    expect(offenders).toEqual([]);
+    const svgPane = paneByTitle('COM160');
+    (svgPane.querySelector('.pane-close') as HTMLButtonElement).click(); // restore the empty row
   });
 
   it('empty row: funnel and tag controls are dead until a pane exists', async () => {

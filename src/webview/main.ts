@@ -3,6 +3,7 @@ declare function acquireVsCodeApi(): { postMessage(msg: unknown): void };
 import { LineDecision, matchLine } from '../shared/tagMatching';
 import { FilterMode, Tag } from '../shared/tag';
 import { makeTag, patchedTag, sanitizeTags, withoutTag } from '../shared/tagList';
+import { icon } from './icons';
 import { scrollReducer, ScrollState } from '../shared/scrollState';
 import { BAUD_RATE_PRESETS, DEFAULT_BAUD_RATE } from '../shared/baudPresets';
 import { formatLineText } from '../shared/lineText';
@@ -220,7 +221,7 @@ function buildGlobalControls(owner: PaneSession | undefined): {
   addWrap.className = 'menu-wrap';
   const addMonitorBtn = document.createElement('button');
   addMonitorBtn.className = 'icon-btn add-monitor';
-  addMonitorBtn.innerHTML = '&#65291;';
+  addMonitorBtn.innerHTML = icon('plus');
   setTip(addMonitorBtn, 'Add a monitor — pick a port');
   addMonitorBtn.disabled = !owner;
   const addMenu = document.createElement('div');
@@ -236,7 +237,7 @@ function buildGlobalControls(owner: PaneSession | undefined): {
 
   const refreshBtn = document.createElement('button');
   refreshBtn.className = 'icon-btn refresh-btn';
-  refreshBtn.innerHTML = '&#128260;';
+  refreshBtn.innerHTML = icon('refresh');
   setTip(refreshBtn, 'Refresh port list');
   refreshBtn.addEventListener('click', () => {
     post({ type: 'refreshPorts' });
@@ -271,12 +272,12 @@ function buildGlobalControls(owner: PaneSession | undefined): {
     filterMenu.style.display = 'block';
   });
 
-  const timestampsBtn = mkBtn('icon-btn timestamps', '&#9201;&#65039;', 'Timestamps: off');
+  const timestampsBtn = mkBtn('icon-btn timestamps', icon('clock'), 'Timestamps: off');
   timestampsBtn.addEventListener('click', () => {
     post({ type: 'setTimestamps', enabled: !showTimestamps });
   });
 
-  const logDirBtn = mkBtn('icon-btn log-dir', '&#128193;', 'Choose a log directory: every logged session writes a new .log file (right-click to clear)');
+  const logDirBtn = mkBtn('icon-btn log-dir', icon('folder'), 'Choose a log directory: every logged session writes a new .log file (right-click to clear)');
   logDirBtn.addEventListener('click', () => {
     post({ type: 'chooseLogDirectory' });
   });
@@ -285,12 +286,12 @@ function buildGlobalControls(owner: PaneSession | undefined): {
     post({ type: 'clearLogDirectory' });
   });
 
-  const openLogFileBtn = mkBtn('icon-btn open-log-file', '&#128194;', 'Open a log file in a read-only pane');
+  const openLogFileBtn = mkBtn('icon-btn open-log-file', icon('folder-open'), 'Open a log file in a read-only pane');
   openLogFileBtn.addEventListener('click', () => {
     post({ type: 'openLogFile' });
   });
 
-  const tagBtn = mkBtn('icon-btn create-tag', '&#127991;&#65039;', 'Create a tag from the selected text');
+  const tagBtn = mkBtn('icon-btn create-tag', icon('tag'), 'Create a tag from the selected text');
   tagBtn.disabled = true;
   tagBtn.addEventListener('click', () => {
     const selected = window.getSelection()?.toString().trim() ?? '';
@@ -303,7 +304,7 @@ function buildGlobalControls(owner: PaneSession | undefined): {
   // Keep the selection alive: clicking the button must not collapse it.
   tagBtn.addEventListener('mousedown', (e) => e.preventDefault());
 
-  const manageToggleBtn = mkBtn('icon-btn manage-toggle', '&#9881;&#65039;', 'Manage tags');
+  const manageToggleBtn = mkBtn('icon-btn manage-toggle', icon('gear'), 'Manage tags');
   manageToggleBtn.disabled = !owner; // tags live on panes (ADR-0006)
   manageToggleBtn.addEventListener('click', () => {
     manageOpen = !manageOpen;
@@ -426,13 +427,13 @@ function buildPaneActionButtons(): PaneActionButtons {
     setTip(b, title);
     return b;
   };
-  const sendToggle = mk('send-toggle', '&#9000;&#65038;', 'Show the send bar');
-  const clearBtn = mk('clear-btn', '&#128465;&#65039;', 'Clear');
-  const logBtn = mk('log-btn', '&#9898;&#65039;', 'Log to file: off');
-  const exportBtn = mk('export-btn', '&#128228;', 'Export');
-  const scrollBtn = mk('scroll-btn', '&#8681;', 'Viewport follows new lines — click to lock');
-  const findBtn = mk('find-btn', '&#128269;', 'Find in this pane (Ctrl+F)');
-  const close = mk('pane-close', '\u00d7', 'Close this pane');
+  const sendToggle = mk('send-toggle', icon('keyboard'), 'Show the send bar');
+  const clearBtn = mk('clear-btn', icon('trash'), 'Clear');
+  const logBtn = mk('log-btn', icon('circle'), 'Log to file: off');
+  const exportBtn = mk('export-btn', icon('export'), 'Export');
+  const scrollBtn = mk('scroll-btn', icon('arrow-down'), 'Viewport follows new lines — click to lock');
+  const findBtn = mk('find-btn', icon('search'), 'Find in this pane (Ctrl+F)');
+  const close = mk('pane-close', icon('close'), 'Close this pane');
   return { sendToggle, clearBtn, logBtn, exportBtn, scrollBtn, findBtn, close };
 }
 
@@ -466,7 +467,7 @@ function buildSerialConfigControls(
   baudInput.setAttribute('autocomplete', 'off');
   const baudToggle = document.createElement('button');
   baudToggle.className = 'pbtn baud-toggle';
-  baudToggle.innerHTML = '&#9662;';
+  baudToggle.innerHTML = icon('chevron-down');
   setTip(baudToggle, 'Quick-pick baud rate');
   const baudMenu = document.createElement('div');
   baudMenu.className = 'menu baud-menu';
@@ -483,7 +484,7 @@ function buildSerialConfigControls(
 
   const paramsToggle = document.createElement('button');
   paramsToggle.className = 'pbtn params-toggle';
-  paramsToggle.innerHTML = '&#9776;';
+  paramsToggle.innerHTML = icon('lines');
   setTip(paramsToggle, 'Serial params (data bits, parity, stop bits, line ending)');
   const params = document.createElement('span');
   params.className = 'pane-params';
@@ -1110,7 +1111,7 @@ function syncEmptyState(): void {
     const startBtn = document.createElement('button');
     startBtn.type = 'button';
     startBtn.className = 'start-stop';
-    startBtn.innerHTML = '&#9654;'; // glyph only
+    startBtn.innerHTML = icon('play'); // glyph only
     setTip(startBtn, 'Start monitoring');
     startBtn.disabled = true;
     startBtn.addEventListener('click', () => {
@@ -1203,7 +1204,7 @@ function refreshPaneControls(s: PaneSession): void {
   if (d.play) {
     d.play.style.display = isPort ? '' : 'none';
     d.play.className = 'start-stop';
-    d.play.innerHTML = isConnected ? '&#9632;' : '&#9654;'; // glyph only — no text
+    d.play.innerHTML = isConnected ? icon('stop') : icon('play');
     setTip(d.play, isConnected ? `Stop monitoring ${s.title}` : `Start monitoring ${s.title}`);
     d.play.disabled = s.state === 'connecting';
   }
@@ -1218,7 +1219,7 @@ function refreshPaneControls(s: PaneSession): void {
     const logOn = isPort && s.logDesired;
     d.logBtn.classList.toggle('on', logOn);
     d.logBtn.classList.toggle('rec', logOn);
-    d.logBtn.innerHTML = logOn ? '&#128308;&#65039;' : '&#9898;&#65039;';
+    d.logBtn.innerHTML = logOn ? icon('circle-record') : icon('circle');
     if (logOn) {
       const where = s.logFile ? ` (now: ${s.logFile})` : s.logDirectory ? ` into ${s.logDirectory}` : '';
       setTip(d.logBtn, `Log to file: on${where} — click to stop`);
@@ -1227,7 +1228,7 @@ function refreshPaneControls(s: PaneSession): void {
     }
   }
 
-  d.scrollBtn.innerHTML = s.scroll === 'follow' ? '&#8681;' : '&#128274;';
+  d.scrollBtn.innerHTML = s.scroll === 'follow' ? icon('arrow-down') : icon('lock');
   d.scrollBtn.classList.toggle('locked', s.scroll === 'locked');
   setTip(
     d.scrollBtn,
@@ -1316,7 +1317,7 @@ function buildPane(s: PaneSession): PaneDom {
   const play = document.createElement('button');
   play.type = 'button';
   play.className = 'start-stop';
-  play.innerHTML = '&#9654;'; // glyph only — the wide button carries no text
+  play.innerHTML = icon('play'); // glyph only — the wide button carries no text
   setTip(play, `Start monitoring ${s.title}`);
   const actions = buildPaneActionButtons();
   const actionGroup = newBarGroup();
@@ -1461,15 +1462,15 @@ function buildPane(s: PaneSession): PaneDom {
   findCount.setAttribute('aria-live', 'polite'); // the counter updates per keystroke
   const findPrev = document.createElement('button');
   findPrev.className = 'fbtn';
-  findPrev.innerHTML = '&#8593;';
+  findPrev.innerHTML = icon('arrow-up');
   setTip(findPrev, 'Previous match (Shift+Enter)');
   const findNext = document.createElement('button');
   findNext.className = 'fbtn';
-  findNext.innerHTML = '&#8595;';
+  findNext.innerHTML = icon('arrow-down');
   setTip(findNext, 'Next match (Enter)');
   const findClose = document.createElement('button');
   findClose.className = 'fbtn';
-  findClose.innerHTML = '&#10005;';
+  findClose.innerHTML = icon('close');
   setTip(findClose, 'Close find (Escape)');
   findBar.append(findInput, findCase, findWord, findRegex, findCount, findPrev, findNext, findClose);
   body.append(logEl, marks, findMarks, findBar, hint);
