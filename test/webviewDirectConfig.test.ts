@@ -343,6 +343,11 @@ describe('port switching & control placement', () => {
     const bar = row.querySelector('.start-bar') as HTMLElement;
     // the empty bar mirrors the connected one: a status dot leads it
     expect(bar.querySelector('.tab-dot')).toBeTruthy();
+    // …and it wraps like the pane header — without wrap, the flex shrink
+    // squeezes the port select down to its min-width and the two states
+    // render different widths
+    const css = document.querySelector('style')?.textContent ?? '';
+    expect(css.match(/\.start-bar \{[^}]*\}/)?.[0]).toContain('flex-wrap: wrap');
     const startEl = row.querySelector('.start-stop') as HTMLButtonElement;
     expect(startEl.textContent).toBe('▶'); // glyph only — the wide button carries no text
     expect(startEl.getAttribute('aria-label')).toBe('Start monitoring');

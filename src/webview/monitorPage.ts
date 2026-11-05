@@ -65,7 +65,7 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   .pane-params { display: none; align-items: center; gap: 3px; }
   .pane-params select { cursor: pointer; }
   /* Empty-state direct start bar. */
-  .start-bar { display: inline-flex; align-items: center; gap: 6px; }
+  .start-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; }
   /* The wide primary button shared by the start bar and every pane bar —
    * one secondary style in every state; only the glyph/label flips. */
   .start-stop { width: 42px; height: 26px; padding: 0; justify-content: center; font-weight: 600; border: none; border-radius: var(--sm-radius);
