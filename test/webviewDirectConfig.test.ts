@@ -382,6 +382,28 @@ describe('port switching & control placement', () => {
     (pane.querySelector('.pane-close') as HTMLButtonElement).click(); // restore the empty row
   });
 
+  it('a failed port move re-enables the picker on the surviving pane', async () => {
+    fire({ type: 'ports', ports: [{ path: 'COM195' }, { path: 'COM140' }] });
+    fire({ type: 'sessionCreated', sessionId: 150, kind: 'port', title: 'COM195', state: 'connected', settings: { ...S } });
+    fire({ type: 'append', sessionId: 150, dropCount: 0, lines: ['x'], timestamps: [1] });
+    const pane = paneByTitle('COM195');
+    const sel = pane.querySelector('select.ph-port') as HTMLSelectElement;
+    // pick another port while connected -> live move starts (hidden pane)
+    sel.value = 'COM140';
+    sel.dispatchEvent(new Event('change'));
+    fire({ type: 'sessionCreated', sessionId: 151, kind: 'port', title: 'COM140', state: 'connecting', settings: { ...S } });
+    fire({ type: 'ports', ports: [{ path: 'COM195' }, { path: 'COM140' }] }); // a refresh mid-hop
+    // the open fails: old pane survives, picker enabled + snapped back,
+    // and the failure message surfaces in the CONTENT area only
+    fire({ type: 'sessionFailed', sessionId: 151, message: 'Could not open COM140' });
+    expect(sel.disabled).toBe(false);
+    expect(sel.value).toBe('COM195');
+    const hint = pane.querySelector('.pane-hint') as HTMLElement;
+    expect(hint.textContent).toContain('Could not open COM140');
+    expect((pane.querySelector('.pane-status') as HTMLElement).textContent).toBe('');
+    (pane.querySelector('.pane-close') as HTMLButtonElement).click(); // restore the empty row
+  });
+
   it('empty state reuses the pane port select and remembers the last-used port', async () => {
     fire({ type: 'ports', ports: [{ path: 'COM10' }, { path: 'COM12', description: 'pair' }] });
     // the select is the SAME control the pane bars use — same class, and

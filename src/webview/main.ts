@@ -1010,12 +1010,12 @@ function renderPaneStatus(s: PaneSession): void {
   const el = s.dom.status;
   const text = s.message || stateText(s);
   setTip(el, text);
-  if (s.transientMessage && s.transientUntil !== undefined && Date.now() < s.transientUntil) {
-    el.textContent = s.transientMessage;
-    return;
+  // The BAR never carries message text — transient messages surface in the
+  // content area (refreshPaneControls writes them into the pane hint).
+  if (!(s.transientMessage && s.transientUntil !== undefined && Date.now() < s.transientUntil)) {
+    s.transientMessage = undefined;
   }
-  s.transientMessage = undefined;
-  el.textContent = ''; // no icon at the bar tail — the leading dot carries the state
+  el.textContent = '';
 }
 
 function renderEmptyStatus(message?: string): void {
@@ -1037,8 +1037,8 @@ function renderEmptyStatus(message?: string): void {
 /** Transient messages go to the focused pane's status for a few seconds,
  * then the iconized state returns; otherwise the empty row's status shows
  * the summary. */
-function setStatus(message?: string): void {
-  const f = focusedSession();
+function setStatus(message?: string, target?: PaneSession): void {
+  const f = target ?? focusedSession();
   if (f) {
     if (message) {
       f.transientMessage = message;
@@ -1048,10 +1048,10 @@ function setStatus(message?: string): void {
       }
       f.transientTimer = setTimeout(() => {
         f.transientTimer = undefined;
-        renderPaneStatus(f);
+        refreshPaneControls(f); // restores the state hint once the message expires
       }, 4100) as unknown as number;
     }
-    renderPaneStatus(f);
+    refreshPaneControls(f); // writes the hint AND the (textless) status
     return;
   }
   renderEmptyStatus(message);
@@ -1269,7 +1269,8 @@ function refreshPaneControls(s: PaneSession): void {
   d.sendBtn.disabled = !isConnected;
   d.sendInput.placeholder = isConnected ? `To ${s.title}: type a message to send…` : 'Start monitoring to send';
 
-  // Empty-pane hint: connect/wait/stop states would otherwise look frozen.
+  // Content-area hint: empty-pane state hints, and ANY transient message
+  // (open failures, export results) — the bar tail never carries text.
   let hintText = '';
   if (isPort && s.lineStore.length === 0) {
     if (s.state === 'connecting') {
@@ -1279,6 +1280,9 @@ function refreshPaneControls(s: PaneSession): void {
     } else {
       hintText = 'Stopped — press ▶ to start monitoring';
     }
+  }
+  if (s.transientMessage && s.transientUntil !== undefined && Date.now() < s.transientUntil) {
+    hintText = s.transientMessage;
   }
   d.hint.style.display = hintText ? 'flex' : 'none';
   if (hintText) {
@@ -2187,8 +2191,23 @@ window.addEventListener('message', (e: MessageEvent<HostToWebview>) => {
     }
     const wasFocused = focusedId === m.sessionId;
     removeSession(m.sessionId);
+    // After ANY failure, re-derive every surviving pane's control state —
+    // a picker disabled during a transient 'connecting' window must never
+    // stay stuck once the failure is reported.
+    for (const p of sessions) {
+      if (p.kind === 'port') {
+        refreshPaneControls(p);
+      }
+    }
     if (wasFocused || focusedId === undefined) {
-      setStatus(m.message);
+      // The failed session is gone; surface the reason on a SURVIVING
+      // pane's content-area hint instead of dropping it.
+      const target = focusedSession() ?? sessions.find((x) => x.kind === 'port');
+      if (target) {
+        setStatus(m.message, target);
+      } else {
+        renderEmptyStatus(m.message);
+      }
     }
   } else if (m.type === 'sessionClosed') {
     removeSession(m.sessionId);

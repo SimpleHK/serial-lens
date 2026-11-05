@@ -546,11 +546,15 @@ describe('per-pane config and doubled controls', () => {
       expect(status.getAttribute('aria-label')).toBe('Connected');
       expect(status.title).toContain('Connected');
 
-      // a transient message shows as text, then the readout clears again
+      // a transient message surfaces in the CONTENT area (the pane hint),
+      // never as text inside the bar
       fire({ type: 'status', message: 'Exported 12 lines to x.log' });
-      expect(status.textContent).toContain('Exported 12 lines');
-      vi.advanceTimersByTime(4100);
+      const hint = pane.querySelector('.pane-hint') as HTMLElement;
+      expect(hint.style.display).toBe('flex');
+      expect(hint.textContent).toContain('Exported 12 lines to x.log');
       expect(status.textContent).toBe('');
+      vi.advanceTimersByTime(4100);
+      expect(hint.textContent).not.toContain('Exported 12 lines');
       expect(status.getAttribute('aria-label')).toBe('Connected');
     } finally {
       vi.useRealTimers();
