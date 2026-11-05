@@ -66,6 +66,10 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   .pane-params select { cursor: pointer; }
   /* Empty-state direct start bar. */
   .start-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; }
+  /* Bar subdivisions wrap as whole blocks: a narrow panel breaks the bar
+   * BETWEEN groups (config / ＋+refresh / start-stop / actions / globals),
+   * never inside one, and no group is squeezed. */
+  .bar-group { display: inline-flex; align-items: center; gap: 3px; flex: none; }
   /* The wide primary button shared by the start bar and every pane bar —
    * one secondary style in every state; only the glyph/label flips. */
   .start-stop { width: 42px; height: 26px; padding: 0; justify-content: center; font-weight: 600; border: none; border-radius: var(--sm-radius);

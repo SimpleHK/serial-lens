@@ -328,63 +328,53 @@ describe('port switching & control placement', () => {
     expect(posted).toContainEqual(expect.objectContaining({ type: 'connect', port: 'COM12' }));
   });
 
-  it('unified session bar: ＋/refresh left of start-stop; hint lives in the content area', () => {
+  it('unified session bar: one grouped shape for empty and connected states', () => {
     fire({ type: 'ports', ports: [{ path: 'COM151', description: 'USB' }] });
-    // EMPTY state
+    // EMPTY state. The bar is four whole-block groups: config head (dot +
+    // select + baud + params), ＋+refresh, the wide primary button, and the
+    // pane actions. Groups wrap as blocks and are never squeezed.
     const row = document.querySelector('#panes .empty-row') as HTMLElement;
     const add = row.querySelector('.add-monitor') as HTMLButtonElement;
     expect(add.disabled).toBe(true); // ＋ is for the SECOND monitor
-    const refresh = row.querySelector('.refresh-btn') as HTMLElement;
-    expect(refresh).toBeTruthy();
-    const start = row.querySelector('.start-stop') as HTMLElement;
-    // Order checks use the start-bar child index: happy-dom's
-    // compareDocumentPosition is unreliable for same-parent siblings, and
-    // the browser DOM is the ground truth for the real order.
     const bar = row.querySelector('.start-bar') as HTMLElement;
-    // the empty bar mirrors the connected one: a status dot leads it
-    expect(bar.querySelector('.tab-dot')).toBeTruthy();
-    // …and it wraps like the pane header — without wrap, the flex shrink
-    // squeezes the port select down to its min-width and the two states
-    // render different widths
-    const css = document.querySelector('style')?.textContent ?? '';
-    expect(css.match(/\.start-bar \{[^}]*\}/)?.[0]).toContain('flex-wrap: wrap');
+    const shape = (scope: HTMLElement) =>
+      Array.from(scope.children)
+        .map((c) => c.className + (c.children.length ? `[${c.children.length}]` : ''))
+        .join(' | ');
+    expect(shape(bar)).toBe('bar-group[5] | bar-group[2] | start-stop | bar-group[7]');
     const startEl = row.querySelector('.start-stop') as HTMLButtonElement;
     expect(startEl.textContent).toBe('▶'); // glyph only — the wide button carries no text
     expect(startEl.getAttribute('aria-label')).toBe('Start monitoring');
-    const barIndex = (sel: string) => Array.from(bar.children).findIndex((c) => c.matches(sel));
-    const startIndex = barIndex('.start-stop');
-    expect(startIndex).toBeGreaterThan(-1);
-    expect(barIndex('.add-monitor')).toBeLessThan(startIndex);
-    expect(barIndex('.refresh-btn')).toBeLessThan(startIndex);
+    // wrap contract: without wrap the flex shrink squeezes the port select
+    // down to its min-width and the two states render different widths
+    const css = document.querySelector('style')?.textContent ?? '';
+    expect(css.match(/\.start-bar \{[^}]*\}/)?.[0]).toContain('flex-wrap: wrap');
     // the bar no longer carries the hint; the content area does
     expect(row.textContent).not.toContain('No monitors open');
     const hint = document.querySelector('#panes .empty-hint') as HTMLElement;
     expect(hint.textContent).toContain('No monitors open');
-    // the pane-action icons are ALWAYS present: dead in the empty row,
-    // live on panes — the two states share the full bar shape
+    // the pane-action icons are ALWAYS present: dead in the empty row
     const actions = Array.from(
       row.querySelectorAll('.send-toggle, .clear-btn, .log-btn, .export-btn, .scroll-btn, .find-btn, .pane-close'),
     ) as HTMLButtonElement[];
     expect(actions.length).toBe(7);
     expect(actions.every((b) => b.disabled)).toBe(true);
-    for (const sel of ['.send-toggle', '.clear-btn', '.log-btn', '.export-btn', '.scroll-btn', '.find-btn', '.pane-close']) {
-      expect(barIndex(sel), sel).toBeGreaterThan(startIndex);
-    }
-    // PANE state
+    expect(new Set(actions.map((b) => b.parentElement))).toHaveLength(1); // one block
+
+    // PANE state — the same shape, everything live
     fire({ type: 'sessionCreated', sessionId: 120, kind: 'port', title: 'COM195', state: 'connected', settings: { ...S } });
+    fire({ type: 'append', sessionId: 120, dropCount: 0, lines: ['hello'], timestamps: [1] });
     const pane = paneByTitle('COM195');
-    const pAdd = pane.querySelector('.add-monitor') as HTMLElement;
     const play = pane.querySelector('.start-stop') as HTMLElement;
     expect(play.textContent).toBe('■'); // glyph only
     expect(play.getAttribute('aria-label')).toBe('Stop monitoring COM195');
-    const paneBar = pane.querySelector('.pane-header') as HTMLElement;
-    const paneIndex = (sel: string) => Array.from(paneBar.children).findIndex((c) => c.matches(sel));
-    const playIndex = paneIndex('.start-stop');
-    expect(playIndex).toBeGreaterThan(-1);
-    expect(paneIndex('.add-monitor')).toBeLessThan(playIndex);
-    expect(paneIndex('.refresh-btn')).toBeLessThan(playIndex);
-    const pRefresh = pane.querySelector('.refresh-btn') as HTMLElement;
-    expect(pRefresh).toBeTruthy();
+    const paneActions = Array.from(
+      pane.querySelectorAll('.send-toggle, .clear-btn, .log-btn, .export-btn, .scroll-btn, .find-btn, .pane-close'),
+    ) as HTMLElement[];
+    expect(paneActions.every((b) => (b as HTMLButtonElement).disabled === false)).toBe(true);
+    expect(new Set(paneActions.map((b) => b.parentElement))).toHaveLength(1);
+    const paneHeader = pane.querySelector('.pane-header') as HTMLElement;
+    expect(shape(paneHeader)).toBe('bar-group[6] | bar-group[2] | start-stop | bar-group[7] | global-seg[7]');
     // the global seg no longer holds ＋/refresh
     const seg = pane.querySelector('.global-seg') as HTMLElement;
     expect(seg.querySelector('.add-monitor')).toBeNull();
@@ -403,6 +393,7 @@ describe('port switching & control placement', () => {
     expect(sel.options[1].getAttribute('title')).toBe('COM12 — pair');
     // open COM12, then close it: the empty bar keeps COM12 selected
     fire({ type: 'sessionCreated', sessionId: 130, kind: 'port', title: 'COM12', state: 'connected', settings: { ...S } });
+    fire({ type: 'append', sessionId: 130, dropCount: 0, lines: ['hello 1'], timestamps: [1] });
     fire({ type: 'sessionClosed', sessionId: 130 });
     const sel2 = document.querySelector('#panes .start-bar select.ph-port') as HTMLSelectElement;
     expect(sel2.value).toBe('COM12'); // not reset to the first port

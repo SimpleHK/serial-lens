@@ -395,6 +395,14 @@ const mkSelect = (options: string[], value: string, cls: string, ctlTitle: strin
   return sel;
 };
 
+/** A bar subdivision that wraps as a whole block: on narrow panels the
+ * bar breaks BETWEEN groups, never inside one, and groups never shrink. */
+function newBarGroup(): HTMLSpanElement {
+  const g = document.createElement('span');
+  g.className = 'bar-group';
+  return g;
+}
+
 interface PaneActionButtons {
   sendToggle: HTMLButtonElement;
   clearBtn: HTMLButtonElement;
@@ -1090,7 +1098,6 @@ function syncEmptyState(): void {
     startBar.className = 'start-bar';
     const dot = document.createElement('span');
     dot.className = 'tab-dot'; // gray while idle; green once a session is live
-    startBar.appendChild(dot);
     startPortSelect = document.createElement('select');
     startPortSelect.className = 'ph-ctl ph-port'; // the pane's own control, unmodified
     startPortSelect.title = 'Port';
@@ -1147,25 +1154,16 @@ function syncEmptyState(): void {
     // Pane actions are ALWAYS present (prototype verdict): dead in the
     // empty row, live on panes — the two states share the full bar shape.
     const actions = buildPaneActionButtons();
+    const actionGroup = newBarGroup();
     for (const b of Object.values(actions)) {
       b.disabled = true; // nothing to act on until a pane exists
+      actionGroup.appendChild(b);
     }
-    startBar.append(
-      startPortSelect,
-      ctl.baudWrap,
-      ctl.paramsToggle,
-      ctl.params,
-      controls.addWrap,
-      controls.refreshBtn,
-      startBtn,
-      actions.sendToggle,
-      actions.clearBtn,
-      actions.logBtn,
-      actions.exportBtn,
-      actions.scrollBtn,
-      actions.findBtn,
-      actions.close,
-    );
+    const head = newBarGroup();
+    head.append(dot, startPortSelect, ctl.baudWrap, ctl.paramsToggle, ctl.params);
+    const addRefresh = newBarGroup();
+    addRefresh.append(controls.addWrap, controls.refreshBtn);
+    startBar.append(head, addRefresh, startBtn, actionGroup);
     refreshStartSelect();
     emptyRefreshStartSelect = refreshStartSelect;
 
@@ -1316,7 +1314,18 @@ function buildPane(s: PaneSession): PaneDom {
   play.className = 'start-stop';
   play.innerHTML = '&#9654;'; // glyph only — the wide button carries no text
   setTip(play, `Start monitoring ${s.title}`);
-  const { sendToggle, clearBtn, logBtn, exportBtn, scrollBtn, findBtn, close } = buildPaneActionButtons();
+  const actions = buildPaneActionButtons();
+  const actionGroup = newBarGroup();
+  actionGroup.append(
+    actions.sendToggle,
+    actions.clearBtn,
+    actions.logBtn,
+    actions.exportBtn,
+    actions.scrollBtn,
+    actions.findBtn,
+    actions.close,
+  );
+  const { sendToggle, clearBtn, logBtn, exportBtn, scrollBtn, findBtn, close } = actions;
 
   let portSelect: HTMLSelectElement | undefined;
   let baudInput: HTMLInputElement | undefined;
@@ -1392,12 +1401,13 @@ function buildPane(s: PaneSession): PaneDom {
       s.lineEnding = leSel!.value;
     });
 
-    bar.append(dot, title, portSelect, ctl.baudWrap, ctl.paramsToggle, ctl.params);
+    const head = newBarGroup();
+    head.append(dot, title, portSelect, ctl.baudWrap, ctl.paramsToggle, ctl.params);
+    bar.append(head);
   } else {
     bar.append(dot, title);
   }
 
-  bar.append(play, sendToggle, clearBtn, logBtn, exportBtn, scrollBtn, findBtn, close);
   root.appendChild(bar);
 
   // Tag chips row: a copy under this pane's control bar (doubled like the
@@ -1653,11 +1663,14 @@ function buildPane(s: PaneSession): PaneDom {
   const spacerBottom = document.createElement('div');
   spacerBottom.className = 'log-spacer';
 
-  // This pane's own copy of the global controls. ＋ and refresh slide in
-  // immediately LEFT of the wide start/stop button (unified-bar verdict).
+  // This pane's own copy of the global controls. ＋ and refresh form one
+  // group that sits immediately LEFT of the wide start/stop button.
   const controls = buildGlobalControls(s);
-  bar.insertBefore(controls.addWrap, play);
-  bar.insertBefore(controls.refreshBtn, play);
+  bar.appendChild(play);
+  const addRefresh = newBarGroup();
+  addRefresh.append(controls.addWrap, controls.refreshBtn);
+  bar.insertBefore(addRefresh, play);
+  bar.appendChild(actionGroup);
   bar.appendChild(controls.seg);
 
   return { root, bar, tags: paneTags, dot, title, play, sendToggle, clearBtn, logBtn, exportBtn, scrollBtn, findBtn, close, portSelect, baudInput, dbSel, paritySel, sbSel, leSel, log: logEl, marks, findMarks, findBar, findInput, findCase, findWord, findRegex, findCount, findPrev, findNext, findClose, sendRow, sendInput, sendBtn, hint, spacerTop, spacerBottom, globalSeg: controls.seg, status: controls.status, ctlRefs: { tagBtn: controls.tagBtn, filterToggleBtn: controls.filterToggleBtn, timestampsBtn: controls.timestampsBtn, logDirBtn: controls.logDirBtn } };
