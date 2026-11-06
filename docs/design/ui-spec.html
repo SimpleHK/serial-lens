@@ -8,7 +8,7 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8">
-<title>Serial Monitor (OSS) — UI 设计稿 v0.3</title>
+<title>Serial Monitor (OSS) — UI 设计稿 v0.4</title>
 <style>
   :root {
     /* VS Code Dark Modern tokens (the webview's design tokens) */
@@ -81,7 +81,7 @@
   .findbar { position:absolute; top:6px; right:26px; display:inline-flex; gap:4px; align-items:center;
              background:var(--ctl); border:1px solid var(--ctlb); border-radius:6px; padding:4px 6px;
              box-shadow:0 4px 14px rgba(0,0,0,.45); }
-  .findbar input { width:150px; height:24px; background:#313131; color:var(--fg);
+  .findbar input { width:168px; height:24px; background:#313131; color:var(--fg);
                    border:1px solid var(--ctlb); border-radius:3px; padding:0 6px; font-size:12px; }
   .findbar input { border-color:#4b5563; }
   .ftoggles { display:inline-flex; align-items:center; background:#313131; border:1px solid #4b5563;
@@ -122,7 +122,7 @@
 <body>
 <div class="wrap">
   <h1>Serial Monitor (OSS) — UI 设计稿</h1>
-  <p class="sub">v0.3 设计语言 · 数据来源：src/webview/monitorPage.ts + src/webview/icons.ts · 主题基准：VS Code Dark Modern</p>
+  <p class="sub">v0.4 设计语言 · 数据来源：src/webview/monitorPage.ts + src/webview/icons.ts · 主题基准：VS Code Dark Modern</p>
   <div class="chips">
     <span class="chip">一条 bar 通吃三态</span>
     <span class="chip">组式换行（组内不拆）</span>
@@ -195,9 +195,9 @@
   <div class="anno">
     <b>组 1 · 配置</b>：状态点 8px · 端口选择 140×26 · 波特率 70×26（tabular-nums）· ☰ 参数开关（数据位/校验/停止位/行尾收起于内容区开关）。<br>
     <b>组 2 · ＋/刷新</b>：＋ 仅为开第二个监视器（空状态禁用）；刷新保持端口列表新鲜。<br>
-    <b>组 3 · 主按钮</b>：48×28，▶ 启动（蓝）↔ ■ 停止（次级色），仅图标无文字，aria-label 承载语义。<br>
+    <b>组 3 · 主按钮</b>：48×28，▶ 启动 ↔ ■ 停止——同一款次级样式贯穿两态（10db224 裁决：蓝色主按钮已退役），仅图标无文字，aria-label 承载语义。<br>
     <b>组 4 · 面板动作</b>：⌨ 发送栏 · 🗑 清除（48×28，紧邻主按钮）· ⚪/🔴 日志 · 📤 导出 · ↓/🔒 跟随 · 🔍 查找 · × 关闭。<br>
-    <b>组 5 · 全局段</b>：漏斗过滤 · ⏱ 时间戳 · 📁 日志目录 · 📂 打开日志 · 🏷 建标签 · ⚙ 管理 · 状态读出（仅瞬态文字，常驻图标已由圆点取代）。<br>
+    <b>组 5 · 全局段</b>：漏斗过滤 · ⏱ 时间戳 · 📁 日志目录 · 📂 打开日志 · 🏷 建标签 · ⚙ 管理。状态由圆点承载；瞬态消息（导出结果、打开失败）出现在内容区，bar 无文字。<br>
     <b>内容区</b>：行高 20px 整数 · 标签整行染色（27% 透明度 + 左色条）· 右缘 4px 概览标记条（点击跳转）。
   </div>
 
@@ -307,7 +307,7 @@
   <div class="states">
     <div class="st"><div class="cap">悬停</div><div class="bar"><button class="ibtn" style="background:var(--hover)">🔄</button><button class="pbtn" style="background:var(--hover)">🔍</button></div><div style="height:20px; background:var(--bg)"></div></div>
     <div class="st"><div class="cap">录制中（日志写盘）</div><div class="bar"><button class="pbtn rec" style="background:var(--hover)">🔴</button></div><div style="height:44px; background:var(--bg)"></div></div>
-    <div class="st"><div class="cap">锁定滚动（🔔 替代 ↓）</div><div class="bar"><button class="pbtn" style="background:var(--hover); color:var(--yellow)">🔒</button></div><div style="height:44px; background:var(--bg)"></div></div>
+    <div class="st"><div class="cap">锁定滚动（🔒 替代 ↓）</div><div class="bar"><button class="pbtn" style="background:var(--hover); color:var(--yellow)">🔒</button></div><div style="height:44px; background:var(--bg)"></div></div>
   </div>
   <div class="anno">悬停 = 背景 hover 色 · 禁用 = 40% 透明 · 录制 = 红色圆点 · 锁定 = 黄色锁 · 焦点 = 1px focusBorder 轮廓（键盘可见）。</div>
 </div>

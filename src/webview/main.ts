@@ -305,7 +305,7 @@ function buildGlobalControls(owner: PaneSession | undefined): {
   tagBtn.addEventListener('mousedown', (e) => e.preventDefault());
 
   const manageToggleBtn = mkBtn('icon-btn manage-toggle', icon('gear'), 'Manage tags');
-  manageToggleBtn.disabled = !owner; // tags live on panes (ADR-0006)
+  manageToggleBtn.disabled = !owner || owner.isEmpty === true; // tags live on panes (ADR-0006)
   manageToggleBtn.addEventListener('click', () => {
     manageOpen = !manageOpen;
     renderManagePanel();
@@ -1009,9 +1009,9 @@ function stateText(s: PaneSession): string {
 /** The pane's status readout: an iconized connection state (✔/⌛/○, the
  * accessible name carries the full text) unless a transient message is on
  * display. */
-/** Transient messages go to the focused pane's status for a few seconds,
- * then the iconized state returns; otherwise the empty row's status shows
- * the summary. */
+/** Transient messages go to the focused surface's content-area hint for a
+ * few seconds, then the state hint returns. The empty surface is reached
+ * when no pane is focused. */
 function setStatus(message?: string, target?: PaneSession): void {
   const f = target ?? focusedSession();
   if (f) {
@@ -1095,9 +1095,11 @@ function refreshPaneControls(s: PaneSession): void {
     d.play.disabled = s.state === 'connecting' || (s.isEmpty === true && !lastPorts.length);
   }
 
-  d.clearBtn.disabled = s.lineStore.length === 0 && !isConnected;
+  // The empty surface has nothing to clear: the button renders dead there
+  // (ui-spec §3: 空状态 — 全部控件在场，动作禁用).
+  d.clearBtn.disabled = s.isEmpty === true || (s.lineStore.length === 0 && !isConnected);
   setTip(d.clearBtn, `Clear ${s.title}`);
-  d.exportBtn.disabled = s.lineStore.length === 0;
+  d.exportBtn.disabled = s.lineStore.length === 0 || s.isEmpty === true;
   setTip(d.exportBtn, `Export ${s.title}'s buffered log to a file`);
 
   if (d.logBtn) {
@@ -2221,19 +2223,32 @@ function rebuildPortOptions(s: PaneSession): void {
 }
 
 // Ctrl+F finds in the focused pane; F3 / Shift+F3 walk the matches.
+//
+// These keys are SWALLOWED at this layer — not just preventDefault'd. VS
+// Code injects a window-level keydown forwarder into every webview
+// (handleInnerKeydown in webview/browser/pre: it preventDefaults
+// isFindEvent(e) and STILL posts 'did-keydown' to the workbench, where the
+// keybinding re-opens the last editor's find widget and steals focus). Our
+// listener runs first (document bubble < window bubble), so
+// stopImmediatePropagation cuts the forward off before the injected script
+// ever sees the key.
+function swallowHostKey(e: KeyboardEvent): void {
+  e.preventDefault();
+  e.stopImmediatePropagation();
+}
 document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+    swallowHostKey(e);
     const f = focusedSession();
     if (f) {
-      e.preventDefault();
       openFind(f);
     }
     return;
   }
   if (e.key === 'F3') {
+    swallowHostKey(e);
     const f = focusedSession();
     if (f && f.find.open) {
-      e.preventDefault();
       navigateFind(f, e.shiftKey ? -1 : 1);
     }
   }

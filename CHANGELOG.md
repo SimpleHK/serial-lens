@@ -11,7 +11,7 @@ adheres to [Semantic Versioning](https://semver.org/).
 - **The empty state is a pane-shaped Session** — one bar builder, one
   refresh path for both states; the parallel assembly, the second port-pick
   policy, and four module-level state variables are deleted (net −69 lines).
-- **Tag list changes flow through a single `setTags` gateway**; the funnel
+- **Tag list changes flow through a single gateway** (`setTags`/`applyTagEdit`); the funnel
   icon joined the SVG icon set (no inline SVG or emoji left in the toolbar).
 - Find widget redesigned to the VS Code anatomy: segmented toggle group
   glued to the input, no-results feedback on the input border, nav group.

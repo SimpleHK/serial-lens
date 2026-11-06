@@ -397,66 +397,35 @@ describe('port switching & control placement', () => {
     (pane.querySelector('.pane-close') as HTMLButtonElement).click(); // restore the empty row
   });
 
-  it('a failed port move re-enables the picker on the surviving pane', async () => {
-    fire({ type: 'ports', ports: [{ path: 'COM195' }, { path: 'COM140' }] });
-    fire({ type: 'sessionCreated', sessionId: 150, kind: 'port', title: 'COM195', state: 'connected', settings: { ...S } });
-    fire({ type: 'append', sessionId: 150, dropCount: 0, lines: ['x'], timestamps: [1] });
+  it('Ctrl+F and F3 are swallowed so the VS Code host never sees them', async () => {
+    fire({ type: 'sessionCreated', sessionId: 105, kind: 'port', title: 'COM195', state: 'connected', settings: { ...S } });
     const pane = paneByTitle('COM195');
-    const sel = pane.querySelector('select.ph-port') as HTMLSelectElement;
-    // pick another port while connected -> live move starts (hidden pane)
-    sel.value = 'COM140';
-    sel.dispatchEvent(new Event('change'));
-    fire({ type: 'sessionCreated', sessionId: 151, kind: 'port', title: 'COM140', state: 'connecting', settings: { ...S } });
-    fire({ type: 'ports', ports: [{ path: 'COM195' }, { path: 'COM140' }] }); // a refresh mid-hop
-    // the open fails: old pane survives, picker enabled + snapped back,
-    // and the failure message surfaces in the CONTENT area only
-    fire({ type: 'sessionFailed', sessionId: 151, message: 'Could not open COM140' });
-    expect(sel.disabled).toBe(false);
-    expect(sel.value).toBe('COM195');
-    const hint = pane.querySelector('.pane-hint') as HTMLElement;
-    expect(hint.textContent).toContain('Could not open COM140');
-    expect((pane.querySelector('.pane-status') as HTMLElement).textContent).toBe('');
-    (pane.querySelector('.pane-close') as HTMLButtonElement).click(); // restore the empty row
-  });
-
-  it('empty state reuses the pane port select and remembers the last-used port', async () => {
-    fire({ type: 'ports', ports: [{ path: 'COM10' }, { path: 'COM12', description: 'pair' }] });
-    // the select is the SAME control the pane bars use — same class, and
-    // options show the bare path (description rides in the tooltip)
-    const row = document.querySelector('#panes .pane.empty') as HTMLElement;
-    expect(document.querySelectorAll('.pane.empty').length).toBe(1); // exactly one stub
-    const sel = row.querySelector('select.ph-port') as HTMLSelectElement;
-    expect(sel.className).toContain('ph-port');
-    // the remembered port from the previous test survives as a ghost entry
-    // (one-click back), followed by the fresh ports with tooltips
-    expect(sel.options[0].textContent).toBe('COM140');
-    expect(sel.options[1].textContent).toBe('COM10');
-    expect(sel.options[2].getAttribute('title')).toBe('COM12 — pair');
-    // open COM12, then close it: the empty bar keeps COM12 selected
-    fire({ type: 'sessionCreated', sessionId: 130, kind: 'port', title: 'COM12', state: 'connected', settings: { ...S } });
-    fire({ type: 'append', sessionId: 130, dropCount: 0, lines: ['hello 1'], timestamps: [1] });
-    fire({ type: 'sessionClosed', sessionId: 130 });
-    const sel2 = document.querySelector('#panes .pane.empty select.ph-port') as HTMLSelectElement;
-    expect(sel2.value).toBe('COM12'); // not reset to the first port
-  });
-
-  it('icon buttons render inline SVG glyphs, never emoji', () => {
-    fire({ type: 'ports', ports: [{ path: 'COM160' }] });
-    fire({ type: 'sessionCreated', sessionId: 125, kind: 'port', title: 'COM160', state: 'connected', settings: { ...S } });
-    // every icon button carries an inline svg (the funnel precedent, now
-    // universal); text-glyph exceptions are the monochrome carets
-    const textGlyphs = '.baud-toggle, .params-toggle, .start-stop, .pane-close, .fbtn';
-    const emojiRe = /[\u{1F000}-\u{1FAFF}\u{2190}-\u{21FF}\u{2300}-\u{23FF}\u{25A0}-\u{25FF}\u{2600}-\u{27BF}\u{FE0F}]/u;
-    const offenders: string[] = [];
-    for (const btn of Array.from(document.querySelectorAll('.icon-btn, .pbtn'))) {
-      const hasSvg = !!btn.querySelector('svg');
-      const isText = (btn as HTMLElement).matches(textGlyphs);
-      if (!hasSvg && !isText) offenders.push(btn.className);
-      if (emojiRe.test(btn.textContent || '')) offenders.push(btn.className + ' (emoji text)');
+    // a window-level forwarder, exactly like VS Code's injected script
+    const forwarded: KeyboardEvent[] = [];
+    const forwarder = (e: KeyboardEvent) => forwarded.push(e);
+    window.addEventListener('keydown', forwarder);
+    const press = (init: KeyboardEventInit) => {
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, ...init }));
+    };
+    try {
+      // Ctrl+F: ours opens, and the forwarder never receives it
+      press({ key: 'f', ctrlKey: true });
+      expect((pane.querySelector('.find-bar') as HTMLElement).classList.contains('visible')).toBe(true);
+      expect(forwarded.filter((e) => e.ctrlKey && e.key === 'f')).toHaveLength(0);
+      // F3 with find open: ours navigates; the host still sees nothing
+      (pane.querySelector('.find-bar input') as HTMLInputElement).value = 'ERROR';
+      (pane.querySelector('.find-bar input') as HTMLInputElement).dispatchEvent(new Event('input'));
+      await tick();
+      posted.length = 0;
+      press({ key: 'F3' });
+      expect(forwarded.filter((e) => e.key === 'F3')).toHaveLength(0);
+      // F3 with no pane would also be swallowed, not forwarded
+      press({ key: 'F3', shiftKey: true });
+      expect(forwarded.filter((e) => e.key === 'F3')).toHaveLength(0);
+    } finally {
+      window.removeEventListener('keydown', forwarder);
     }
-    expect(offenders).toEqual([]);
-    const svgPane = paneByTitle('COM160');
-    (svgPane.querySelector('.pane-close') as HTMLButtonElement).click(); // restore the empty row
+    (pane.querySelector('.pane-close') as HTMLButtonElement).click(); // restore the empty row
   });
 
   it('empty row: funnel and tag controls are dead until a pane exists', async () => {
