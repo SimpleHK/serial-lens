@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/SimpleHK/vscode-serial-monitor-oss/actions/workflows/ci.yml/badge.svg)](https://github.com/SimpleHK/vscode-serial-monitor-oss/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.3.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.4.0-blue.svg)](CHANGELOG.md)
 
 **Serial streams you can actually read.** Tag any pattern and every matching
 line lights up in its color; collapse ten thousand lines of noise to the ten

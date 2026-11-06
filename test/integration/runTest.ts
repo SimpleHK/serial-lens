@@ -11,7 +11,11 @@ import { runTests } from '@vscode/test-electron';
 async function main(): Promise<void> {
   const repoRoot = path.resolve(__dirname, '..', '..');
   const installed = 'C:/Users/armstrong/AppData/Local/Programs/Microsoft VS Code/Code.exe';
-  const vscodeExecutablePath = process.env.VSCODE_EXECUTABLE ?? (fs.existsSync(installed) ? installed : undefined);
+  // The installed build can be wedged by a stale vscode-updating mutex after
+  // an InnoSetup update; VSCODE_EXECUTABLE overrides, otherwise fall back to
+  // @vscode/test-electron's own download.
+  const override = process.env.VSCODE_EXECUTABLE;
+  const vscodeExecutablePath = override ?? (fs.existsSync(installed) ? installed : undefined);
 
   await runTests({
     extensionDevelopmentPath: repoRoot,
