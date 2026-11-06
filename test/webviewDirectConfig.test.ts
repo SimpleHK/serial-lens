@@ -28,28 +28,32 @@ beforeAll(async () => {
 });
 
 const paneByTitle = (name: string) =>
-  Array.from(document.querySelectorAll('.pane')).find(
-    (p) => p.querySelector('.pane-title')?.textContent?.includes(name),
+  Array.from(document.querySelectorAll('.pane:not(.empty)')).find(
+    (p) =>
+      !p.classList.contains('empty') && // the stub's title mirrors lastUsedPort — never match it
+      p.querySelector('.pane-title')?.textContent?.includes(name),
   ) as HTMLElement;
 
 describe('direct config bar', () => {
   it('shows a start bar with a port picker in the empty state', () => {
     fire({ type: 'ports', ports: [{ path: 'COM150', description: 'USB' }] });
-    const row = document.querySelector('#panes .empty-row') as HTMLElement;
-    expect(row.querySelector('select.start-port')).toBeTruthy();
-    const start = row.querySelector('.start-btn') as HTMLButtonElement;
+    const row = document.querySelector('#panes .pane.empty') as HTMLElement;
+    expect(row?.querySelector('select.ph-port'), row?.outerHTML.slice(0, 500) ?? 'ROW IS NULL').toBeTruthy();
+    const start = row.querySelector('.start-stop') as HTMLButtonElement;
     expect(start).toBeTruthy();
     posted.length = 0;
-    (row.querySelector('select.start-port') as HTMLSelectElement).value = 'COM150';
+    (row.querySelector('select.ph-port') as HTMLSelectElement).value = 'COM150';
     start.click();
     expect(posted).toContainEqual(
       expect.objectContaining({ type: 'connect', port: 'COM150', baudRate: 115200 }),
     );
+    (row.querySelector('.pane-close') as HTMLButtonElement).click(); // restore a fresh empty surface
   });
 
   it('empty-state start bar: baud quick-pick and collapsible params feed the connect', () => {
     fire({ type: 'ports', ports: [{ path: 'COM151', description: 'USB' }] });
-    const row = document.querySelector('#panes .empty-row') as HTMLElement;
+    const row = document.querySelector('#panes .pane.empty') as HTMLElement;
+    (row.querySelector('select.ph-port') as HTMLSelectElement).value = 'COM151'; // pick this test's port
     // baud keeps a visible quick-pick menu, like the pane bar
     const baudToggle = row.querySelector('.baud-toggle') as HTMLButtonElement;
     const menu = row.querySelector('.baud-menu') as HTMLElement;
@@ -74,7 +78,8 @@ describe('direct config bar', () => {
     (row.querySelector('select.ph-parity') as HTMLSelectElement).value = 'even';
     (row.querySelector('select.ph-sb') as HTMLSelectElement).value = '2';
     (row.querySelector('select.ph-le') as HTMLSelectElement).value = 'CRLF';
-    (row.querySelector('.start-btn') as HTMLButtonElement).click();
+    const startBtn2 = row.querySelector('.start-stop') as HTMLButtonElement;
+    startBtn2.click();
     expect(posted).toContainEqual(
       expect.objectContaining({
         type: 'connect',
@@ -319,18 +324,113 @@ describe('port switching & control placement', () => {
       (btn as HTMLButtonElement).click(); // back to the empty state
     }
     fire({ type: 'ports', ports: [{ path: 'COM10' }, { path: 'COM12' }, { path: 'COM13' }] });
-    const sel = document.querySelector('.start-port') as HTMLSelectElement;
+    const sel = document.querySelector('.pane.empty .ph-port') as HTMLSelectElement;
     sel.value = 'COM12';
     fire({ type: 'ports', ports: [{ path: 'COM10' }, { path: 'COM12' }, { path: 'COM13' }] });
     expect(sel.value).toBe('COM12'); // the refresh used to reset it to the first port
     posted.length = 0;
-    (document.querySelector('.start-btn') as HTMLButtonElement).click();
+    (document.querySelector('.start-stop') as HTMLButtonElement).click();
     expect(posted).toContainEqual(expect.objectContaining({ type: 'connect', port: 'COM12' }));
+  });
+
+  it('unified session bar: one grouped shape for empty and connected states', () => {
+    fire({ type: 'ports', ports: [{ path: 'COM151', description: 'USB' }] });
+    // EMPTY state. The bar is four whole-block groups: config head (dot +
+    // select + baud + params), ＋+refresh, the wide primary button, and the
+    // pane actions. Groups wrap as blocks and are never squeezed.
+    const row = document.querySelector('#panes .pane.empty') as HTMLElement;
+    const add = row.querySelector('.add-monitor') as HTMLButtonElement;
+    expect(add.disabled).toBe(true); // ＋ is for the SECOND monitor
+    const bar = row.querySelector('.pane-header') as HTMLElement;
+    const shape = (scope: HTMLElement) =>
+      Array.from(scope.children)
+        .map((c) => c.className + (c.children.length ? `[${c.children.length}]` : ''))
+        .join(' | ');
+    expect(shape(bar)).toBe('bar-group[6] | bar-group[2] | start-stop[1] | pbtn clear-btn[1] | bar-group[6] | global-seg[7]');
+    const startEl = row.querySelector('.start-stop') as HTMLButtonElement;
+    expect(startEl.querySelector('svg')).toBeTruthy(); // svg glyph, no text
+    expect(startEl.textContent).toBe('');
+    expect(startEl.getAttribute('aria-label')).toMatch(/^Start monitoring/);
+    // wrap contract: without wrap the flex shrink squeezes the port select
+    // down to its min-width and the two states render different widths
+    const css = document.querySelector('style')?.textContent ?? '';
+    expect(css.match(/\.start-bar \{[^}]*\}/)?.[0]).toContain('flex-wrap: wrap');
+    // the bar never carries the hint; the content area does
+    expect(row.querySelector('.pane-header')?.textContent ?? '').not.toContain('No monitors open');
+    const hint = document.querySelector('#panes .pane.empty .pane-hint') as HTMLElement;
+    expect(hint.textContent).toContain('No monitors open');
+    // the pane-action icons are ALWAYS present: dead in the empty row
+    const actions = Array.from(
+      row.querySelectorAll('.send-toggle, .clear-btn, .log-btn, .export-btn, .scroll-btn, .find-btn, .pane-close'),
+    ) as HTMLButtonElement[];
+    expect(actions.length).toBe(7);
+    expect(actions.every((b) => b.disabled)).toBe(true);
+    const sixActions = actions.filter((b) => !b.matches('.clear-btn'));
+    expect(new Set(sixActions.map((b) => b.parentElement))).toHaveLength(1); // one block
+    const clearEmpty = actions.find((b) => b.matches('.clear-btn')) as HTMLButtonElement;
+    expect(clearEmpty.parentElement).toBe(startEl.parentElement); // clear sits beside start/stop
+    // size comes from the CSS contract (happy-dom has no layout engine)
+    const cssText = document.querySelector('style')?.textContent ?? '';
+    expect(cssText).toMatch(/\.pbtn\.clear-btn\s*\{[^}]*width:\s*48px/);
+
+    // PANE state — the same shape, everything live
+    fire({ type: 'sessionCreated', sessionId: 120, kind: 'port', title: 'COM195', state: 'connected', settings: { ...S } });
+    fire({ type: 'append', sessionId: 120, dropCount: 0, lines: ['hello'], timestamps: [1] });
+    const pane = paneByTitle('COM195');
+    const play = pane.querySelector('.start-stop') as HTMLElement;
+    expect(play.querySelector('svg')).toBeTruthy(); // svg glyph, no text
+    expect(play.textContent).toBe('');
+    expect(play.getAttribute('aria-label')).toBe('Stop monitoring COM195');
+    const paneActions = Array.from(
+      pane.querySelectorAll('.send-toggle, .clear-btn, .log-btn, .export-btn, .scroll-btn, .find-btn, .pane-close'),
+    ) as HTMLElement[];
+    expect(paneActions.every((b) => (b as HTMLButtonElement).disabled === false)).toBe(true);
+    const sixPane = paneActions.filter((b) => !b.matches('.clear-btn'));
+    expect(new Set(sixPane.map((b) => b.parentElement))).toHaveLength(1);
+    expect(paneActions.find((b) => b.matches('.clear-btn'))).toBeTruthy();
+    const paneHeader = pane.querySelector('.pane-header') as HTMLElement;
+    expect(shape(paneHeader)).toBe('bar-group[6] | bar-group[2] | start-stop[1] | pbtn clear-btn[1] | bar-group[6] | global-seg[7]');
+    // the global seg no longer holds ＋/refresh
+    const seg = pane.querySelector('.global-seg') as HTMLElement;
+    expect(seg.querySelector('.add-monitor')).toBeNull();
+    expect(seg.querySelector('.refresh-btn')).toBeNull();
+    (pane.querySelector('.pane-close') as HTMLButtonElement).click(); // restore the empty row
+  });
+
+  it('Ctrl+F and F3 are swallowed so the VS Code host never sees them', async () => {
+    fire({ type: 'sessionCreated', sessionId: 105, kind: 'port', title: 'COM195', state: 'connected', settings: { ...S } });
+    const pane = paneByTitle('COM195');
+    // a window-level forwarder, exactly like VS Code's injected script
+    const forwarded: KeyboardEvent[] = [];
+    const forwarder = (e: KeyboardEvent) => forwarded.push(e);
+    window.addEventListener('keydown', forwarder);
+    const press = (init: KeyboardEventInit) => {
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, ...init }));
+    };
+    try {
+      // Ctrl+F: ours opens, and the forwarder never receives it
+      press({ key: 'f', ctrlKey: true });
+      expect((pane.querySelector('.find-bar') as HTMLElement).classList.contains('visible')).toBe(true);
+      expect(forwarded.filter((e) => e.ctrlKey && e.key === 'f')).toHaveLength(0);
+      // F3 with find open: ours navigates; the host still sees nothing
+      (pane.querySelector('.find-bar input') as HTMLInputElement).value = 'ERROR';
+      (pane.querySelector('.find-bar input') as HTMLInputElement).dispatchEvent(new Event('input'));
+      await tick();
+      posted.length = 0;
+      press({ key: 'F3' });
+      expect(forwarded.filter((e) => e.key === 'F3')).toHaveLength(0);
+      // F3 with no pane would also be swallowed, not forwarded
+      press({ key: 'F3', shiftKey: true });
+      expect(forwarded.filter((e) => e.key === 'F3')).toHaveLength(0);
+    } finally {
+      window.removeEventListener('keydown', forwarder);
+    }
+    (pane.querySelector('.pane-close') as HTMLButtonElement).click(); // restore the empty row
   });
 
   it('empty row: funnel and tag controls are dead until a pane exists', async () => {
     // the previous test closed every pane; the empty row is up
-    const row = document.querySelector('.empty-row') as HTMLElement;
+    const row = document.querySelector('.pane.empty') as HTMLElement;
     const funnel = row.querySelector('.filter-toggle') as HTMLButtonElement;
     funnel.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     const menu = row.querySelector('.filter-menu') as HTMLElement;

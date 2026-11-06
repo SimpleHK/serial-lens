@@ -35,14 +35,12 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   body.vscode-light { color-scheme: light; }
   /* Drop the mobile double-tap zoom delay on every control. */
   button, select { touch-action: manipulation; }
-  .icon-btn { width: 30px; min-width: 30px; height: 26px; padding: 0; font-size: 17px; display: inline-flex; align-items: center; justify-content: center; }
+  .icon-btn { width: 32px; min-width: 32px; height: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+  .icon-btn svg, .pbtn svg, .start-stop svg { width: 16px; height: 16px; display: block; }
+  .pbtn { font-size: 0; } /* glyph sizing comes from the svg, not the font */
+  .start-stop { font-size: 0; }
   .icon-btn.on { color: var(--vscode-focusBorder); background: var(--vscode-toolbar-hoverBackground); }
   #log-dir.logging, .log-dir.logging { color: var(--vscode-charts-red, #f14c4c); }
-  /* Funnel glyph for the tag-filter control (inline mask, tints via currentColor). */
-  /* Funnel glyph for the tag-filter control: an INLINE svg — a CSS mask
-   * url(data:) is blocked by the webview CSP and renders blank. */
-  .filter-glyph { display: inline-flex; color: inherit; }
-  .filter-glyph svg { width: 16px; height: 16px; display: block; }
   .baud-menu { display: none; }
   .baud-menu.visible { display: block; }
   .menu-wrap { position: relative; display: inline-flex; }
@@ -65,11 +63,23 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   .pane-params { display: none; align-items: center; gap: 3px; }
   .pane-params select { cursor: pointer; }
   /* Empty-state direct start bar. */
-  .start-bar { display: inline-flex; align-items: center; gap: 6px; }
-  .start-btn { height: 26px; padding: 0 12px; font-weight: 600; background: var(--vscode-button-background); color: var(--vscode-button-foreground); border-radius: var(--sm-radius); }
-  .start-btn:hover:enabled { background: var(--vscode-button-hoverBackground); }
-  .start-btn:disabled { opacity: 0.4; cursor: default; }
-  .start-port { min-width: 140px; }
+  .start-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+  /* Bar subdivisions wrap as whole blocks: a narrow panel breaks the bar
+   * BETWEEN groups (config / ＋+refresh / start-stop / actions / globals),
+   * never inside one, and no group is squeezed. */
+  .bar-group { display: inline-flex; align-items: center; gap: 4px; flex: none; }
+  /* The wide primary button shared by the start bar and every pane bar —
+   * one secondary style in every state; only the glyph/label flips. */
+  .start-stop { width: 48px; height: 28px; padding: 0; justify-content: center; font-weight: 600; border: none; border-radius: var(--sm-radius);
+                background: var(--vscode-button-secondaryBackground, var(--vscode-dropdown-background));
+                color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+                cursor: pointer; display: inline-flex; align-items: center; gap: 6px; font-family: inherit; flex: none; }
+  .start-stop:hover:enabled { filter: brightness(1.15); }
+  .start-stop:disabled { opacity: 0.4; cursor: default; }
+  /* The empty state: bar on top, the old bar-hint now a content-area note. */
+  .empty-state { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .empty-hint { flex: 1; display: flex; align-items: center; justify-content: center;
+                color: var(--vscode-descriptionForeground); padding: 12px; }
   .chip { border: 1px solid; border-radius: 999px; padding: 2px 12px; font-size: 1em; height: auto; background: transparent; color: var(--vscode-foreground); }
   .chip:hover:enabled { filter: brightness(1.2); }
   .chip-off { opacity: 0.45; }
@@ -92,13 +102,13 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   .pane-divider { flex: 0 0 1px; background: var(--vscode-panel-border); cursor: col-resize; position: relative; z-index: 6; }
   .pane-divider::after { content: ''; position: absolute; top: 0; bottom: 0; left: -3px; right: -3px; }
   body.pane-dragging { cursor: col-resize; user-select: none; }
-  .pane-header { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; min-height: 30px; padding: 2px 4px 2px 8px; border-bottom: 1px solid var(--vscode-panel-border); user-select: none; }
+  .pane-header { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-height: 34px; padding: 3px 4px 3px 8px; border-bottom: 1px solid var(--vscode-panel-border); user-select: none; }
   .pane-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 2px; color: var(--vscode-descriptionForeground); }
   .tab-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--vscode-descriptionForeground); opacity: 0.5; flex: none; margin-right: 3px; }
   .tab-dot.live { background: var(--vscode-charts-green, #89d185); opacity: 1; }
   .tab-dot.pending { background: var(--vscode-charts-yellow, #ddb100); opacity: 1; }
   /* Per-pane serial config, embedded in the pane bar. */
-  .ph-ctl { height: 24px; font-size: 13px; background: var(--vscode-dropdown-background); color: var(--vscode-dropdown-foreground); border: 1px solid transparent; border-radius: 3px; padding: 0 5px; outline: none; font-family: inherit; }
+  .ph-ctl { height: 26px; font-size: 13px; background: var(--vscode-dropdown-background); color: var(--vscode-dropdown-foreground); border: 1px solid transparent; border-radius: 3px; padding: 0 5px; outline: none; font-family: inherit; }
   .ph-ctl:hover:enabled { border-color: var(--vscode-dropdown-border); }
   .ph-ctl:focus:enabled { border-color: var(--vscode-focusBorder); }
   /* A locked control must LOOK locked, or it reads as broken. */
@@ -107,7 +117,8 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   .ph-port { flex: 0 1 140px; min-width: 92px; }
   .ph-baud { width: 70px; text-align: right; font-variant-numeric: tabular-nums; }
   .ph-db { width: 46px; } .ph-parity { width: 68px; } .ph-sb { width: 46px; } .ph-le { width: 58px; }
-  .pbtn { width: 26px; min-width: 26px; height: 26px; padding: 0; font-size: 15px; border-radius: 3px; flex: none; display: inline-flex; align-items: center; justify-content: center; }
+  .pbtn { width: 28px; min-width: 28px; height: 28px; padding: 0; border-radius: 3px; flex: none; display: inline-flex; align-items: center; justify-content: center; }
+  .pbtn.clear-btn { width: 48px; height: 28px; }
   .pbtn.on { color: var(--vscode-focusBorder); }
   .pbtn.rec { color: var(--vscode-charts-red, #f14c4c); }
   .pbtn.locked { color: var(--vscode-charts-yellow, #ddb100); }
@@ -119,11 +130,9 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
    * opening a port). */
   .global-seg { display: flex; align-items: center; gap: 2px; padding-left: 6px; border-left: 1px solid var(--vscode-panel-border); align-self: stretch; }
   .pane-status { display: inline-flex; align-items: center; font-size: 11px; color: var(--vscode-descriptionForeground); padding: 0 4px; white-space: nowrap; }
-  /* Iconized connection state: ✔ connected, ⌛ connecting, ○ idle. */
-  .pane-status .status-icon { font-size: 13px; line-height: 1; }
-  .pane-status .status-icon[data-state='connected'] { color: var(--vscode-charts-green, #89d185); }
-  .pane-status .status-icon[data-state='connecting'] { color: var(--vscode-charts-yellow, #ddb100); }
-  .empty-row { display: flex; flex: none; align-self: flex-start; width: 100%; flex-wrap: wrap; align-items: center; gap: 10px; min-height: 30px; padding: 2px 10px; border-bottom: 1px solid var(--vscode-panel-border); color: var(--vscode-descriptionForeground); font-size: 12px; }
+  /* Matches .pane-header's box and inheritance exactly: same padding, same
+   * foreground, same font size — the two states render one identical bar. */
+  .empty-row { display: flex; flex: none; align-self: flex-start; width: 100%; flex-wrap: wrap; align-items: center; gap: 4px; min-height: 34px; padding: 3px 4px 3px 8px; border-bottom: 1px solid var(--vscode-panel-border); }
   /* The segment loses its pane-bar divider styling inside the empty row. */
   .empty-row .global-seg { margin-left: 0; border-left: none; align-self: center; }
   .pane-body { position: relative; flex: 1; min-height: 0; display: flex; }
@@ -146,20 +155,36 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   .find-marks { display: none; position: absolute; top: 4px; bottom: 4px; right: 19px; width: 3px; z-index: 5; cursor: pointer; }
   .find-marks .tick { position: absolute; left: 0; width: 100%; min-height: 2px; border-radius: 1px; background: rgba(255, 140, 0, 0.8); }
   /* Editor-style find widget: floats over the pane's top-right corner. */
-  .find-bar { display: none; position: absolute; top: 4px; right: 26px; z-index: 8; align-items: center; gap: 4px; padding: 4px 6px;
+  /* Editor-style find widget: segmented toggles glued to the input, count
+   * and nav on the right — mirrors the VS Code find widget anatomy. */
+  .find-bar { display: none; position: absolute; top: 6px; right: 28px; z-index: 8; align-items: center; gap: 6px; padding: 5px;
     background: var(--vscode-editorWidget-background, var(--vscode-dropdown-background));
     color: var(--vscode-editorWidget-foreground, var(--vscode-dropdown-foreground));
     border: 1px solid var(--vscode-editorWidget-border, var(--vscode-dropdown-border));
     border-radius: 6px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45); }
   .find-bar.visible { display: inline-flex; }
-  .find-bar input { width: 170px; height: 22px; box-sizing: border-box; padding: 0 6px; font-size: 12px; font-family: inherit;
+  .find-bar input { width: 168px; height: 24px; box-sizing: border-box; padding: 0 7px; font-size: 12.5px; font-family: inherit;
     background: var(--vscode-input-background); color: var(--vscode-input-foreground);
-    border: 1px solid var(--vscode-input-border, var(--vscode-panel-border)); border-radius: 3px; outline: none; }
+    border: 1px solid var(--vscode-input-border, var(--vscode-panel-border)); border-radius: 4px; outline: none; }
   .find-bar input:focus { border-color: var(--vscode-focusBorder); }
-  .fbtn { width: 24px; min-width: 24px; height: 24px; padding: 0; font-size: 13px; border-radius: 3px; flex: none; }
-  .fbtn.on { background: var(--vscode-inputOption-activeBackground, rgba(255, 255, 255, 0.15)); color: var(--vscode-inputOption-activeForeground, var(--vscode-focusBorder)); outline: 1px solid var(--vscode-inputOption-activeBorder, transparent); }
-  .find-count { font-size: 11px; color: var(--vscode-descriptionForeground); white-space: nowrap; min-width: 64px; text-align: center; user-select: none; }
+  /* no-results feedback on the input itself, like the VS Code find widget */
+  .find-bar:has(.find-count.error) input { border-color: var(--vscode-errorForeground, #f14c4c); }
+  .find-toggles { display: inline-flex; align-items: center; background: var(--vscode-input-background);
+    border: 1px solid var(--vscode-input-border, var(--vscode-panel-border)); border-radius: 4px; overflow: hidden; height: 24px; }
+  .fbtn { width: 25px; min-width: 25px; height: 22px; padding: 0; font-size: 12px; border: none; border-radius: 0;
+    background: transparent; color: var(--vscode-input-foreground, var(--vscode-foreground)); flex: none;
+    display: inline-flex; align-items: center; justify-content: center; font-family: inherit; }
+  .fbtn svg { width: 14px; height: 14px; display: block; }
+  .fbtn + .fbtn { border-left: 1px solid var(--vscode-input-border, var(--vscode-panel-border)); }
+  .fbtn:hover { background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.25)); }
+  .fbtn.on { background: var(--vscode-inputOption-activeBackground, rgba(255, 255, 255, 0.15));
+    color: var(--vscode-inputOption-activeForeground, var(--vscode-focusBorder));
+    box-shadow: inset 0 0 0 1px var(--vscode-inputOption-activeBorder, var(--vscode-focusBorder)); }
+  .find-count { font-size: 11px; color: var(--vscode-descriptionForeground); white-space: nowrap; min-width: 64px;
+    text-align: center; user-select: none; font-variant-numeric: tabular-nums; }
   .find-count.error { color: var(--vscode-errorForeground, #f14c4c); }
+  .find-nav { display: inline-flex; align-items: center; gap: 1px;
+    border-left: 1px solid var(--vscode-input-border, var(--vscode-panel-border)); padding-left: 4px; height: 24px; }
   ::highlight(sm-find) { background-color: rgba(236, 200, 96, 0.45); }
   ::highlight(sm-find-cur) { background-color: rgba(255, 140, 0, 0.65); color: #ffffff; }
   /* Port-local send bar, collapsed by default. */

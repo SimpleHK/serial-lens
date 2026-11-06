@@ -4,6 +4,31 @@ All notable changes to Serial Monitor (OSS) are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] - 2026-11-06
+
+### Changed
+
+- **The empty state is a pane-shaped Session** — one bar builder, one
+  refresh path for both states; the parallel assembly, the second port-pick
+  policy, and four module-level state variables are deleted (net −69 lines).
+- **Tag list changes flow through a single gateway** (`setTags`/`applyTagEdit`); the funnel
+  icon joined the SVG icon set (no inline SVG or emoji left in the toolbar).
+- Find widget redesigned to the VS Code anatomy: segmented toggle group
+  glued to the input, no-results feedback on the input border, nav group.
+- Controls enlarged for click comfort (icons 32×28, actions 28×28);
+  Start/Stop and Clear are 48×28 primaries, Clear sits beside Start/Stop.
+- Per-pane tags and per-pane filter mode (ADR-0006) — a tag created from a
+  pane belongs to that pane alone; each port's set persists separately.
+
+### Fixed
+
+- Port pickers survive their own refresh round-trip; picking another port
+  while connected moves the pane; a failed open re-enables the picker and
+  routes the reason to the content area.
+- Closing a pane mid-restart no longer strands an invisible pane holding a
+  serial port; rapid ▶ cannot stack sessions; Ctrl+F no longer opens the
+  workbench find.
+
 ## [0.3.0] - 2026-11-03
 
 ### Added

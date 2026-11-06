@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<!--
+  Serial Monitor (OSS) — UI Design Spec (设计稿)
+  Source of truth: src/webview/monitorPage.ts (Dark Modern values) +
+  src/webview/icons.ts (SVG icon set). Every measurement on this page is
+  taken from the real implementation.
+-->
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>Serial Monitor (OSS) — UI 设计稿 v0.4</title>
+<style>
+  :root {
+    /* VS Code Dark Modern tokens (the webview's design tokens) */
+    --bg:#1f1f1f; --fg:#cccccc; --dim:#9d9d9d; --border:#2b2b2b;
+    --ctl:#2a2a2a; --ctlb:#3c3c3c; --hover:#2a2d2e;
+    --blue:#0078d4; --green:#89d185; --yellow:#ddb100; --red:#f14c4c;
+    --editor:#1f1f1f; --row:#cccccc;
+    /* spec chrome (this document only) */
+    --spec-bg:#141414; --spec-fg:#d4d4d4; --spec-dim:#8a8a8a;
+    --spec-accent:#569cd6; --spec-line:#3c3c3c; --spec-measure:#e06c75;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--spec-bg); color:var(--spec-fg);
+         font:14px/1.6 'Segoe UI', system-ui, sans-serif; padding-bottom:80px; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  h2 { font-size:17px; margin:56px 0 6px; padding-top:18px; border-top:1px solid var(--spec-line); }
+  .sub { color:var(--spec-dim); margin:0 0 20px; }
+  .wrap { max-width:1060px; margin:0 auto; padding:36px 24px; }
+  .chips { display:flex; gap:8px; flex-wrap:wrap; margin:14px 0 4px; }
+  .chip { border:1px solid var(--spec-line); border-radius:999px; padding:3px 14px;
+          font-size:12px; color:var(--spec-accent); background:#1b1b1b; }
+  .note { font-size:12.5px; color:var(--spec-dim); margin:8px 0 14px; }
+  .stage { background:var(--bg); border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+  .anno { font-size:12px; color:var(--spec-measure); margin:10px 0 22px; line-height:1.7; }
+  .anno b { color:var(--spec-fg); font-weight:600; }
+  code { font:12px Consolas, monospace; background:#1b1b1b; padding:1px 6px; border-radius:3px; }
+
+  /* ============ the real control bar (replica) ============ */
+  .bar { display:flex; flex-wrap:wrap; align-items:center; gap:4px; min-height:34px;
+         padding:3px 4px 3px 8px; border-bottom:1px solid var(--border);
+         background:var(--bg); position:relative; }
+  .bar-group { display:inline-flex; align-items:center; gap:4px; flex:none; position:relative; }
+  .dot { width:8px; height:8px; border-radius:50%; background:var(--green); flex:none; }
+  .dot.idle { background:var(--dim); opacity:.55; }
+  select, input { height:26px; background:var(--ctl); color:var(--fg); border:1px solid transparent;
+                  border-radius:3px; padding:0 5px; font:13px 'Segoe UI', sans-serif; outline:none; }
+  select:hover { border-color:var(--ctlb); }
+  .port { width:140px; }
+  .baud { width:70px; text-align:right; font-variant-numeric:tabular-nums; }
+  .ibtn { width:32px; min-width:32px; height:28px; border:none; border-radius:3px; background:transparent;
+          color:var(--fg); cursor:pointer; display:inline-flex; align-items:center; justify-content:center; }
+  .ibtn:hover { background:var(--hover); }
+  .ibtn:disabled { opacity:.4; cursor:default; }
+  .pbtn { width:28px; min-width:28px; height:28px; border:none; border-radius:3px; background:transparent;
+          color:var(--fg); cursor:pointer; display:inline-flex; align-items:center; justify-content:center; }
+  .pbtn:hover { background:var(--hover); }
+  .pbtn:disabled { opacity:.4; cursor:default; }
+  .pbtn.rec { color:var(--red); }
+  .stop { width:48px; height:28px; border:none; border-radius:3px; background:var(--ctl); color:var(--fg);
+          cursor:pointer; display:inline-flex; align-items:center; justify-content:center; }
+  .clear { width:48px; height:28px; border:none; border-radius:3px; background:transparent; color:var(--fg);
+           cursor:pointer; display:inline-flex; align-items:center; justify-content:center; }
+  .clear:hover { background:var(--hover); }
+  .seg { display:inline-flex; align-items:center; gap:4px; margin-left:auto; padding-left:6px;
+         border-left:1px solid var(--border); align-self:stretch; }
+  .status { font-size:11px; color:var(--dim); padding:0 4px; }
+  .chip { border:1px solid #e06c75; border-radius:999px; padding:2px 12px; font-size:13px;
+          display:inline-flex; gap:4px; align-items:center; background:rgba(224,108,117,.2); color:#e8a6ab; }
+  .chip .s { font-size:10px; padding:0 4px; border-radius:3px; opacity:.5; }
+  .chip .s.on { opacity:1; background:rgba(255,255,255,.15); }
+
+  /* console replica */
+  .console { background:var(--editor); min-height:96px; position:relative; padding:4px 14px 4px 10px;
+             font:13px/20px Consolas, monospace; color:var(--row); }
+  .console .err { background:rgba(224,108,117,.27); display:block; }
+  .console .hl { background:rgba(236,200,96,.45); }
+  .console .cur { background:rgba(255,140,0,.65); color:#fff; }
+  .marks { position:absolute; top:4px; bottom:4px; right:13px; width:4px; }
+  .marks i { position:absolute; left:0; width:100%; min-height:2px; border-radius:1px; background:#e06c75; }
+  .findbar { position:absolute; top:6px; right:26px; display:inline-flex; gap:4px; align-items:center;
+             background:var(--ctl); border:1px solid var(--ctlb); border-radius:6px; padding:4px 6px;
+             box-shadow:0 4px 14px rgba(0,0,0,.45); }
+  .findbar input { width:168px; height:24px; background:#313131; color:var(--fg);
+                   border:1px solid var(--ctlb); border-radius:3px; padding:0 6px; font-size:12px; }
+  .findbar input { border-color:#4b5563; }
+  .ftoggles { display:inline-flex; align-items:center; background:#313131; border:1px solid #4b5563;
+              border-radius:4px; overflow:hidden; height:24px; }
+  .ftoggles .fb { border-left:1px solid #4b5563; }
+  .ftoggles .fb:first-child { border-left:none; }
+  .fb.on { background:rgba(0,120,212,.3); color:var(--blue); box-shadow:inset 0 0 0 1px var(--blue); }
+  .fnav { display:inline-flex; gap:1px; border-left:1px solid #4b5563; padding-left:4px; height:24px; }
+  .count { font-size:11px; color:var(--dim); min-width:56px; text-align:center; }
+
+  /* tokens */
+  .swatches { display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:10px; }
+  .sw { display:flex; gap:10px; align-items:center; border:1px solid var(--spec-line);
+        border-radius:6px; padding:8px 10px; background:#1b1b1b; }
+  .sw i { width:34px; height:34px; border-radius:4px; flex:none; border:1px solid rgba(255,255,255,.12); }
+  .sw .n { font-size:12px; } .sw .v { font-size:11px; color:var(--spec-dim); font-family:Consolas, monospace; }
+  .type { border:1px solid var(--spec-line); border-radius:6px; background:#1b1b1b; padding:12px 16px; margin-top:12px; }
+  .type .r { display:flex; gap:14px; align-items:baseline; padding:4px 0; border-bottom:1px dashed #2a2a2a; }
+  .type .r:last-child { border-bottom:none; }
+  .type .k { width:210px; flex:none; font-size:12px; color:var(--spec-dim); }
+
+  /* icon grid */
+  .igrid { display:grid; grid-template-columns:repeat(auto-fill, minmax(120px, 1fr)); gap:8px; }
+  .icell { border:1px solid var(--spec-line); border-radius:6px; background:#1b1b1b; padding:12px 8px 8px;
+           text-align:center; }
+  .icell .demo { background:var(--bg); border-radius:4px; height:36px; display:flex; align-items:center;
+                 justify-content:center; margin-bottom:6px; }
+  .icell .demo svg { width:16px; height:16px; }
+  .icell .nm { font-size:11px; color:var(--spec-dim); font-family:Consolas, monospace; }
+
+  /* states strip */
+  .states { display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; }
+  .st { border:1px solid var(--spec-line); border-radius:6px; overflow:hidden; }
+  .st .cap { font-size:11px; color:var(--spec-dim); padding:6px 10px; background:#1b1b1b; }
+  .st .bar { min-height:34px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Serial Monitor (OSS) — UI 设计稿</h1>
+  <p class="sub">v0.4 设计语言 · 数据来源：src/webview/monitorPage.ts + src/webview/icons.ts · 主题基准：VS Code Dark Modern</p>
+  <div class="chips">
+    <span class="chip">一条 bar 通吃三态</span>
+    <span class="chip">组式换行（组内不拆）</span>
+    <span class="chip">圆点 = 连接状态</span>
+    <span class="chip">SVG 单色图标</span>
+    <span class="chip">逐面板标签与过滤</span>
+  </div>
+
+  <h2>1 · Design Tokens</h2>
+  <p class="note">全部取自 VS Code Dark Modern 主题变量——webview 不定义自有品牌色，跟随用户主题。</p>
+  <div class="swatches">
+    <div class="sw"><i style="background:#1f1f1f"></i><div><div class="n">editor / bar 背景</div><div class="v">#1f1f1f</div></div></div>
+    <div class="sw"><i style="background:#2a2a2a"></i><div><div class="n">控件背景</div><div class="v">#2a2a2a</div></div></div>
+    <div class="sw"><i style="background:#cccccc"></i><div><div class="n">前景（终端灰）</div><div class="v">#cccccc</div></div></div>
+    <div class="sw"><i style="background:#9d9d9d"></i><div><div class="n">次级文字</div><div class="v">#9d9d9d</div></div></div>
+    <div class="sw"><i style="background:#0078d4"></i><div><div class="n">焦点 / 主按钮（空闲）</div><div class="v">#0078d4</div></div></div>
+    <div class="sw"><i style="background:#89d185"></i><div><div class="n">已连接圆点</div><div class="v">#89d185</div></div></div>
+    <div class="sw"><i style="background:#ddb100"></i><div><div class="n">连接中圆点</div><div class="v">#ddb100</div></div></div>
+    <div class="sw"><i style="background:#f14c4c"></i><div><div class="n">错误 / 录制红</div><div class="v">#f14c4c</div></div></div>
+    <div class="sw"><i style="background:#e06c75"></i><div><div class="n">标签高亮（首色）</div><div class="v">#e06c75 @27%</div></div></div>
+  </div>
+  <div class="type">
+    <div class="r"><span class="k">界面字体</span><span style="font-size:13px">Segoe UI 13px（--vscode-font-family）</span></div>
+    <div class="r"><span class="k">控制台字体</span><span style="font:13px/20px Consolas, monospace">Consolas 13px / 行高 20px 整数（虚拟化契约）</span></div>
+    <div class="r"><span class="k">计数 / 数值</span><span style="font-size:13px; font-variant-numeric:tabular-nums">tabular-nums（波特率、n of m）</span></div>
+    <div class="r"><span class="k">密度</span><span style="font-size:13px">控件高 26–28px · bar 高 34px · 间距 4px</span></div>
+  </div>
+
+  <h2>2 · 统一 Bar 解剖（连接态）</h2>
+  <p class="note">五个组，组内不拆、组间换行。宽度标注为当前实现值。</p>
+  <div class="stage">
+    <div class="bar">
+      <span class="bar-group" style="outline:1px dashed #5a5a5a; outline-offset:2px;">
+        <span class="dot"></span>
+        <select class="port"><option>COM10</option></select>
+        <input class="baud" value="115200">
+        <button class="ibtn" title="params">≡</button>
+      </span>
+      <span class="bar-group" style="outline:1px dashed #5a5a5a; outline-offset:2px;">
+        <button class="ibtn" disabled style="opacity:.4">＋</button>
+        <button class="ibtn">↻</button>
+      </span>
+      <button class="stop">■</button>
+      <button class="clear" title="clear">🗑</button>
+      <span class="bar-group" style="outline:1px dashed #5a5a5a; outline-offset:2px;">
+        <button class="pbtn">⌨</button>
+        <button class="pbtn rec">🔴</button>
+        <button class="pbtn">📤</button>
+        <button class="pbtn">↓</button>
+        <button class="pbtn">🔍</button>
+        <button class="pbtn">×</button>
+      </span>
+      <span class="seg" style="outline:1px dashed #5a5a5a; outline-offset:2px;">
+        <button class="ibtn">漏斗</button>
+        <button class="ibtn">⏱</button>
+        <button class="ibtn">📁</button>
+        <button class="ibtn">📂</button>
+        <button class="ibtn">🏷</button>
+        <button class="ibtn">⚙</button>
+        <span class="status">·</span>
+      </span>
+    </div>
+    <div class="console">
+      <span>[BOOT] firmware v1.2.3 starting</span>
+      <span class="err">[ERROR] checksum mismatch on packet 132</span>
+      <span>[INFO] heartbeat</span>
+      <span class="marks"><i style="top:24px"></i></span>
+    </div>
+  </div>
+  <div class="anno">
+    <b>组 1 · 配置</b>：状态点 8px · 端口选择 140×26 · 波特率 70×26（tabular-nums）· ☰ 参数开关（数据位/校验/停止位/行尾收起于内容区开关）。<br>
+    <b>组 2 · ＋/刷新</b>：＋ 仅为开第二个监视器（空状态禁用）；刷新保持端口列表新鲜。<br>
+    <b>组 3 · 主按钮</b>：48×28，▶ 启动 ↔ ■ 停止——同一款次级样式贯穿两态（10db224 裁决：蓝色主按钮已退役），仅图标无文字，aria-label 承载语义。<br>
+    <b>组 4 · 面板动作</b>：⌨ 发送栏 · 🗑 清除（48×28，紧邻主按钮）· ⚪/🔴 日志 · 📤 导出 · ↓/🔒 跟随 · 🔍 查找 · × 关闭。<br>
+    <b>组 5 · 全局段</b>：漏斗过滤 · ⏱ 时间戳 · 📁 日志目录 · 📂 打开日志 · 🏷 建标签 · ⚙ 管理。状态由圆点承载；瞬态消息（导出结果、打开失败）出现在内容区，bar 无文字。<br>
+    <b>内容区</b>：行高 20px 整数 · 标签整行染色（27% 透明度 + 左色条）· 右缘 4px 概览标记条（点击跳转）。
+  </div>
+
+  <h2>3 · 三态渲染</h2>
+  <div class="states">
+    <div class="st">
+      <div class="cap">空状态 — 全部控件在场，动作禁用</div>
+      <div class="bar">
+        <span class="dot idle"></span>
+        <select class="port"><option>COM10</option></select>
+        <input class="baud" value="115200">
+        <button class="ibtn">≡</button>
+        <button class="ibtn" disabled>＋</button>
+        <button class="ibtn">↻</button>
+        <button class="ibtn" style="background:var(--ctl); color:var(--fg)">▶</button>
+        <button class="pbtn" disabled>⌨</button>
+        <button class="pbtn" disabled>🗑</button>
+        <button class="pbtn" disabled>⚪</button>
+        <button class="pbtn" disabled>📤</button>
+        <button class="pbtn" disabled>↓</button>
+        <button class="pbtn" disabled>🔍</button>
+        <button class="pbtn" disabled>×</button>
+      </div>
+      <div class="console" style="align-items:center; justify-content:center; display:flex; color:var(--dim)">
+        No monitors open — pick a port above and press Start, or open a saved log file (📂)
+      </div>
+    </div>
+    <div class="st">
+      <div class="cap">连接中 — 圆点变黄，选择器锁定</div>
+      <div class="bar">
+        <span class="dot" style="background:var(--yellow)"></span>
+        <select class="port" disabled style="opacity:.6"><option>COM10</option></select>
+        <input class="baud" value="115200" disabled style="opacity:.6">
+        <button class="ibtn">≡</button>
+        <button class="ibtn" disabled>＋</button>
+        <button class="ibtn">↻</button>
+        <button class="stop" style="opacity:.4">■</button>
+        <button class="pbtn">⌨</button>
+        <button class="pbtn">🗑</button>
+        <button class="pbtn">⚪</button>
+        <button class="pbtn">📤</button>
+        <button class="pbtn">↓</button>
+        <button class="pbtn">🔍</button>
+        <button class="pbtn">×</button>
+      </div>
+      <div class="console" style="align-items:center; justify-content:center; display:flex; color:var(--dim)">
+        Connecting to COM10…
+      </div>
+    </div>
+    <div class="st">
+      <div class="cap">已连接 — 全控件可用</div>
+      <div class="bar">
+        <span class="dot"></span>
+        <select class="port"><option>COM10</option></select>
+        <input class="baud" value="115200">
+        <button class="ibtn">≡</button>
+        <button class="ibtn">＋</button>
+        <button class="ibtn">↻</button>
+        <button class="stop">■</button>
+        <button class="pbtn">⌨</button>
+        <button class="pbtn">🗑</button>
+        <button class="pbtn rec">🔴</button>
+        <button class="pbtn">📤</button>
+        <button class="pbtn" style="color:var(--yellow)">🔒</button>
+        <button class="pbtn">🔍</button>
+        <button class="pbtn">×</button>
+      </div>
+      <div class="console">
+        <span>[INFO] streaming…</span>
+        <span class="marks"><i style="top:6px"></i><i style="top:16px"></i></span>
+      </div>
+    </div>
+  </div>
+  <div class="anno">两态结构完全一致，仅三处功能差异：<b>圆点颜色</b>（灰/黄/绿）、<b>主按钮图标</b>（▶/■）、<b>禁用态</b>（透明度 40%）。错误与瞬态消息出现在<b>内容区</b>（居中），bar 尾部永远无文字。</div>
+
+  <h2>4 · 查找部件（每面板独立）</h2>
+  <div class="stage">
+    <div class="console" style="min-height:110px">
+      <span>[INFO] heartbeat 131151</span><br>
+      <span><span class="hl">[ERROR] checksum mismatch</span> on packet 132151</span><br>
+      <span><span class="cur">[ERROR] checksum mismatch</span> on packet 132152</span><br>
+      <span>[INFO] heartbeat 131152</span>
+      <div class="findbar">
+        <input value="checksum">
+        <span class="ftoggles">
+          <button class="fb on">Aa</button>
+          <button class="fb">ab</button>
+          <button class="fb">.*</button>
+        </span>
+        <span class="count">2 of 8</span>
+        <span class="fnav">
+          <button class="fb">↑</button>
+          <button class="fb">↓</button>
+          <button class="fb">✕</button>
+        </span>
+      </div>
+      <span class="marks"><i style="top:20px"></i><i style="top:40px"></i><i style="top:60px"></i></span>
+    </div>
+  </div>
+  <div class="anno">编辑器式查找：Aa 大小写 · ab 全词 · .* 正则 · <code>n of m</code> 计数 · Enter/Shift+Enter、F3 导航 · 高亮经 CSS Custom Highlight API（不破坏文本选择）· 当前匹配橙色、其余琥珀色 · 右缘橙色刻度条可点击跳转。</div>
+
+  <h2>5 · 图标集（16×16 单线 SVG · currentColor）</h2>
+  <div class="igrid" id="igrid"></div>
+  <div class="note">全部内联 SVG、stroke 1.5、round cap——跟随主题前景色与状态色（录制红、聚焦蓝），高分屏无损。CSP 合规：无外部资源。禁止 emoji 图标（ui-ux-pro-max Priority 4 反模式）。</div>
+
+  <h2>6 · 交互状态</h2>
+  <div class="states">
+    <div class="st"><div class="cap">悬停</div><div class="bar"><button class="ibtn" style="background:var(--hover)">🔄</button><button class="pbtn" style="background:var(--hover)">🔍</button></div><div style="height:20px; background:var(--bg)"></div></div>
+    <div class="st"><div class="cap">录制中（日志写盘）</div><div class="bar"><button class="pbtn rec" style="background:var(--hover)">🔴</button></div><div style="height:44px; background:var(--bg)"></div></div>
+    <div class="st"><div class="cap">锁定滚动（🔒 替代 ↓）</div><div class="bar"><button class="pbtn" style="background:var(--hover); color:var(--yellow)">🔒</button></div><div style="height:44px; background:var(--bg)"></div></div>
+  </div>
+  <div class="anno">悬停 = 背景 hover 色 · 禁用 = 40% 透明 · 录制 = 红色圆点 · 锁定 = 黄色锁 · 焦点 = 1px focusBorder 轮廓（键盘可见）。</div>
+</div>
+
+<script>
+/* icon grid: 与 src/webview/icons.ts 同一渲染函数 */
+const wrap = (b) => `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${b}</svg>`;
+const ICONS = {
+  plus: '<path d="M8 3v10M3 8h10"/>',
+  refresh: '<path d="M13.5 8a5.5 5.5 0 1 1-1.7-4M13.5 2.5v3h-3"/>',
+  clock: '<circle cx="8" cy="8" r="5.5"/><path d="M8 4.8V8l2 2"/>',
+  folder: '<path d="M2.5 12.5v-8h4l1.5 1.8h5.5v6.2a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1z"/>',
+  'folder-open': '<path d="M2.5 12.5v-8h4l1.5 1.8h5.5v1.7"/><path d="M2 12.5l1.6-3.6h10.9l-1.6 3.6a1 1 0 0 1-1 .8H3a1 1 0 0 1-1-.8z"/>',
+  tag: '<path d="M2.5 7.5v-5h5L14 9l-4.5 4.5L2.5 7.5z"/><circle cx="5" cy="5" r="0.9"/>',
+  gear: '<circle cx="8" cy="8" r="2.2"/><path d="M8 1.8v2M8 12.2v2M1.8 8h2M12.2 8h2M3.6 3.6l1.4 1.4M11 11l1.4 1.4M12.4 3.6L11 5M5 11l-1.4 1.4"/>',
+  keyboard: '<rect x="1.8" y="4.8" width="12.4" height="6.9" rx="1"/><path d="M4.2 8h7.6M4.2 10h4.6"/>',
+  trash: '<path d="M2.8 4.2h10.4M6.2 4.2V2.8h3.6v1.4M4.3 4.2l.6 8.8a1 1 0 0 0 1 .9h4.2a1 1 0 0 0 1-.9l.6-8.8M6.7 6.8v3.6M9.3 6.8v3.6"/>',
+  circle: '<circle cx="8" cy="8" r="5.2"/>',
+  'circle-record': '<circle cx="8" cy="8" r="5.2"/><circle cx="8" cy="8" r="2.2" fill="currentColor" stroke="none"/>',
+  export: '<path d="M8 9.5V2.8M5.4 5.2L8 2.6l2.6 2.6M3.2 9.2v3a1 1 0 0 0 1 1h7.6a1 1 0 0 0 1-1v-3"/>',
+  'arrow-down': '<path d="M8 2.8v9.4M4.4 8.6L8 12.2l3.6-3.6"/>',
+  'arrow-up': '<path d="M8 13.2V3.8M4.4 7.4L8 3.8l3.6 3.6"/>',
+  lock: '<rect x="3.4" y="7.2" width="9.2" height="6" rx="1"/><path d="M5.4 7.2V5a2.6 2.6 0 0 1 5.2 0v2.2"/>',
+  search: '<circle cx="7" cy="7" r="4.4"/><path d="M10.2 10.2l3.2 3.2"/>',
+  close: '<path d="M3.8 3.8l8.4 8.4M12.2 3.8l-8.4 8.4"/>',
+  'chevron-down': '<path d="M4 6l4 4 4-4"/>',
+  lines: '<path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/>',
+  play: '<path d="M5.2 3.2l7.2 4.8-7.2 4.8z" fill="currentColor" stroke-width="1"/>',
+  stop: '<rect x="4" y="4" width="8" height="8" rx="0.5" fill="currentColor" stroke-width="1"/>',
+};
+document.getElementById('igrid').innerHTML = Object.entries(ICONS)
+  .map(([n, b]) => `<div class="icell"><div class="demo">${wrap(b)}</div><div class="nm">${n}</div></div>`)
+  .join('');
+</script>
+</body>
+</html>
