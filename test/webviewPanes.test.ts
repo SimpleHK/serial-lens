@@ -79,7 +79,7 @@ describe('split-view panes', () => {
     fire({ type: 'append', sessionId: 3, lines: ['error line one', 'plain line two'], dropCount: 0 });
     await tick();
 
-    const pane = Array.from(document.querySelectorAll('.pane')).find(
+    const pane = Array.from(document.querySelectorAll('.pane:not(.empty)')).find(
       (p) => p.querySelector('.pane-title')?.textContent?.includes('COM11'),
     ) as HTMLElement;
     const row = pane.querySelector('.row-line') as HTMLElement;
@@ -138,7 +138,7 @@ describe('split-view panes', () => {
       state: 'connected',
       settings: { baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' },
     });
-    const pane = Array.from(document.querySelectorAll('.pane')).find(
+    const pane = Array.from(document.querySelectorAll('.pane:not(.empty)')).find(
       (p) => p.querySelector('.pane-title')?.textContent?.includes('COM91'),
     ) as HTMLElement;
     const input = pane.querySelector('.pane-send input') as HTMLInputElement;
@@ -170,7 +170,7 @@ describe('split-view panes', () => {
       title: 'COM92',
       state: 'connecting',
     });
-    const pane = Array.from(document.querySelectorAll('.pane')).find(
+    const pane = Array.from(document.querySelectorAll('.pane:not(.empty)')).find(
       (p) => p.querySelector('.pane-title')?.textContent?.includes('COM92'),
     ) as HTMLElement;
     const hint = pane.querySelector('.pane-hint') as HTMLElement;
@@ -201,7 +201,7 @@ describe('split-view panes', () => {
       dropCount: 0,
     });
     await tick();
-    const pane = Array.from(document.querySelectorAll('.pane')).find(
+    const pane = Array.from(document.querySelectorAll('.pane:not(.empty)')).find(
       (p) => p.querySelector('.pane-title')?.textContent?.includes('COM93'),
     ) as HTMLElement;
     (pane.querySelector('.pbtn[title^="Find"]') as HTMLButtonElement).click();
@@ -261,7 +261,7 @@ describe('per-pane config and doubled controls', () => {
       settings: { baudRate: 9600, dataBits: 7, stopBits: 1, parity: 'even' },
     });
     fire({ type: 'ports', ports: [{ path: 'COM96' }, { path: 'COM97' }] });
-    const pane = Array.from(document.querySelectorAll('.pane')).find(
+    const pane = Array.from(document.querySelectorAll('.pane:not(.empty)')).find(
       (p) => p.querySelector('.pane-title')?.textContent?.includes('COM96'),
     ) as HTMLElement;
     const port = pane.querySelector('select.ph-port') as HTMLSelectElement;
@@ -283,7 +283,7 @@ describe('per-pane config and doubled controls', () => {
       state: 'connected',
       settings: { baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' },
     });
-    const pane = Array.from(document.querySelectorAll('.pane')).find(
+    const pane = Array.from(document.querySelectorAll('.pane:not(.empty)')).find(
       (p) => p.querySelector('.pane-title')?.textContent?.includes('COM100'),
     ) as HTMLElement;
     posted.length = 0;
@@ -325,8 +325,9 @@ describe('per-pane config and doubled controls', () => {
       settings: { baudRate: 19200, dataBits: 8, stopBits: 1, parity: 'none' },
     });
     fire({ type: 'ports', ports: [{ path: 'COM97' }, { path: 'COM101' }] });
-    (document.querySelector('.add-monitor') as HTMLButtonElement).click();
-    const item = document.querySelector('.add-menu .menu-item[data-path="COM97"]') as HTMLElement;
+    const paneAdd = Array.from(document.querySelectorAll('.pane:not(.empty) .add-monitor')).at(-1) as HTMLButtonElement;
+    paneAdd.click();
+    const item = paneAdd.parentElement?.querySelector('.add-menu .menu-item[data-path="COM97"]') as HTMLElement;
     expect(item).toBeTruthy();
     posted.length = 0;
     item.click();
@@ -346,7 +347,7 @@ describe('per-pane config and doubled controls', () => {
       state: 'connected',
       settings: { baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' },
     });
-    const pane = Array.from(document.querySelectorAll('.pane')).find(
+    const pane = Array.from(document.querySelectorAll('.pane:not(.empty)')).find(
       (p) => p.querySelector('.pane-title')?.textContent?.includes('COM98'),
     ) as HTMLElement;
     const sendRow = pane.querySelector('.pane-send') as HTMLElement;
@@ -365,7 +366,7 @@ describe('per-pane config and doubled controls', () => {
     fire({ type: 'sessionCreated', sessionId: 46, kind: 'port', title: 'COM103', state: 'connected', settings: { ...S } });
     // EVERY pane carries its OWN global controls (add/refresh/filter/...),
     // whatever other panes are already open.
-    const panes = Array.from(document.querySelectorAll('.pane'));
+    const panes = Array.from(document.querySelectorAll('.pane:not(.empty)'));
     expect(panes.length).toBeGreaterThan(1);
     for (const pane of panes) {
       expect(pane.querySelectorAll('.global-seg').length).toBe(1);
@@ -375,7 +376,7 @@ describe('per-pane config and doubled controls', () => {
     // the filter control is a funnel glyph, labeled for a11y and tests
     const filter = document.querySelector('.pane .filter-toggle[aria-label="Filter"]') as HTMLElement;
     expect(filter).toBeTruthy();
-    expect(filter.querySelector('.filter-glyph')).toBeTruthy();
+    expect(filter.querySelector('svg')).toBeTruthy();
     // focusing either pane must NOT re-parent anything
     const before = panes.map((p) => p.querySelector('.global-seg'));
     (panes[0] as HTMLElement).click();
@@ -394,26 +395,26 @@ describe('per-pane config and doubled controls', () => {
     for (const id of [1, 2, 3, 20, 21, 22, 23, 30, 40, 41, 42, 43, 44, 45, 46]) {
       fire({ type: 'sessionClosed', sessionId: id });
     }
-    expect(document.querySelectorAll('.pane').length).toBe(0);
-    const row = document.querySelector('#panes .empty-row') as HTMLElement;
+    expect(document.querySelectorAll('.pane:not(.empty)').length).toBe(0);
+    const row = document.querySelector('#panes .pane.empty') as HTMLElement;
     expect(row).toBeTruthy();
     expect(row.querySelector('.add-monitor')).toBeTruthy();
     expect((row.querySelector('.add-monitor') as HTMLButtonElement).disabled).toBe(true); // ＋ = second monitor
     expect(row.querySelector('.global-seg')).toBeTruthy();
-    expect((document.querySelector('#panes .empty-hint') as HTMLElement).textContent).toContain('No monitors open');
+    expect((document.querySelector('#panes .pane.empty .pane-hint') as HTMLElement).textContent).toContain('No monitors open');
   });
 
   it('replaces a stopped pane only after the restart connects', async () => {
     // Two-phase restart: ▶ on a stopped pane opens a NEW session; the old
     // pane survives until the new one goes live.
     fire({ type: 'sessionCreated', sessionId: 60, kind: 'port', title: 'COM120', state: 'idle' });
-    const pane = Array.from(document.querySelectorAll('.pane')).find(
+    const pane = Array.from(document.querySelectorAll('.pane:not(.empty)')).find(
       (p) => p.querySelector('.pane-title')?.textContent?.includes('COM120'),
     ) as HTMLElement;
     posted.length = 0;
     (pane.querySelector('button[title="Start monitoring COM120"]') as HTMLButtonElement).click();
     expect(posted).toContainEqual(expect.objectContaining({ type: 'connect', port: 'COM120' }));
-    expect(document.querySelectorAll('.pane').length).toBe(1); // old pane still there
+    expect(document.querySelectorAll('.pane:not(.empty)').length).toBe(1); // old pane still there
 
     fire({
       type: 'sessionCreated',
@@ -423,12 +424,12 @@ describe('per-pane config and doubled controls', () => {
       state: 'connecting',
       settings: { baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' },
     });
-    expect(document.querySelectorAll('.pane').length).toBe(2); // both in the DOM until connected
+    expect(document.querySelectorAll('.pane:not(.empty)').length).toBe(2); // both in the DOM until connected
     // …but the replacement stays HIDDEN and sits in the old pane's slot —
     // no second view flashes while the restart is in flight (and the new
     // pane takes the old pane's exact position, not the strip end).
     const oldRoot = pane;
-    const newRoot = Array.from(document.querySelectorAll('.pane')).find(
+    const newRoot = Array.from(document.querySelectorAll('.pane:not(.empty)')).find(
       (p) => p !== oldRoot,
     ) as HTMLElement;
     expect(newRoot.style.display).toBe('none');
@@ -438,7 +439,7 @@ describe('per-pane config and doubled controls', () => {
     fire({ type: 'sessionClosed', sessionId: 60 });
     const remaining = Array.from(document.querySelectorAll('.pane .pane-title')).map((t) => t.textContent);
     expect(remaining.filter((x) => x?.includes('COM120')).length).toBe(1);
-    const shown = Array.from(document.querySelectorAll('.pane')).find(
+    const shown = Array.from(document.querySelectorAll('.pane:not(.empty)')).find(
       (p) => p.querySelector('.pane-title')?.textContent?.includes('COM120'),
     ) as HTMLElement;
     expect(shown.style.display).not.toBe('none'); // revealed in place
@@ -446,7 +447,7 @@ describe('per-pane config and doubled controls', () => {
 
   it('a rapid second ▶ on a restarting pane does not stack sessions', async () => {
     fire({ type: 'sessionCreated', sessionId: 62, kind: 'port', title: 'COM121', state: 'idle' });
-    const pane = Array.from(document.querySelectorAll('.pane')).find(
+    const pane = Array.from(document.querySelectorAll('.pane:not(.empty)')).find(
       (p) => p.querySelector('.pane-title')?.textContent?.includes('COM121'),
     ) as HTMLElement;
     const play = pane.querySelector('button[title="Start monitoring COM121"]') as HTMLButtonElement;
@@ -461,7 +462,7 @@ describe('per-pane config and doubled controls', () => {
     // LEAK guard: hiding the replacement during the hop + closing the old
     // pane used to strand an INVISIBLE pane holding a serial port forever.
     fire({ type: 'sessionCreated', sessionId: 160, kind: 'port', title: 'COM130', state: 'connected', settings: { baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' } });
-    const pane = Array.from(document.querySelectorAll('.pane')).find(
+    const pane = Array.from(document.querySelectorAll('.pane:not(.empty)')).find(
       (p) => p.querySelector('.pane-title')?.textContent?.includes('COM130'),
     ) as HTMLElement;
     (pane.querySelector('button[title="Stop monitoring COM130"]') as HTMLButtonElement).click();
@@ -477,7 +478,7 @@ describe('per-pane config and doubled controls', () => {
     });
     // the user closes the old pane while the restart is still in flight
     (pane.querySelector('.pane-close') as HTMLButtonElement).click();
-    const surviving = Array.from(document.querySelectorAll('.pane')).find(
+    const surviving = Array.from(document.querySelectorAll('.pane:not(.empty)')).find(
       (p) => p.querySelector('.pane-title')?.textContent?.includes('COM130'),
     ) as HTMLElement;
     expect(surviving).toBeTruthy();
@@ -492,7 +493,7 @@ describe('per-pane config and doubled controls', () => {
     // REGRESSION guard: a failed restart must not strand the replace request,
     // letting an unrelated session close the old pane later.
     fire({ type: 'sessionCreated', sessionId: 62, kind: 'port', title: 'COM122', state: 'idle' });
-    const pane = Array.from(document.querySelectorAll('.pane')).find(
+    const pane = Array.from(document.querySelectorAll('.pane:not(.empty)')).find(
       (p) => p.querySelector('.pane-title')?.textContent?.includes('COM122'),
     ) as HTMLElement;
     posted.length = 0;
@@ -527,7 +528,7 @@ describe('per-pane config and doubled controls', () => {
       settings: { baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' },
     });
     fire({ type: 'recentBauds', values: [9600] });
-    const pane = Array.from(document.querySelectorAll('.pane')).find(
+    const pane = Array.from(document.querySelectorAll('.pane:not(.empty)')).find(
       (p) => p.querySelector('.pane-title')?.textContent?.includes('COM110'),
     ) as HTMLElement;
     posted.length = 0;
@@ -552,7 +553,7 @@ describe('per-pane config and doubled controls', () => {
     // REGRESSION: a CSS mask url(data:image/svg+xml) was silently blocked by
     // the webview CSP (default-src 'none'), leaving the filter icon blank.
     const filter = document.querySelector('.filter-toggle[aria-label="Filter"]') as HTMLElement;
-    expect(filter.querySelector('.filter-glyph svg')).toBeTruthy();
+    expect(filter.querySelector('svg')).toBeTruthy();
     expect(monitorPageHtml({ scriptUri: 'x', cspSource: 'y' })).not.toMatch(/mask:\s*url/);
   });
 
@@ -566,7 +567,7 @@ describe('per-pane config and doubled controls', () => {
         title: 'COM111',
         state: 'connecting',
       });
-      const pane = Array.from(document.querySelectorAll('.pane')).find(
+      const pane = Array.from(document.querySelectorAll('.pane:not(.empty)')).find(
         (p) => p.querySelector('.pane-title')?.textContent?.includes('COM111'),
       ) as HTMLElement;
       const status = pane.querySelector('.pane-status') as HTMLElement;

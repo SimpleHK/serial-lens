@@ -28,14 +28,16 @@ beforeAll(async () => {
 });
 
 const paneByTitle = (name: string) =>
-  Array.from(document.querySelectorAll('.pane')).find(
-    (p) => p.querySelector('.pane-title')?.textContent?.includes(name),
+  Array.from(document.querySelectorAll('.pane:not(.empty)')).find(
+    (p) =>
+      !p.classList.contains('empty') && // the stub's title mirrors lastUsedPort — never match it
+      p.querySelector('.pane-title')?.textContent?.includes(name),
   ) as HTMLElement;
 
 describe('direct config bar', () => {
   it('shows a start bar with a port picker in the empty state', () => {
     fire({ type: 'ports', ports: [{ path: 'COM150', description: 'USB' }] });
-    const row = document.querySelector('#panes .empty-row') as HTMLElement;
+    const row = document.querySelector('#panes .pane.empty') as HTMLElement;
     expect(row?.querySelector('select.ph-port'), row?.outerHTML.slice(0, 500) ?? 'ROW IS NULL').toBeTruthy();
     const start = row.querySelector('.start-stop') as HTMLButtonElement;
     expect(start).toBeTruthy();
@@ -45,11 +47,13 @@ describe('direct config bar', () => {
     expect(posted).toContainEqual(
       expect.objectContaining({ type: 'connect', port: 'COM150', baudRate: 115200 }),
     );
+    (row.querySelector('.pane-close') as HTMLButtonElement).click(); // restore a fresh empty surface
   });
 
   it('empty-state start bar: baud quick-pick and collapsible params feed the connect', () => {
     fire({ type: 'ports', ports: [{ path: 'COM151', description: 'USB' }] });
-    const row = document.querySelector('#panes .empty-row') as HTMLElement;
+    const row = document.querySelector('#panes .pane.empty') as HTMLElement;
+    (row.querySelector('select.ph-port') as HTMLSelectElement).value = 'COM151'; // pick this test's port
     // baud keeps a visible quick-pick menu, like the pane bar
     const baudToggle = row.querySelector('.baud-toggle') as HTMLButtonElement;
     const menu = row.querySelector('.baud-menu') as HTMLElement;
@@ -74,7 +78,8 @@ describe('direct config bar', () => {
     (row.querySelector('select.ph-parity') as HTMLSelectElement).value = 'even';
     (row.querySelector('select.ph-sb') as HTMLSelectElement).value = '2';
     (row.querySelector('select.ph-le') as HTMLSelectElement).value = 'CRLF';
-    (row.querySelector('.start-stop') as HTMLButtonElement).click();
+    const startBtn2 = row.querySelector('.start-stop') as HTMLButtonElement;
+    startBtn2.click();
     expect(posted).toContainEqual(
       expect.objectContaining({
         type: 'connect',
@@ -319,7 +324,7 @@ describe('port switching & control placement', () => {
       (btn as HTMLButtonElement).click(); // back to the empty state
     }
     fire({ type: 'ports', ports: [{ path: 'COM10' }, { path: 'COM12' }, { path: 'COM13' }] });
-    const sel = document.querySelector('.start-bar select.ph-port') as HTMLSelectElement;
+    const sel = document.querySelector('.pane.empty .ph-port') as HTMLSelectElement;
     sel.value = 'COM12';
     fire({ type: 'ports', ports: [{ path: 'COM10' }, { path: 'COM12' }, { path: 'COM13' }] });
     expect(sel.value).toBe('COM12'); // the refresh used to reset it to the first port
@@ -333,26 +338,26 @@ describe('port switching & control placement', () => {
     // EMPTY state. The bar is four whole-block groups: config head (dot +
     // select + baud + params), ＋+refresh, the wide primary button, and the
     // pane actions. Groups wrap as blocks and are never squeezed.
-    const row = document.querySelector('#panes .empty-row') as HTMLElement;
+    const row = document.querySelector('#panes .pane.empty') as HTMLElement;
     const add = row.querySelector('.add-monitor') as HTMLButtonElement;
     expect(add.disabled).toBe(true); // ＋ is for the SECOND monitor
-    const bar = row.querySelector('.start-bar') as HTMLElement;
+    const bar = row.querySelector('.pane-header') as HTMLElement;
     const shape = (scope: HTMLElement) =>
       Array.from(scope.children)
         .map((c) => c.className + (c.children.length ? `[${c.children.length}]` : ''))
         .join(' | ');
-    expect(shape(bar)).toBe('bar-group[5] | bar-group[2] | start-stop[1] | pbtn clear-btn[1] | bar-group[6]');
+    expect(shape(bar)).toBe('bar-group[6] | bar-group[2] | start-stop[1] | pbtn clear-btn[1] | bar-group[6] | global-seg[7]');
     const startEl = row.querySelector('.start-stop') as HTMLButtonElement;
     expect(startEl.querySelector('svg')).toBeTruthy(); // svg glyph, no text
     expect(startEl.textContent).toBe('');
-    expect(startEl.getAttribute('aria-label')).toBe('Start monitoring');
+    expect(startEl.getAttribute('aria-label')).toMatch(/^Start monitoring/);
     // wrap contract: without wrap the flex shrink squeezes the port select
     // down to its min-width and the two states render different widths
     const css = document.querySelector('style')?.textContent ?? '';
     expect(css.match(/\.start-bar \{[^}]*\}/)?.[0]).toContain('flex-wrap: wrap');
-    // the bar no longer carries the hint; the content area does
-    expect(row.textContent).not.toContain('No monitors open');
-    const hint = document.querySelector('#panes .empty-hint') as HTMLElement;
+    // the bar never carries the hint; the content area does
+    expect(row.querySelector('.pane-header')?.textContent ?? '').not.toContain('No monitors open');
+    const hint = document.querySelector('#panes .pane.empty .pane-hint') as HTMLElement;
     expect(hint.textContent).toContain('No monitors open');
     // the pane-action icons are ALWAYS present: dead in the empty row
     const actions = Array.from(
@@ -418,16 +423,20 @@ describe('port switching & control placement', () => {
     fire({ type: 'ports', ports: [{ path: 'COM10' }, { path: 'COM12', description: 'pair' }] });
     // the select is the SAME control the pane bars use — same class, and
     // options show the bare path (description rides in the tooltip)
-    const row = document.querySelector('#panes .empty-row') as HTMLElement;
+    const row = document.querySelector('#panes .pane.empty') as HTMLElement;
+    expect(document.querySelectorAll('.pane.empty').length).toBe(1); // exactly one stub
     const sel = row.querySelector('select.ph-port') as HTMLSelectElement;
     expect(sel.className).toContain('ph-port');
-    expect(sel.options[0].textContent).toBe('COM10');
-    expect(sel.options[1].getAttribute('title')).toBe('COM12 — pair');
+    // the remembered port from the previous test survives as a ghost entry
+    // (one-click back), followed by the fresh ports with tooltips
+    expect(sel.options[0].textContent).toBe('COM140');
+    expect(sel.options[1].textContent).toBe('COM10');
+    expect(sel.options[2].getAttribute('title')).toBe('COM12 — pair');
     // open COM12, then close it: the empty bar keeps COM12 selected
     fire({ type: 'sessionCreated', sessionId: 130, kind: 'port', title: 'COM12', state: 'connected', settings: { ...S } });
     fire({ type: 'append', sessionId: 130, dropCount: 0, lines: ['hello 1'], timestamps: [1] });
     fire({ type: 'sessionClosed', sessionId: 130 });
-    const sel2 = document.querySelector('#panes .start-bar select.ph-port') as HTMLSelectElement;
+    const sel2 = document.querySelector('#panes .pane.empty select.ph-port') as HTMLSelectElement;
     expect(sel2.value).toBe('COM12'); // not reset to the first port
   });
 
@@ -452,7 +461,7 @@ describe('port switching & control placement', () => {
 
   it('empty row: funnel and tag controls are dead until a pane exists', async () => {
     // the previous test closed every pane; the empty row is up
-    const row = document.querySelector('.empty-row') as HTMLElement;
+    const row = document.querySelector('.pane.empty') as HTMLElement;
     const funnel = row.querySelector('.filter-toggle') as HTMLButtonElement;
     funnel.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     const menu = row.querySelector('.filter-menu') as HTMLElement;

@@ -20,7 +20,7 @@ const fire = (data: unknown) => {
 const S = { baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' };
 
 const paneByTitle = (name: string) =>
-  Array.from(document.querySelectorAll('.pane')).find(
+  Array.from(document.querySelectorAll('.pane:not(.empty)')).find(
     (p) => p.querySelector('.pane-title')?.textContent?.includes(name),
   ) as HTMLElement;
 
@@ -223,7 +223,7 @@ describe('functional coverage round', () => {
       fire({ type: 'sessionClosed', sessionId: id });
     }
     fire({ type: 'ports', ports: [{ path: 'COM150' }] });
-    const add = document.querySelector('.empty-row .add-monitor') as HTMLButtonElement;
+    const add = document.querySelector('.pane.empty .add-monitor') as HTMLButtonElement;
     expect(add.disabled).toBe(true);
     posted.length = 0;
     add.click();

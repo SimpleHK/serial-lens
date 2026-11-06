@@ -41,11 +41,6 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   .start-stop { font-size: 0; }
   .icon-btn.on { color: var(--vscode-focusBorder); background: var(--vscode-toolbar-hoverBackground); }
   #log-dir.logging, .log-dir.logging { color: var(--vscode-charts-red, #f14c4c); }
-  /* Funnel glyph for the tag-filter control (inline mask, tints via currentColor). */
-  /* Funnel glyph for the tag-filter control: an INLINE svg — a CSS mask
-   * url(data:) is blocked by the webview CSP and renders blank. */
-  .filter-glyph { display: inline-flex; color: inherit; }
-  .filter-glyph svg { width: 16px; height: 16px; display: block; }
   .baud-menu { display: none; }
   .baud-menu.visible { display: block; }
   .menu-wrap { position: relative; display: inline-flex; }

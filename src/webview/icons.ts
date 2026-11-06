@@ -33,6 +33,7 @@ export const icons = {
   'chevron-down': wrap('<path d="M4 6l4 4 4-4"/>'),
   lines: wrap('<path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/>'),
   'arrow-up': wrap('<path d="M8 13.2V3.8M4.4 7.4L8 3.8l3.6 3.6"/>'),
+  funnel: wrap('<path d="M1.8 2.8h12.4l-4.8 5.6v4.2l-2.8 1.6V8.4z"/>'),
   play: wrap('<path d="M5.2 3.2l7.2 4.8-7.2 4.8z" fill="currentColor" stroke-width="1"/>'),
   stop: wrap('<rect x="4" y="4" width="8" height="8" rx="0.5" fill="currentColor" stroke-width="1"/>'),
 } as const;
