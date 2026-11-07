@@ -1637,6 +1637,29 @@ function createSession(m: {
   if (pendingReplaceNewId === m.sessionId && pendingReplaceOldId !== undefined) {
     const oldPane = sessions.find((x) => x.id === pendingReplaceOldId);
     if (oldPane) {
+      // The log belongs to the PANE, not the connection (GLOSSARY): a
+      // restart — ■/▶, a port move, a parameter change — carries the
+      // buffered lines across the session swap. The arrays move by
+      // reference: the old host session is still live until the connect
+      // completes, so lines it delivers in that window land in the same
+      // store the replacement now shares. Find settings survive too; their
+      // per-line state is recomputed against the fresh DOM.
+      s.lineStore = oldPane.lineStore;
+      s.decisions = oldPane.decisions;
+      s.visibleIndexes = oldPane.visibleIndexes;
+      s.scroll = oldPane.scroll;
+      s.sendHistory = oldPane.sendHistory;
+      s.sendIndex = oldPane.sendIndex;
+      s.sendDraft = oldPane.sendDraft;
+      s.lineEnding = oldPane.lineEnding;
+      s.tags = oldPane.tags;
+      s.filterMode = oldPane.filterMode;
+      s.find = { ...oldPane.find, occurrences: [], byLine: new Map(), debounce: undefined };
+      if (s.find.open) {
+        scheduleFindRecompute(s);
+      }
+      s.marksDirty = true; // fresh DOM: the overview strip repaints in full
+      scheduleRender(s);
       panesArea.insertBefore(s.dom.root, oldPane.dom.root);
       if (s.dividerLeft) {
         panesArea.insertBefore(s.dividerLeft, s.dom.root);
