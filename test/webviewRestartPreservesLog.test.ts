@@ -196,9 +196,13 @@ describe('restart keeps the log and lands at the bottom', () => {
     const b = logOf('COM12');
 
     // Restart ONLY pane A (COM10). Pane B is settled at its own bottom.
-    await tick(); await tick(); // let B's own catch-up finish
+    let bBottom = false;
+    for (let i = 0; i < 40 && !bBottom; i++) {
+      await tick();
+      bBottom = atBottom(b);
+    }
+    expect(bBottom).toBe(true); // B's own catch-up converges
     const bBefore = b.scrollTop;
-    expect(atBottom(b)).toBe(true);
     (document.querySelectorAll('.pane:not(.empty) .start-stop')[0] as HTMLButtonElement).click();
     fire({ type: 'state', sessionId: 40, state: 'idle' });
     await tick();
