@@ -4,7 +4,13 @@ All notable changes to Serial Monitor (OSS) are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.5.0] - 2026-11-07
+
+### Added
+
+- **The ⚙ manage panel shows the extension version** (host-injected from the
+  manifest) — field reports have twice been stale-VSIX artifacts; now the
+  running VSIX is unmistakable.
 
 ### Fixed
 
@@ -16,6 +22,24 @@ adheres to [Semantic Versioning](https://semver.org/).
   A lone pane taking over the empty slot also no longer carries a stray
   divider. Regression tests drive the ▶-from-empty path end to end,
   including close → empty returns → start again.
+
+### Changed
+
+- **Tech-debt round.** The 14-branch host-message listener in main.ts is now
+  `webview/hostRouter.ts` — an explicit-context handler map whose routing
+  decisions (including the restart flow's pendingReplace two-phase
+  transitions) are covered by 14 node-speed tests; the type domain moved to
+  `webview/paneTypes.ts` (main.ts: 2329 → 2132 lines). Invalid regex tags
+  are flagged live in the manage panel (red border + `aria-invalid` + hint)
+  instead of silently never matching. A leftover debug `console.log` in the
+  webview test suite is gone.
+- **All four README GIFs re-recorded at full resolution** (1200×740, crisp
+  text) — and smaller, 1.8 MB total vs 6.2 MB. The capture pipeline is
+  committed (`scripts/capture-frames.mjs`: headless Chrome over CDP driving
+  the real webview preview), so re-recording is one command.
+- Test-count guardrails: the README count is machine-synced by `npm test`,
+  and the integration launcher pre-flights the COM pair and falls back from
+  a stale VS Code update mutex (PR #19).
 
 ## [0.4.0] - 2026-11-06
 

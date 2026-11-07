@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/SimpleHK/vscode-serial-monitor-oss/actions/workflows/ci.yml/badge.svg)](https://github.com/SimpleHK/vscode-serial-monitor-oss/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.4.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.5.0-blue.svg)](CHANGELOG.md)
 
 **Serial streams you can actually read.** Tag any pattern and every matching
 line lights up in its color; collapse ten thousand lines of noise to the ten
@@ -115,6 +115,8 @@ version negotiation. TCP monitoring reports unsupported.
 npm test                # 166 unit tests (pure seams + webview DOM via happy-dom)
 npm run test:integration   # 10 tests on a real VS Code host + com0com pair
 npm run preview:webview # drive the real webview UI in a plain browser
+node scripts/capture-frames.mjs .frames   # re-record the README GIF frames
+node scripts/make-gif.mjs .frames/tags docs/media/demo-tags.gif 110 1
 ```
 
 - [GLOSSARY.md](GLOSSARY.md) — domain vocabulary (Session/Pane, Tag,
