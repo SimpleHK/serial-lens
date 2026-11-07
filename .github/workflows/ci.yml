@@ -19,6 +19,7 @@ jobs:
       - run: npm run build
       - run: npm run check:manifest
       - run: npm test
+      - run: git diff --exit-code -- README.md  # npm test auto-syncs the count; a diff means it was stale
 
   windows:
     # Unit suite on Windows too: the serialport native module and the
@@ -34,3 +35,4 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      - run: git diff --exit-code -- README.md  # npm test auto-syncs the count; a diff means it was stale

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, beforeAll } from 'vitest';
-import { monitorPageHtml } from '../src/webview/monitorPage';
+import { bootWebview } from './webviewHarness';
 
 /**
  * Regression tests for starting the FIRST session from the empty-state bar.
@@ -10,26 +10,19 @@ import { monitorPageHtml } from '../src/webview/monitorPage';
  * DURING that retirement (sessions was momentarily empty), so one start put
  * TWO views on screen: the fresh empty bar beside the new pane. No test
  * covered the stub→pane transition because earlier tests fire sessionCreated
- * while real panes already exist, which masks the resurrection.
+ * while real panes already exist, which masks the resurrection. This file
+ * boots a FRESH module (see webviewHarness) and asserts right after ONE
+ * lifecycle event — the intermediate state survives here.
  */
 
-const posted: unknown[] = [];
-const tick = () => new Promise((resolve) => setTimeout(resolve, 20));
-
-const fire = (data: unknown) => {
-  window.dispatchEvent(new MessageEvent('message', { data }));
-};
+let posted: unknown[];
+let tick: () => Promise<void>;
+let fire: (data: unknown) => void;
 
 const SETTINGS = { baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' };
 
 beforeAll(async () => {
-  document.body.innerHTML = monitorPageHtml({ scriptUri: 'test.js', cspSource: 'test' });
-  (globalThis as { acquireVsCodeApi?: unknown }).acquireVsCodeApi = () => ({
-    postMessage: (msg: unknown) => posted.push(msg),
-  });
-  (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame = (cb: (t: number) => void) =>
-    setTimeout(() => cb(0), 0) as unknown as number;
-  await import('../src/webview/main');
+  ({ fire, tick, posted } = await bootWebview());
 });
 
 describe('first session from the empty bar', () => {

@@ -12,6 +12,13 @@ Five canonical triage roles, using default label strings (`needs-triage`, `needs
 
 Single-context: root `GLOSSARY.md` + `docs/adr/`. See `docs/agents/domain.md`.
 
+### Coding standards
+
+Behavior laws for webview/host work (one builder per surface, test the live
+state, single-event transition tests, the sessions/dom invariant, row-height
+contract, machine-synced counts) — each anchored to a bug it prevents. See
+`docs/agents/coding-standards.md`.
+
 ### Patching discipline for agents
 
 - Programmatic file edits (python/sed) must assert the anchor exists before replacing; a silently no-op patch is a bug.

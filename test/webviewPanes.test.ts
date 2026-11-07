@@ -1,36 +1,27 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, beforeAll, vi } from 'vitest';
-import { monitorPageHtml } from '../src/webview/monitorPage';
+import { bootWebview } from './webviewHarness';
+import { monitorPageHtml } from '../src/webview/monitorPage'; // markup assertions below test the HTML itself
 import { rowHeightFor } from '../src/webview/rowHeight';
 import { BAUD_RATE_PRESETS } from '../src/shared/baudPresets';
 
 /**
  * Regression tests for the split-view webview wiring. These run the REAL
- * client script (src/webview/main.ts) inside jsdom against the real page
- * markup, because the last refactor silently dropped the tag button handler
- * and the panes fought over shared virtualization spacers — neither class of
- * bug is visible to the pure-seam unit tests or to TypeScript.
+ * client script (src/webview/main.ts) against the real page markup via the
+ * shared happy-dom harness, because the last refactor silently dropped the
+ * tag button handler and the panes fought over shared virtualization
+ * spacers — neither class of bug is visible to the pure-seam unit tests or
+ * to TypeScript.
  */
 
-const posted: unknown[] = [];
-const tick = () => new Promise((resolve) => setTimeout(resolve, 20));
-
-const fire = (data: unknown) => {
-  window.dispatchEvent(new MessageEvent('message', { data }));
-};
+let posted: unknown[];
+let tick: () => Promise<void>;
+let fire: (data: unknown) => void;
 
 const LINES = Array.from({ length: 50 }, (_, i) => `line-${i}`);
 
 beforeAll(async () => {
-  // The client script expects the webview bootstrap: markup, the VS Code API,
-  // and a rAF (jsdom has none).
-  document.body.innerHTML = monitorPageHtml({ scriptUri: 'test.js', cspSource: 'test' });
-  (globalThis as { acquireVsCodeApi?: unknown }).acquireVsCodeApi = () => ({
-    postMessage: (msg: unknown) => posted.push(msg),
-  });
-  (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame = (cb: (t: number) => void) =>
-    setTimeout(() => cb(0), 0) as unknown as number;
-  await import('../src/webview/main');
+  ({ fire, tick, posted } = await bootWebview());
 });
 
 describe('split-view panes', () => {
