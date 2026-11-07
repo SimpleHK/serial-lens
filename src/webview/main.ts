@@ -1647,7 +1647,8 @@ function createSession(m: {
       s.lineStore = oldPane.lineStore;
       s.decisions = oldPane.decisions;
       s.visibleIndexes = oldPane.visibleIndexes;
-      s.scroll = oldPane.scroll;
+      s.scroll = 'follow'; // ▶ means "rejoin the live tail" — a scroll lock
+      // acquired while browsing the stopped buffer does not survive a start.
       s.sendHistory = oldPane.sendHistory;
       s.sendIndex = oldPane.sendIndex;
       s.sendDraft = oldPane.sendDraft;
@@ -1660,20 +1661,22 @@ function createSession(m: {
       }
       renderChipsInto(s); // the fresh DOM has an empty chip row — paint the inherited tags now
       s.marksDirty = true; // fresh DOM: the overview strip repaints in full
+      // Paint the restored log SYNCHRONOUSLY: the reveal below happens in
+      // the same synchronous pass as this creation, so a deferred rAF render
+      // would show one blank frame — the flicker the user reported. The
+      // pane is hidden here (clientHeight 0), so this window is just the
+      // overscan rows with correct spacers; the next rAF refines the window
+      // for the now-visible pane.
+      renderWindowFor(s);
+      // Refine the window once the pane is visible (clientHeight > 0).
       scheduleRender(s);
-      // Viewport handoff, per this pane's own scroll state: follow resumes
-      // pinned to the newest line in ONE step (the restored history is a
-      // backfill, not a flood to chase); a locked pane stays where its user
-      // left it. Same row height, same position. The write happens on the
-      // next frame — after the render above — and is marked programmatic so
-      // the atBottom snap cannot flip a locked pane back to follow.
+      // Viewport handoff: a restart always lands at the bottom. The snap
+      // runs on the next frame (after the rAF render refines the window for
+      // the visible pane) and is marked programmatic so it cannot trip the
+      // Follow→locked reducer.
       requestAnimationFrame(() => {
         s.programmatic = true;
-        if (s.scroll === 'follow') {
-          s.dom.log.scrollTop = s.dom.log.scrollHeight;
-        } else {
-          s.dom.log.scrollTop = oldPane.dom.log.scrollTop;
-        }
+        s.dom.log.scrollTop = s.dom.log.scrollHeight;
         s.programmatic = false;
       });
       panesArea.insertBefore(s.dom.root, oldPane.dom.root);

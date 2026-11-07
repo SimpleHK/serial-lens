@@ -9,7 +9,8 @@ import { bootWebview } from './webviewHarness';
  * one pane must not move another's viewport. happy-dom has no layout, so
  * the suite stubs per-pane scroll geometry (rows counted per pane).
  * Related semantics that must keep holding: a live baud reconnect keeps the
- * buffer, and a locked pane keeps its scroll position across a restart.
+ * buffer, and a scroll-locked pane still restarts at the bottom: x{25b6} means
+ * rejoin the live tail.
  */
 
 let posted: unknown[];
@@ -156,16 +157,26 @@ describe('restart keeps the log and lands at the bottom', () => {
     }
   },);
 
-  it('a locked pane keeps its scroll position across the restart', async () => {
+  it('a pane that was scroll-locked before the stop restarts AT THE BOTTOM', async () => {
+    // ▶ is "start again": the user is asking for the LIVE tail, so a scroll
+    // lock acquired while browsing the stopped buffer does not survive it.
     await openPane(30, 'COM10');
     await appendLines(30, 'COM10', 40, 'k');
-    // User scrolls up mid-buffer (Follow→locked via the reducer).
+    // User scrolls up mid-buffer (Follow→locked via the reducer) — AFTER
+    // the catch-up has settled, like a real user browsing a stopped pane
+    // (a write during the animation window would be swallowed by the
+    // programmatic flag).
     const el = logOf('COM10');
-    el.scrollTop = (rowsByPane.get(el)! - 15) * ROW_H; // 15 rows above the end
+    let settled = false;
+    for (let i = 0; i < 40 && !settled; i++) {
+      await tick();
+      settled = atBottom(el);
+    }
+    el.scrollTop = (rowsByPane.get(el)! - 30) * ROW_H; // 30 rows above the end — NOT the bottom
     await tick();
-    const lockedPos = el.scrollTop;
-    expect(lockedPos).toBeGreaterThan(0);
     const rowsBefore = rowsByPane.get(el)!;
+    expect(el.scrollTop).toBeGreaterThan(0); // the manual scroll took hold
+    expect(atBottom(el)).toBe(false); // genuinely away from the bottom
 
     (document.querySelector('.pane:not(.empty) .start-stop') as HTMLButtonElement).click();
     fire({ type: 'state', sessionId: 30, state: 'idle' });
@@ -178,14 +189,28 @@ describe('restart keeps the log and lands at the bottom', () => {
     await tick();
     await tick();
 
-    // Scroll Lock semantics (GLOSSARY): the viewport stays where the user
-    // left it, even across a restart.
-    const el2 = logOf('COM10');
-    if (el2.scrollTop !== lockedPos) {
-      throw new Error('LOCKED-STATE ' + JSON.stringify({
-        got: el2.scrollTop, want: lockedPos, stub: rowsByPane.has(el2), rows: rowsByPane.get(el2),
-      }));
-    }
+    // Restart = rejoin the live tail, regardless of the pre-stop scroll.
+    expect(atBottom(logOf('COM10'))).toBe(true);
+  });
+
+  it('the restarted pane renders its restored log SYNCHRONOUSLY (no blank flash)', async () => {
+    await openPane(40, 'COM10');
+    await appendLines(40, 'COM10', 30, 's');
+    const oldRows = rows();
+
+    (document.querySelector('.pane:not(.empty) .start-stop') as HTMLButtonElement).click();
+    fire({ type: 'state', sessionId: 40, state: 'idle' });
+    await tick();
+    (document.querySelector('.pane:not(.empty) .start-stop') as HTMLButtonElement).click();
+    fire({ type: 'sessionCreated', sessionId: 41, kind: 'port', title: 'COM10', state: 'connecting', settings: { ...S } });
+    fire({ type: 'state', sessionId: 41, state: 'connected' });
+    stubLayout();
+    // NO tick: the reveal happens synchronously with state handling, so the
+    // restored log must ALREADY be painted (pre-rendered overscan rows with
+    // correct spacers) — a blank frame here is the flicker the user saw.
+    // The full window refines on the next rAF.
+    expect(rows()).toBeGreaterThan(0);
+    expect(document.querySelector('.pane:not(.empty) .row-line')?.textContent).toContain('s-0');
   });
 
   it('split panes are independent: restarting one leaves the other alone', async () => {
