@@ -4,6 +4,19 @@ All notable changes to Serial Monitor (OSS) are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **Starting the first session from the empty bar opened two views.** The
+  empty state is a pane-shaped stub session (0.4.0); a real session arriving
+  retired it — but `removeSession` saw a momentarily empty list and ran its
+  "empty surface returns" hook, resurrecting the stub beside the new pane.
+  The new session is now built and joins the list before the stub retires.
+  A lone pane taking over the empty slot also no longer carries a stray
+  divider. Regression tests drive the ▶-from-empty path end to end,
+  including close → empty returns → start again.
+
 ## [0.4.0] - 2026-11-06
 
 ### Changed
