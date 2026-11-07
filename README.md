@@ -1,14 +1,14 @@
-# Serial Monitor (OSS)
+# Serial Lens
 
-[![CI](https://github.com/SimpleHK/vscode-serial-monitor-oss/actions/workflows/ci.yml/badge.svg)](https://github.com/SimpleHK/vscode-serial-monitor-oss/actions/workflows/ci.yml)
+[![CI](https://github.com/SimpleHK/serial-lens/actions/workflows/ci.yml/badge.svg)](https://github.com/SimpleHK/serial-lens/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.5.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.6.0-blue.svg)](CHANGELOG.md)
 
 **Serial streams you can actually read.** Tag any pattern and every matching
 line lights up in its color; collapse ten thousand lines of noise to the ten
 that matter with a display-layer filter; and search any pane with the same
-find widget your editor has. An open-source (MIT) rebuild of the archived
-Microsoft Serial Monitor — with the features no other serial monitor has.
+find widget your editor has. An independent, MIT-licensed serial monitor for
+VS Code — built around the features no other serial monitor has.
 
 ![Tags: a tag lands mid-stream, matching lines light up, and include-filter collapses the view to just the matches](docs/media/demo-tags.gif)
 
@@ -86,14 +86,14 @@ buffer, and its log file.
 ## Quick start
 
 ```bash
-git clone https://github.com/SimpleHK/vscode-serial-monitor-oss.git
-cd vscode-serial-monitor-oss
+git clone https://github.com/SimpleHK/serial-lens.git
+cd serial-lens
 npm install && npm run package
 ```
 
 Install the generated `.vsix` (`Extensions: Install from VSIX…`) or press
 **F5** to run it from source. The monitor appears in the bottom panel as
-**SERIAL MONITOR**.
+**SERIAL LENS**.
 
 No hardware? A com0com virtual pair works: `npm run smoke:check`, then feed
 it with `npm run smoke:device -- --scenario lines`.
@@ -136,8 +136,7 @@ node scripts/make-gif.mjs .frames/tags docs/media/demo-tags.gif 110 1
 `serialport` stack) is MIT-licensed; its copyright and license notices ship
 inside the extension, see `node_modules/**/LICENSE` in the VSIX.
 
-Serial Monitor (OSS) is an independent project — it is not affiliated with,
+Serial Lens is an independent project — it is not affiliated with,
 endorsed by, or derived from Microsoft Corporation's products. "Visual Studio
-Code" and "VS Code" are trademarks of Microsoft Corporation; references to
-the original Serial Monitor extension are nominative. No telemetry, no data
-collection.
+Code" and "VS Code" are trademarks of Microsoft Corporation. No telemetry,
+no data collection.

@@ -89,7 +89,7 @@ export enum Version {
   latest = v0,
 }
 
-const EXTENSION_IDS = ['ms-vscode.vscode-serial-monitor', 'simplehk.vscode-serial-monitor-oss'];
+const EXTENSION_IDS = ['ms-vscode.vscode-serial-monitor', 'simplehk.serial-lens'];
 
 export async function getSerialMonitorApi(
   version: Version,
@@ -100,7 +100,7 @@ export async function getSerialMonitorApi(
     (e) => e !== undefined,
   );
   if (!serialMonitorExtension) {
-    throw new Error('The Serial Monitor extension is not installed.');
+    throw new Error('The Serial Lens extension is not installed.');
   }
 
   let extensionApi: { getApi(v: Version, c: vscode.ExtensionContext): Promise<SerialMonitorApi | undefined> };

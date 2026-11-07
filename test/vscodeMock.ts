@@ -79,7 +79,7 @@ export const vscode = {
   },
   extensions: {
     getExtension: (id: string) =>
-      id === 'simplehk.vscode-serial-monitor-oss'
+      id === 'simplehk.serial-lens'
         ? { packageJSON: { version: '0.0.0-mock' } }
         : undefined,
   },

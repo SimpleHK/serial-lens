@@ -139,10 +139,10 @@ interface FileSession {
 type ProviderSession = PortSession | FileSession;
 
 /**
- * The monitor docks in the bottom panel as a "SERIAL MONITOR" tab, matching
- * the Microsoft Serial Monitor layout. Sessions (monitored ports and opened
- * log files) appear as panes in the webview; the view keeps its state while
- * hidden (retainContextWhenHidden) so streaming output survives switches.
+ * The monitor docks in the bottom panel as a "SERIAL LENS" tab. Sessions
+ * (monitored ports and opened log files) appear as panes in the webview;
+ * the view keeps its state while hidden (retainContextWhenHidden) so
+ * streaming output survives switches.
  * Exported for the host-layer unit suite (test/extensionProvider.test.ts).
  */
 export class MonitorViewProvider implements vscode.WebviewViewProvider {
@@ -173,10 +173,10 @@ export class MonitorViewProvider implements vscode.WebviewViewProvider {
       cspSource: view.webview.cspSource,
       // Shown in the ⚙ panel so a user can tell WHICH VSIX they are running
       // (field reports have twice been stale-VSIX artifacts).
-      version: vscode.extensions.getExtension('simplehk.vscode-serial-monitor-oss')?.packageJSON
+      version: vscode.extensions.getExtension('simplehk.serial-lens')?.packageJSON
         .version as string | undefined,
     });
-    view.title = 'Serial Monitor';
+    view.title = 'Serial Lens';
 
     const post = (msg: HostToWebview) => {
       // The view may already be disposed when a late message arrives.
@@ -458,10 +458,10 @@ export class MonitorViewProvider implements vscode.WebviewViewProvider {
       .map((s) => s.controller.activePath as string);
     view.title =
       live.length === 0
-        ? 'Serial Monitor'
+        ? 'Serial Lens'
         : live.length === 1
-          ? `Serial Monitor: ${live[0]}`
-          : `Serial Monitor (${live.length} ports)`;
+          ? `Serial Lens: ${live[0]}`
+          : `Serial Lens (${live.length} ports)`;
   }
 
   // --- Open-a-log-file sessions ----------------------------------------------
@@ -760,7 +760,7 @@ class MonitorApi implements SerialMonitorApi {
   startMonitoringTCPConnection(): Promise<Port> {
     // ADR-0002: TCP stays on the API surface but reports unsupported until it ships.
     return Promise.reject(
-      new Error('TCP monitoring is not supported by this version of Serial Monitor (OSS).'),
+      new Error('TCP monitoring is not supported by this version of Serial Lens.'),
     );
   }
 

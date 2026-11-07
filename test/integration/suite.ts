@@ -13,7 +13,7 @@ import {
 import { HostToWebview, MonitorController } from '../../src/host/monitorController';
 import { NodeSerialPortBackend } from '../../src/host/nodeSerialPortBackend';
 
-const EXT_ID = 'simplehk.vscode-serial-monitor-oss';
+const EXT_ID = 'simplehk.serial-lens';
 const COM_A = 'COM10'; // monitor side of the com0com pair
 const COM_B = 'COM11'; // device side
 
@@ -43,7 +43,7 @@ const waitFor = async <T>(probe: () => T | undefined, timeoutMs: number, what: s
 
 // Suites register at module load time: mocha requires this file with the
 // tdd UI globals (suite/test) active, so top-level registration is required.
-suite('Serial Monitor integration', () => {
+suite('Serial Lens integration', () => {
     test('extension activates and the command runs', async function () {
       this.timeout(30000);
       const ext = vscode.extensions.getExtension(EXT_ID);

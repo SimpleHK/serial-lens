@@ -135,7 +135,7 @@ describe('functional coverage round', () => {
     // Panel is open from the previous test; the harness injects the version meta.
     const panel = document.querySelector('#manage-panel') as HTMLElement;
     expect(panel.querySelector('.panel-hint.version')?.textContent).toBe(
-      'Serial Monitor (OSS) v0.0.0-harness',
+      'Serial Lens v0.0.0-harness',
     );
   });
 
