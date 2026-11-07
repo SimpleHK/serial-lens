@@ -95,6 +95,50 @@ describe('functional coverage round', () => {
     );
   });
 
+  it('flags an invalid regex pattern in the manage panel', () => {
+    // Fresh tag: the previous test deleted COM130's tag (and left the panel open).
+    const panel = document.querySelector('#manage-panel') as HTMLElement;
+    if (panel.style.display !== 'flex') {
+      (paneByTitle('COM130').querySelector('.manage-toggle') as HTMLButtonElement).click();
+    }
+    const addRow = Array.from(panel.querySelectorAll('.tag-edit-row')).find(
+      (r) => r.querySelector('.tag-add'),
+    ) as HTMLElement;
+    const addInput = addRow.querySelector('.tag-pattern') as HTMLInputElement;
+    addInput.value = 'ERR';
+    addInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    const row = Array.from(panel.querySelectorAll('.tag-edit-row')).find(
+      (r) => r.querySelector('.tag-name'),
+    ) as HTMLElement;
+    const patternInput = row.querySelector('.tag-pattern') as HTMLInputElement;
+    const regexToggle = row.querySelector('.tag-regex') as HTMLInputElement;
+
+    // Substring mode: anything goes, the flag never fires.
+    patternInput.value = '((';
+    patternInput.dispatchEvent(new Event('change'));
+    expect(patternInput.classList.contains('invalid')).toBe(false);
+
+    // Regex mode with a source that never compiles: flagged on the input.
+    regexToggle.checked = true;
+    regexToggle.dispatchEvent(new Event('change'));
+    expect(patternInput.classList.contains('invalid')).toBe(true);
+    expect(patternInput.getAttribute('aria-invalid')).toBe('true');
+
+    // Fixing the pattern clears the flag.
+    patternInput.value = 'err.*\\d';
+    patternInput.dispatchEvent(new Event('change'));
+    expect(patternInput.classList.contains('invalid')).toBe(false);
+    expect(patternInput.getAttribute('aria-invalid')).toBe('false');
+  });
+
+  it('shows the extension version in the manage panel', () => {
+    // Panel is open from the previous test; the harness injects the version meta.
+    const panel = document.querySelector('#manage-panel') as HTMLElement;
+    expect(panel.querySelector('.panel-hint.version')?.textContent).toBe(
+      'Serial Monitor (OSS) v0.0.0-harness',
+    );
+  });
+
   it('gives file panes read-only chrome', async () => {
     fire({ type: 'sessionCreated', sessionId: 71, kind: 'file', title: 'demo.log', state: 'idle' });
     fire({ type: 'append', sessionId: 71, dropCount: 0, lines: ['saved line one'] });

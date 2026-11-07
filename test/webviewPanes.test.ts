@@ -109,9 +109,6 @@ describe('split-view panes', () => {
     const addBtn = document.querySelector('.add-monitor') as HTMLButtonElement;
     expect(addBtn).toBeTruthy();
     addBtn.click();
-    console.log('DBG add disabled:', addBtn.disabled, '| menus:', document.querySelectorAll('.add-menu').length,
-      '| first menu display:', (document.querySelector('.add-menu') as HTMLElement)?.style.display,
-      '| items:', document.querySelectorAll('.add-menu .menu-item').length);
     // Variant B: ＋ opens a port menu; picking one starts a monitor.
     const item = document.querySelector('.add-menu .menu-item[data-path="COM90"]') as HTMLElement;
     expect(item).toBeTruthy();

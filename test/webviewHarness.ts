@@ -19,7 +19,7 @@ export interface WebviewHarness {
  */
 export async function bootWebview(): Promise<WebviewHarness> {
   const posted: unknown[] = [];
-  document.body.innerHTML = monitorPageHtml({ scriptUri: 'test.js', cspSource: 'test' });
+  document.body.innerHTML = monitorPageHtml({ scriptUri: 'test.js', cspSource: 'test', version: '0.0.0-harness' });
   (globalThis as { acquireVsCodeApi?: unknown }).acquireVsCodeApi = () => ({
     postMessage: (msg: unknown) => posted.push(msg),
   });

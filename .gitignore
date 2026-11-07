@@ -17,3 +17,6 @@ coverage/
 
 # vitest JSON reporter output (test-count sync)
 .vitest-count.json
+
+# gif frame capture working dir
+.frames/

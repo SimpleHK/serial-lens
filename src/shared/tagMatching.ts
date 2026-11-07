@@ -34,6 +34,24 @@ export function matchLine(line: string, tags: readonly Tag[], mode: FilterMode):
   return { visible, highlightColors };
 }
 
+/**
+ * Edit-time validity for a tag's pattern: substring patterns are always
+ * valid; a regex source is valid iff it compiles. The matcher treats an
+ * invalid regex as never-matching — this function is what the manage panel
+ * surfaces so the tag never sits there silently dead.
+ */
+export function isTagPatternValid(pattern: string, isRegex: boolean): boolean {
+  if (!isRegex) {
+    return true;
+  }
+  try {
+    new RegExp(pattern);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function lineMatches(line: string, tag: Tag): boolean {
   if (!tag.isRegex) {
     return line.includes(tag.pattern);

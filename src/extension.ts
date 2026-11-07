@@ -171,6 +171,10 @@ export class MonitorViewProvider implements vscode.WebviewViewProvider {
         .asWebviewUri(vscode.Uri.file(path.join(mediaRoot.fsPath, 'main.js')))
         .toString(),
       cspSource: view.webview.cspSource,
+      // Shown in the ⚙ panel so a user can tell WHICH VSIX they are running
+      // (field reports have twice been stale-VSIX artifacts).
+      version: vscode.extensions.getExtension('simplehk.vscode-serial-monitor-oss')?.packageJSON
+        .version as string | undefined,
     });
     view.title = 'Serial Monitor';
 
