@@ -112,6 +112,12 @@ export interface PaneSession {
    * visible rows); a ruler 200 ms stale is invisible, a repaint per append
    * is not). */
   marksPaintedAt?: number;
+  /** Smooth-follow catch-up animation (rAF handle), running while the
+   * viewport eases toward the bottom in follow mode. */
+  followAnim?: number;
+  /** True while followTo writes scrollTop — the scroll handler must not
+   * feed the animation's own writes into the Follow→locked reducer. */
+  programmatic?: boolean;
   dividerLeft?: HTMLDivElement;
   sendHistory: string[];
   sendIndex: number;

@@ -844,10 +844,44 @@ function appendToSession(s: PaneSession, entries: { text: string; ts?: number }[
     scheduleFindRecompute(s);
   }
   if (s.scroll === 'follow') {
-    requestAnimationFrame(() => {
-      s.dom.log.scrollTop = s.dom.log.scrollHeight;
-    });
+    followTo(s);
   }
+}
+
+// --- Smooth follow ------------------------------------------------------------
+// In follow mode the viewport EASES toward the bottom with a per-frame
+// exponential catch-up instead of teleporting on every append: a flood reads
+// as continuous motion, and the catch-up converges the instant the stream
+// pauses. The animation's own writes are marked programmatic so they never
+// trip the Follow→locked reducer; a USER scroll interrupts instantly through
+// that same reducer (locked → the loop quits on its next frame).
+
+const FOLLOW_CATCHUP = 0.3; // fraction of the remaining distance per frame
+
+function followTo(s: PaneSession): void {
+  if (s.scroll !== 'follow' || s.followAnim !== undefined) {
+    return; // locked, or a catch-up is already running (it re-reads the new target every frame)
+  }
+  const step = () => {
+    s.followAnim = undefined;
+    if (s.scroll !== 'follow') {
+      return; // the user locked while we were in flight — the interrupt stands
+    }
+    const log = s.dom.log;
+    const target = log.scrollHeight - log.clientHeight;
+    const delta = target - log.scrollTop;
+    if (delta <= 0) {
+      if (delta < 0) {
+        log.scrollTop = target; // above bottom (resize/trim): snap back
+      }
+      return; // converged
+    }
+    s.programmatic = true;
+    log.scrollTop += Math.max(1, Math.ceil(delta * FOLLOW_CATCHUP));
+    s.programmatic = false;
+    s.followAnim = requestAnimationFrame(step);
+  };
+  s.followAnim = requestAnimationFrame(step);
 }
 
 function restylePane(s: PaneSession): void {
@@ -1371,7 +1405,7 @@ function buildPane(s: PaneSession): PaneDom {
     e.stopPropagation();
     s.scroll = scrollReducer(s.scroll, { type: 'toggle' });
     if (s.scroll === 'follow') {
-      logEl.scrollTop = logEl.scrollHeight;
+      followTo(s);
     }
     refreshPaneControls(s);
   });
@@ -1417,6 +1451,10 @@ function buildPane(s: PaneSession): PaneDom {
   });
 
   logEl.addEventListener('scroll', () => {
+    if (s.programmatic) {
+      s.programmatic = false; // the catch-up's own write — never trips the lock
+      return;
+    }
     const atBottom = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 40;
     const next = scrollReducer(s.scroll, { type: 'scrolled', atBottom });
     if (next !== s.scroll) {
@@ -1650,6 +1688,9 @@ function removeSession(id: number): void {
   const [gone] = sessions.splice(idx, 1);
   if (gone.find.debounce !== undefined) {
     clearTimeout(gone.find.debounce);
+  }
+  if (gone.followAnim !== undefined) {
+    cancelAnimationFrame(gone.followAnim); // the catch-up dies with its pane
   }
   unregisterControls(gone.dom.ctlRefs);
   gone.dom.root.remove();
