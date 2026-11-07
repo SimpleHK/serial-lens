@@ -135,7 +135,7 @@
     "check:manifest": "node scripts/check-manifest.mjs",
     "stop:feeder": "node scripts/stop-feeder.mjs",
     "feeder": "node scripts/virtual-device.mjs",
-    "test": "vitest run",
+    "test": "vitest run --reporter=default --reporter=json --outputFile.json=.vitest-count.json && node scripts/check-test-count.mjs",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:integration": "npm run build && node scripts/build-integration.mjs && node scripts/stop-feeder.mjs && node dist/integration/runTest.js",

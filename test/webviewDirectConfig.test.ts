@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, beforeAll } from 'vitest';
-import { monitorPageHtml } from '../src/webview/monitorPage';
+import { bootWebview } from './webviewHarness';
 
 /**
  * Direct-config round: the serial config bar is visible WITHOUT opening the
@@ -10,21 +10,13 @@ import { monitorPageHtml } from '../src/webview/monitorPage';
  * control bar instead of one global row.
  */
 
-const posted: unknown[] = [];
-const tick = () => new Promise((resolve) => setTimeout(resolve, 20));
-const fire = (data: unknown) => {
-  window.dispatchEvent(new MessageEvent('message', { data }));
-};
+let posted: unknown[];
+let tick: () => Promise<void>;
+let fire: (data: unknown) => void;
 const S = { baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' };
 
 beforeAll(async () => {
-  document.body.innerHTML = monitorPageHtml({ scriptUri: 'test.js', cspSource: 'test' });
-  (globalThis as { acquireVsCodeApi?: unknown }).acquireVsCodeApi = () => ({
-    postMessage: (msg: unknown) => posted.push(msg),
-  });
-  (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame = (cb: (t: number) => void) =>
-    setTimeout(() => cb(0), 0) as unknown as number;
-  await import('../src/webview/main');
+  ({ fire, tick, posted } = await bootWebview());
 });
 
 const paneByTitle = (name: string) =>
