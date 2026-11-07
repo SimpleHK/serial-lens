@@ -107,6 +107,11 @@ export interface PaneSession {
   dom: PaneDom;
   lastRender?: { topPx: number; bottomPx: number; rows: RenderedRow[] };
   marksDirty: boolean;
+  /** Last overview-strip paint time: the strip repaints at most every
+   * MARKS_MIN_INTERVAL ms while a stream floods in (its content is O(all
+   * visible rows); a ruler 200 ms stale is invisible, a repaint per append
+   * is not). */
+  marksPaintedAt?: number;
   dividerLeft?: HTMLDivElement;
   sendHistory: string[];
   sendIndex: number;

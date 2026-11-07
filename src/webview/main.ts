@@ -3,7 +3,7 @@ declare function acquireVsCodeApi(): { postMessage(msg: unknown): void };
 import { LineDecision, matchLine, isTagPatternValid } from '../shared/tagMatching';
 import { FilterMode, Tag } from '../shared/tag';
 import { makeTag, patchedTag, sanitizeTags, withoutTag } from '../shared/tagList';
-import { icon } from './icons';
+import { icon, IconName } from './icons';
 import { scrollReducer, ScrollState } from '../shared/scrollState';
 import { BAUD_RATE_PRESETS, DEFAULT_BAUD_RATE } from '../shared/baudPresets';
 import { formatLineText } from '../shared/lineText';
@@ -523,11 +523,21 @@ function colorBar(colors: string[]): string {
 
 /** Overview strip beside a pane's scrollbar: one block per tag-highlighted
  * line, squashed to the viewport like the editor's overview ruler. */
-function renderMarksFor(s: PaneSession): void {
+/** The overview strip repaints at most at this rate while a stream floods
+ * in — its pass is O(all visible rows), and a ruler 200 ms stale is
+ * invisible. User actions (tag/filter edits) repaint immediately. */
+const MARKS_MIN_INTERVAL = 200;
+
+function renderMarksFor(s: PaneSession, force = false): void {
   if (!s.marksDirty) {
     return;
   }
+  const now = performance.now();
+  if (!force && s.marksPaintedAt !== undefined && now - s.marksPaintedAt < MARKS_MIN_INTERVAL) {
+    return; // keep the dirty flag: the next interval window repaints
+  }
   s.marksDirty = false;
+  s.marksPaintedAt = now;
   const total = s.visibleIndexes.length;
   const height = Math.max(1, s.dom.log.clientHeight - 8);
   const buckets = new Map<number, string>();
@@ -803,6 +813,21 @@ function dropOldest(s: PaneSession, count: number): void {
   s.marksDirty = true;
 }
 
+/** Buffer-size-dependent button states ONLY — the per-append refresh. The
+ * full refreshPaneControls rewrites ~20 DOM properties and rebuilds three
+ * SVG glyphs; a flood of appends must not pay that every frame. */
+function refreshBufferButtons(s: PaneSession): void {
+  const d = s.dom;
+  const isPort = s.kind === 'port';
+  d.clearBtn.disabled = s.isEmpty === true || (s.lineStore.length === 0 && !isPort);
+  d.exportBtn.disabled = s.lineStore.length === 0 || s.isEmpty === true;
+  // First data retires the "Waiting for data…" hint (all other hint states
+  // belong to the full refresh, which runs on state changes — not appends).
+  if (isPort && s.lineStore.length > 0 && !s.transientMessage) {
+    d.hint.style.display = 'none';
+  }
+}
+
 function appendToSession(s: PaneSession, entries: { text: string; ts?: number }[], dropCount: number): void {
   dropOldest(s, dropCount);
   for (const entry of entries) {
@@ -814,6 +839,7 @@ function appendToSession(s: PaneSession, entries: { text: string; ts?: number }[
   }
   s.marksDirty = true;
   scheduleRender(s);
+  refreshBufferButtons(s);
   if (s.find.open) {
     scheduleFindRecompute(s);
   }
@@ -822,7 +848,6 @@ function appendToSession(s: PaneSession, entries: { text: string; ts?: number }[
       s.dom.log.scrollTop = s.dom.log.scrollHeight;
     });
   }
-  refreshPaneControls(s);
 }
 
 function restylePane(s: PaneSession): void {
@@ -832,6 +857,7 @@ function restylePane(s: PaneSession): void {
   rebuildVisibleIndexes(s);
   s.marksDirty = true;
   scheduleRender(s);
+  renderMarksFor(s, true); // user action: the ruler updates NOW, not on the next throttle window
   if (s.find.open) {
     scheduleFindRecompute(s);
   }
@@ -950,6 +976,16 @@ function ensureEmptySurface(): void {
   });
 }
 
+/** Rewrites a glyph button's innerHTML only when its icon actually changes —
+ * innerHTML assignment parses markup, and refreshPaneControls runs on every
+ * state tick of a streaming pane. */
+function setGlyph(btn: HTMLElement, glyph: IconName): void {
+  if (btn.dataset.glyph !== glyph) {
+    btn.dataset.glyph = glyph;
+    btn.innerHTML = icon(glyph);
+  }
+}
+
 /** Refreshes one pane's self-contained controls from its session state. */
 function refreshPaneControls(s: PaneSession): void {
   const d = s.dom;
@@ -964,7 +1000,7 @@ function refreshPaneControls(s: PaneSession): void {
   if (d.play) {
     d.play.style.display = isPort ? '' : 'none';
     d.play.className = 'start-stop';
-    d.play.innerHTML = isConnected ? icon('stop') : icon('play');
+    setGlyph(d.play, isConnected ? 'stop' : 'play');
     setTip(d.play, isConnected ? `Stop monitoring ${s.title}` : `Start monitoring ${s.title}`);
     d.play.disabled = s.state === 'connecting' || (s.isEmpty === true && !lastPorts.length);
   }
@@ -981,7 +1017,7 @@ function refreshPaneControls(s: PaneSession): void {
     const logOn = isPort && s.logDesired;
     d.logBtn.classList.toggle('on', logOn);
     d.logBtn.classList.toggle('rec', logOn);
-    d.logBtn.innerHTML = logOn ? icon('circle-record') : icon('circle');
+    setGlyph(d.logBtn, logOn ? 'circle-record' : 'circle');
     if (logOn) {
       const where = s.logFile ? ` (now: ${s.logFile})` : s.logDirectory ? ` into ${s.logDirectory}` : '';
       setTip(d.logBtn, `Log to file: on${where} — click to stop`);
@@ -990,7 +1026,7 @@ function refreshPaneControls(s: PaneSession): void {
     }
   }
 
-  d.scrollBtn.innerHTML = s.scroll === 'follow' ? icon('arrow-down') : icon('lock');
+  setGlyph(d.scrollBtn, s.scroll === 'follow' ? 'arrow-down' : 'lock');
   d.scrollBtn.classList.toggle('locked', s.scroll === 'locked');
   setTip(
     d.scrollBtn,
