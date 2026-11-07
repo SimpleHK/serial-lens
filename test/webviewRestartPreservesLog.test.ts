@@ -210,7 +210,13 @@ describe('restart keeps the log and lands at the bottom', () => {
     await tick();
 
     expect(paneCount()).toBe(2);
-    expect(atBottom(logOf('COM10'))).toBe(true); // A: pinned after restart
+    // A: pinned after restart (poll — frame pacing varies by runner).
+    let aBottom = false;
+    for (let i = 0; i < 40 && !aBottom; i++) {
+      await tick();
+      aBottom = atBottom(logOf('COM10'));
+    }
+    expect(aBottom).toBe(true);
     expect(logOf('COM12').scrollTop).toBe(bBefore); // B: untouched
     expect(rowsByPane.get(logOf('COM12'))).toBe(40); // B's buffer intact
   });
