@@ -11,6 +11,15 @@ import { HostToWebview, SerialParams, WebviewToHost } from '../shared/protocol';
 import { buildFindRegex, FindOccurrence, scanOccurrences, stepIndex } from './findCore';
 import { computeRenderWindow } from './windowMath';
 import { rowHeightFor } from './rowHeight';
+import { handleHostMessage, HostRouterContext } from './hostRouter';
+import {
+  DEFAULT_PORT_SETTINGS,
+  PaneActionButtons,
+  PaneDom,
+  PaneSession,
+  PortSettings,
+  RenderedRow,
+} from './paneTypes';
 
 const vscode = acquireVsCodeApi();
 const post = (msg: WebviewToHost) => vscode.postMessage(msg);
@@ -34,123 +43,6 @@ const panesArea = document.getElementById('panes') as HTMLDivElement;
  */
 
 /** Per-pane DOM. Config controls exist only on port panes. */
-interface PaneDom {
-  root: HTMLDivElement;
-  bar: HTMLDivElement;
-  dot: HTMLSpanElement;
-  title: HTMLSpanElement;
-  play?: HTMLButtonElement;
-  sendToggle?: HTMLButtonElement;
-  clearBtn: HTMLButtonElement;
-  logBtn?: HTMLButtonElement;
-  exportBtn: HTMLButtonElement;
-  scrollBtn: HTMLButtonElement;
-  findBtn: HTMLButtonElement;
-  close: HTMLSpanElement;
-  portSelect?: HTMLSelectElement;
-  baudInput?: HTMLInputElement;
-  dbSel?: HTMLSelectElement;
-  paritySel?: HTMLSelectElement;
-  sbSel?: HTMLSelectElement;
-  leSel?: HTMLSelectElement;
-  log: HTMLDivElement;
-  marks: HTMLDivElement;
-  findMarks: HTMLDivElement;
-  findBar: HTMLDivElement;
-  findInput: HTMLInputElement;
-  findCase: HTMLButtonElement;
-  findWord: HTMLButtonElement;
-  findRegex: HTMLButtonElement;
-  findCount: HTMLSpanElement;
-  findPrev: HTMLButtonElement;
-  findNext: HTMLButtonElement;
-  findClose: HTMLButtonElement;
-  sendRow: HTMLDivElement;
-  sendInput: HTMLInputElement;
-  sendBtn: HTMLButtonElement;
-  hint: HTMLDivElement;
-  /** Tag chips row, doubled per pane; hidden while there are no tags. */
-  tags: HTMLDivElement;
-  /** This pane's own copy of the global controls and its status readout. */
-  globalSeg: HTMLDivElement;
-  status: HTMLSpanElement;
-  ctlRefs: {
-    tagBtn: HTMLButtonElement;
-    filterToggleBtn: HTMLButtonElement;
-    timestampsBtn: HTMLButtonElement;
-    logDirBtn: HTMLButtonElement;
-  };
-  /** Per-pane virtualization spacers. They MUST NOT be shared: replaceChildren
-   * moves nodes, so a module-level pair would be stolen by whichever pane
-   * rendered last, collapsing the other pane's scrollable height. */
-  spacerTop: HTMLDivElement;
-  spacerBottom: HTMLDivElement;
-}
-
-interface FindState {
-  open: boolean;
-  query: string;
-  matchCase: boolean;
-  wholeWord: boolean;
-  regex: boolean;
-  error: boolean;
-  occurrences: FindOccurrence[];
-  current: number;
-  byLine: Map<number, FindOccurrence[]>;
-  debounce: number | undefined;
-}
-
-/** Per-pane serial settings: captured at creation, edited through the pane's
- * own controls, and used verbatim when the pane (re)starts. */
-type PortSettings = SerialParams;
-
-const DEFAULT_PORT_SETTINGS: PortSettings = {
-  baudRate: DEFAULT_BAUD_RATE,
-  dataBits: 8,
-  stopBits: 1,
-  parity: 'none',
-};
-
-interface PaneSession {
-  id: number;
-  kind: 'port' | 'file';
-  title: string;
-  state: 'idle' | 'connecting' | 'connected';
-  message?: string;
-  settings?: PortSettings;
-  lineEnding: string;
-  sendCollapsed: boolean;
-  lineStore: { text: string; ts?: number }[];
-  decisions: LineDecision[];
-  visibleIndexes: number[];
-  scroll: ScrollState;
-  logDesired: boolean;
-  logFile?: string;
-  logDirectory?: string;
-  find: FindState;
-  /** Transient status text (export results etc.): shown for a few seconds,
-   * then the iconized state returns. */
-  transientMessage?: string;
-  transientUntil?: number;
-  transientTimer?: number;
-  dom: PaneDom;
-  lastRender?: { topPx: number; bottomPx: number; rows: RenderedRow[] };
-  marksDirty: boolean;
-  dividerLeft?: HTMLDivElement;
-  sendHistory: string[];
-  sendIndex: number;
-  sendDraft: string;
-  /** This pane's own tags (ADR-0006) — created here, applied here, saved
-   * here; other panes are never touched. */
-  tags: Tag[];
-  /** This pane's own display-layer filter mode over its tags. */
-  filterMode: FilterMode;
-  /** The empty state renders as a pane-shaped Session (C1/C2): same bar
-   * builder, same refresh path, same replace flow. id -1 never reaches the
-   * host; the surface is destroyed and rebuilt as panes come and go. */
-  isEmpty?: boolean;
-}
-
 const sessions: PaneSession[] = [];
 let focusedId: number | undefined;
 // A pane's ▶ restarts itself: the old pane closes only after the new session
@@ -404,16 +296,6 @@ function newBarGroup(): HTMLSpanElement {
   return g;
 }
 
-interface PaneActionButtons {
-  sendToggle: HTMLButtonElement;
-  clearBtn: HTMLButtonElement;
-  logBtn: HTMLButtonElement;
-  exportBtn: HTMLButtonElement;
-  scrollBtn: HTMLButtonElement;
-  findBtn: HTMLButtonElement;
-  close: HTMLButtonElement;
-}
-
 /** Fresh pane-action buttons for ONE bar (send toggle, clear, log, export,
  * follow, find, close). Handlers are attached by the caller; per-pane
  * titles are set by refreshPaneControls — the empty row mounts its set
@@ -637,14 +519,6 @@ function colorBar(colors: string[]): string {
   }
   const stops = colors.map((c, i) => `${c} ${i * 5}px ${(i + 1) * 5}px`).join(', ');
   return `linear-gradient(to right, ${stops}, transparent ${colors.length * 5}px)`;
-}
-
-interface RenderedRow {
-  lineIndex: number;
-  text: string;
-  bg: string;
-  bgImage: string;
-  textIndent: string;
 }
 
 /** Overview strip beside a pane's scrollbar: one block per tag-highlighted
@@ -2051,145 +1925,51 @@ function sessionFor(id: number): PaneSession | undefined {
   return sessions.find((s) => s.id === id);
 }
 
-window.addEventListener('message', (e: MessageEvent<HostToWebview>) => {
-  const m = e.data;
-  if (m.type === 'ports') {
-    lastPorts = m.ports;
-    for (const s of sessions) {
-      if (s.kind === 'port') {
-        rebuildPortOptions(s);
-        refreshPaneControls(s); // re-derive play/clear disabled state from the new port list
-      }
-    }
-    updateTagButton();
-  } else if (m.type === 'state') {
-    const s = sessionFor(m.sessionId);
-    if (!s) {
-      return;
-    }
-    s.state = m.state;
-    s.message = m.message;
-    if (m.state === 'connected' && pendingReplaceNewId === m.sessionId && pendingReplaceOldId !== undefined) {
-      // The pane's ▶ restart went live: close the pane it replaces and
-      // reveal the replacement in the slot it occupied.
-      const replacedId = pendingReplaceOldId;
-      pendingReplaceOldId = undefined;
-      pendingReplaceNewId = undefined;
-      post({ type: 'closeSession', sessionId: replacedId });
-      removeSession(replacedId);
-      s.dom.root.style.display = '';
-    }
-    refreshPaneControls(s);
-    if (s.id === focusedId) {
-      setStatus();
-    }
-  } else if (m.type === 'append') {
-    const s = sessionFor(m.sessionId);
-    if (s) {
-      appendToSession(s, m.lines.map((text: string, i: number) => ({ text, ts: m.timestamps?.[i] })), m.dropCount);
-    }
-  } else if (m.type === 'timestamps') {
-    showTimestamps = m.enabled;
-    renderTimestampsControl();
-    for (const s of sessions) {
-      s.marksDirty = true;
-      scheduleRender(s);
-      if (s.find.open) {
-        recomputeOccurrences(s);
-      }
-    }
-  } else if (m.type === 'logging') {
-    const s = sessionFor(m.sessionId);
-    if (!s) {
-      return;
-    }
-    s.logDesired = Boolean(m.desired);
-    s.logFile = m.fileName;
-    s.logDirectory = m.directory;
-    for (const btn of controlRegistry.logDirButtons) {
-      btn.classList.toggle('logging', Boolean(m.directory));
-      btn.title = m.directory
-        ? `Logging each session into ${m.directory} — right-click to clear`
-        : 'Choose a log directory: every logged session writes a new .log file (right-click to clear)';
-    }
-    refreshPaneControls(s);
-  } else if (m.type === 'recentBauds') {
-    recentBauds = m.values; // baud menus render from this when opened
-  } else if (m.type === 'exportRequest') {
-    const s = sessionFor(m.sessionId);
-    if (s) {
-      post({ type: 'exportData', sessionId: s.id, entries: s.lineStore });
-    }
-  } else if (m.type === 'status') {
-    setStatus(m.message);
-  } else if (m.type === 'clear') {
-    // API-triggered clear targets the focused pane; pane buttons send their
-    // own message with a sessionId.
-    const f = focusedSession();
-    if (f) {
-      if (f.kind === 'port') {
-        post({ type: 'clear', sessionId: f.id });
-      }
-      clearBuffer(f);
-    }
-  } else if (m.type === 'lineEnding') {
-    // The public API set a line ending for the session it just started.
-    const s = sessionFor(m.sessionId);
-    if (s && s.kind === 'port') {
-      s.lineEnding = m.value;
-      if (s.dom.leSel) {
-        s.dom.leSel.value = m.value;
-      }
-    }
-  } else if (m.type === 'tags') {
-    const ts = sessions.find((x) => x.id === m.sessionId);
-    if (ts) {
-      ts.tags = sanitizeTags(m.tags);
-      restylePane(ts);
-      renderChips();
-    }
-  } else if (m.type === 'sessionCreated') {
-    if (pendingReplaceOldId !== undefined && pendingReplaceNewId === undefined) {
-      pendingReplaceNewId = m.sessionId; // bind the created session to the restart request
-    }
+// The router decides (hostRouter.ts); main.ts owns the state it steers. The
+// context below is the COMPLETE surface the router may touch — anything a
+// new message type needs must be added here explicitly.
+const hostCtx: HostRouterContext = {
+  sessions,
+  get logDirButtons() {
+    return controlRegistry.logDirButtons;
+  },
+  getFocusedId: () => focusedId,
+  getPendingReplace: () => ({ oldId: pendingReplaceOldId, newId: pendingReplaceNewId }),
+  setPendingReplace: (oldId, newId) => {
+    pendingReplaceOldId = oldId;
+    pendingReplaceNewId = newId;
+  },
+  setLastPorts: (ports) => {
+    lastPorts = ports;
+  },
+  setShowTimestamps: (enabled) => {
+    showTimestamps = enabled;
+  },
+  setRecentBauds: (values) => {
+    recentBauds = values;
+  },
+  post,
+  sessionFor,
+  focusedSession,
+  rebuildPortOptions,
+  refreshPaneControls,
+  updateTagButton,
+  appendToSession,
+  renderTimestampsControl,
+  recomputeOccurrences,
+  scheduleRender,
+  setStatus,
+  clearBuffer,
+  createSession: (m) => {
     createSession(m);
-  } else if (m.type === 'sessionFailed') {
-    if (pendingReplaceNewId === m.sessionId) {
-      // The restart's open failed: keep the old pane and its buffer, and
-      // snap its picker back to the port it is actually still on.
-      const old = pendingReplaceOldId !== undefined ? sessions.find((x) => x.id === pendingReplaceOldId) : undefined;
-      if (old?.dom.portSelect) {
-        old.dom.portSelect.value = old.title;
-      }
-      pendingReplaceOldId = undefined;
-      pendingReplaceNewId = undefined;
-    }
-    const wasFocused = focusedId === m.sessionId;
-    removeSession(m.sessionId);
-    // After ANY failure, re-derive every surviving pane's control state —
-    // a picker disabled during a transient 'connecting' window must never
-    // stay stuck once the failure is reported.
-    for (const p of sessions) {
-      if (p.kind === 'port') {
-        refreshPaneControls(p);
-      }
-    }
-    if (wasFocused || focusedId === undefined) {
-      // The failed session is gone; surface the reason on a SURVIVING
-      // pane's content-area hint instead of dropping it.
-      const target = focusedSession() ?? sessions.find((x) => x.kind === 'port');
-      if (target) {
-        setStatus(m.message, target);
-      } else {
-        const empty = sessions.find((x) => x.isEmpty);
-        if (empty) {
-          setStatus(m.message, empty); // the empty surface's hint carries it
-        }
-      }
-    }
-  } else if (m.type === 'sessionClosed') {
-    removeSession(m.sessionId);
-  }
+  },
+  removeSession,
+  restylePane,
+  renderChips,
+};
+
+window.addEventListener('message', (e: MessageEvent<HostToWebview>) => {
+  handleHostMessage(hostCtx, e.data);
 });
 
 /** The option list a port picker should show: every known port, plus
