@@ -14,12 +14,13 @@
  * else is built by dist/media/main.js.
  */
 
-export function monitorPageHtml(options: { scriptUri: string; cspSource: string }): string {
-  const { scriptUri, cspSource } = options;
+export function monitorPageHtml(options: { scriptUri: string; cspSource: string; version?: string }): string {
+  const { scriptUri, cspSource, version } = options;
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+${version ? `<meta name="extension-version" content="${version}">` : ''}
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src ${cspSource};">
 <title>Serial Monitor</title>
 <style>
@@ -91,10 +92,12 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string 
   .tag-edit-row input[type="text"] { background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, var(--vscode-panel-border)); border-radius: var(--sm-radius); height: 24px; padding: 0 6px; }
   .tag-edit-row .tag-name { width: 120px; }
   .tag-edit-row .tag-pattern { flex: 1; }
+  .tag-edit-row .tag-pattern.invalid { border-color: var(--vscode-errorForeground, #f14c4c); }
   .tag-edit-row input[type="color"] { width: 28px; height: 22px; padding: 0; border: none; background: none; }
   .tag-edit-row label { white-space: nowrap; }
   .tag-edit-row .tag-delete { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); padding: 0 8px; }
   .tag-add { background: var(--vscode-button-background); color: var(--vscode-button-foreground); padding: 0 10px; }
+  .panel-hint.version { opacity: 0.75; border-top: 1px solid var(--vscode-panel-border); padding-top: 6px; margin-top: 4px; }
   /* Split view: one self-contained pane per session; narrow viewports scroll. */
   #panes { flex: 1; min-height: 0; display: flex; overflow-x: auto; background: var(--vscode-editor-background); }
   .pane { flex: 1 1 0; min-width: 380px; display: flex; flex-direction: column; min-height: 0; }

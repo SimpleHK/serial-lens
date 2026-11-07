@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { matchLine } from '../src/shared/tagMatching';
+import { matchLine, isTagPatternValid } from '../src/shared/tagMatching';
 import { Tag } from '../src/shared/tag';
 
 const tag = (over: Partial<Tag>): Tag => ({
@@ -81,6 +81,24 @@ describe('tagMatching (matching seam: lines + tags + filter mode → decisions)'
     const tags = [tag({ pattern: 'ERROR', highlight: false, filter: false })];
     expect(matchLine('has ERROR', tags, 'include').visible).toBe(false);
     expect(matchLine('has ERROR', tags, 'exclude').visible).toBe(true);
+  });
+
+});
+
+describe('isTagPatternValid (edit-time regex feedback)', () => {
+  it('accepts any pattern in substring mode', () => {
+    expect(isTagPatternValid('((', false)).toBe(true);
+  });
+
+  it('accepts valid regex sources, including the empty one', () => {
+    expect(isTagPatternValid('error.*\\d+', true)).toBe(true);
+    expect(isTagPatternValid('', true)).toBe(true); // empty regex matches everywhere
+  });
+
+  it('rejects regex sources that never compile', () => {
+    expect(isTagPatternValid('(', true)).toBe(false);
+    expect(isTagPatternValid('[a-z', true)).toBe(false);
+    expect(isTagPatternValid('*x', true)).toBe(false);
   });
 
 });

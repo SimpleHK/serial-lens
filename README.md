@@ -112,7 +112,7 @@ version negotiation. TCP monitoring reports unsupported.
 ## Testing & architecture
 
 ```bash
-npm test                # 147 unit tests (pure seams + webview DOM via happy-dom)
+npm test                # 152 unit tests (pure seams + webview DOM via happy-dom)
 npm run test:integration   # 10 tests on a real VS Code host + com0com pair
 npm run preview:webview # drive the real webview UI in a plain browser
 ```

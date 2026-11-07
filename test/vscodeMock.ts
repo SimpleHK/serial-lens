@@ -77,6 +77,12 @@ export const vscode = {
     },
     workspaceFolders: [],
   },
+  extensions: {
+    getExtension: (id: string) =>
+      id === 'simplehk.vscode-serial-monitor-oss'
+        ? { packageJSON: { version: '0.0.0-mock' } }
+        : undefined,
+  },
   window: {
     showSaveDialog: dialogs.save,
     showOpenDialog: dialogs.open,

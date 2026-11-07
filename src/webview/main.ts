@@ -1,6 +1,6 @@
 declare function acquireVsCodeApi(): { postMessage(msg: unknown): void };
 
-import { LineDecision, matchLine } from '../shared/tagMatching';
+import { LineDecision, matchLine, isTagPatternValid } from '../shared/tagMatching';
 import { FilterMode, Tag } from '../shared/tag';
 import { makeTag, patchedTag, sanitizeTags, withoutTag } from '../shared/tagList';
 import { icon } from './icons';
@@ -1950,9 +1950,20 @@ function renderManagePanel(): void {
     patternInput.className = 'tag-pattern';
     patternInput.value = t.pattern;
     patternInput.placeholder = 'Match pattern (substring or regex source)';
+    // An invalid regex never matches and never throws (matchLine catches) —
+    // surface it HERE so the tag never sits silently dead.
+    const syncPatternValidity = () => {
+      const ok = isTagPatternValid(patternInput.value, regexInput.checked);
+      patternInput.classList.toggle('invalid', !ok);
+      patternInput.setAttribute('aria-invalid', ok ? 'false' : 'true');
+      patternInput.title = ok
+        ? 'Match pattern (substring or regex source)'
+        : 'Invalid regular expression — this tag never matches until fixed';
+    };
     patternInput.addEventListener('change', () => {
       if (!owner) return;
       applyTagEdit(owner, patchedTag(owner.tags, t.id, { pattern: patternInput.value }));
+      syncPatternValidity();
     });
 
     const hlLabel = document.createElement('label');
@@ -1980,10 +1991,12 @@ function renderManagePanel(): void {
     const regexLabel = document.createElement('label');
     const regexInput = document.createElement('input');
     regexInput.type = 'checkbox';
+    regexInput.className = 'tag-regex';
     regexInput.checked = t.isRegex;
     regexInput.addEventListener('change', () => {
       if (!owner) return;
       applyTagEdit(owner, patchedTag(owner.tags, t.id, { isRegex: regexInput.checked }));
+      syncPatternValidity(); // toggling to regex can invalidate the current source
     });
     regexLabel.appendChild(regexInput);
     regexLabel.appendChild(document.createTextNode('regex'));
@@ -2007,6 +2020,7 @@ function renderManagePanel(): void {
     });
 
     row.append(nameInput, patternInput, regexLabel, hlLabel, flLabel, colorInput, deleteBtn);
+    syncPatternValidity(); // host-pushed tags can arrive with a dead pattern
     managePanel.appendChild(row);
   }
   if (!owner) {
@@ -2019,6 +2033,15 @@ function renderManagePanel(): void {
     hint.className = 'panel-hint';
     hint.textContent = 'No tags yet — type a pattern above, or select text in the output and press the tag button.';
     managePanel.appendChild(hint);
+  }
+  // Which VSIX am I running? (Field reports have twice been stale-VSIX
+  // artifacts — make the version impossible to confuse.)
+  const versionMeta = document.querySelector('meta[name="extension-version"]')?.getAttribute('content');
+  if (versionMeta) {
+    const ver = document.createElement('div');
+    ver.className = 'panel-hint version';
+    ver.textContent = `Serial Monitor (OSS) v${versionMeta}`;
+    managePanel.appendChild(ver);
   }
 }
 
