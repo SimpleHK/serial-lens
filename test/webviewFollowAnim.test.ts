@@ -104,10 +104,14 @@ describe('smooth follow', () => {
     await openPane(1);
     writes.length = 0;
     // One 120-line burst: the target jumps ~2100px. A jump-write lands in
-    // one step; the catch-up walks there frame by frame.
+    // one step at the bottom; the catch-up's FIRST write stays well short
+    // of it (how many frames a tick advances varies by runner — Node timer
+    // clustering — so the count itself is not assertable).
     await appendLines(1, 120, 'l');
-    const afterOne = writes.length;
-    expect(afterOne).toBeGreaterThan(2);
+    const target = LAYOUT.rows * ROW_H - CLIENT_H;
+    expect(target).toBeGreaterThan(0);
+    expect(writes.length).toBeGreaterThan(0);
+    expect(writes[0]).toBeLessThan(target);
     expect(await settle()).toBe(true);
     // Monotonic descent, never overshooting the bottom.
     expect(writes.every((v, i) => i === 0 || v >= writes[i - 1])).toBe(true);
