@@ -1614,7 +1614,9 @@ function createSession(m: {
   settings?: PortSettings;
   isEmpty?: boolean;
 }): PaneSession {
-  const isFirst = sessions.length === 0;
+  // The pane-shaped stub occupies the slot but is not a pane: a real session
+  // taking it over IS the first pane (no divider before a lone pane).
+  const isFirst = sessions.every((x) => x.isEmpty);
   if (m.kind === 'port' && !m.isEmpty) {
     lastUsedPort = m.title; // closing the last pane re-selects this port
   }
@@ -1656,16 +1658,21 @@ function createSession(m: {
     sendDraft: '',
   };
   // A real session arriving retires the empty surface (it is the same slot,
-  // now showing a live pane) — no dividers or stale bars left behind.
+  // now showing a live pane) — no dividers or stale bars left behind. The new
+  // session is BUILT and joins the list FIRST: retiring the stub while it was
+  // still the only session tripped removeSession's "empty surface returns"
+  // hook, which resurrected the stub — one start put the fresh empty bar back
+  // beside the new pane. (A session in the list always has dom: buildPane
+  // reads no shared state, so the builder can safely run before the push.)
+  s.dom = buildPane(s);
+  measureRowHeight(s.dom.log);
+  sessions.push(s);
   if (!s.isEmpty) {
     const stub = sessions.find((x) => x.isEmpty);
     if (stub) {
       removeSession(stub.id);
     }
   }
-  sessions.push(s);
-  s.dom = buildPane(s);
-  measureRowHeight(s.dom.log);
   if (!isFirst) {
     const divider = document.createElement('div');
     divider.className = 'pane-divider';
