@@ -22,7 +22,7 @@ export function monitorPageHtml(options: { scriptUri: string; cspSource: string;
 <meta charset="UTF-8">
 ${version ? `<meta name="extension-version" content="${version}">` : ''}
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src ${cspSource};">
-<title>Serial Monitor</title>
+<title>Serial Lens</title>
 <style>
   :root { --sm-radius: 4px; }
   *, *::before, *::after { box-sizing: border-box; }

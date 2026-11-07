@@ -4,6 +4,19 @@ All notable changes to Serial Monitor (OSS) are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] - 2026-11-07
+
+### Changed
+
+- **Renamed to Serial Lens.** The product outgrew the "rebuild" framing —
+  tag highlighting, display-layer filtering, and editor-style find are its
+  own features, not parity items. Extension id is now `simplehk.serial-lens`
+  (the marketplace publish has not happened yet, so nothing breaks), the
+  GitHub repository moved to `SimpleHK/serial-lens` (old URLs redirect), and
+  the independence/trademark disclaimer shrank accordingly. The vendored
+  public API still negotiates with the upstream surface it was vendored
+  from.
+
 ## [0.5.0] - 2026-11-07
 
 ### Added

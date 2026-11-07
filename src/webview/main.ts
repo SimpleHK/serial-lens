@@ -1914,7 +1914,7 @@ function renderManagePanel(): void {
   if (versionMeta) {
     const ver = document.createElement('div');
     ver.className = 'panel-hint version';
-    ver.textContent = `Serial Monitor (OSS) v${versionMeta}`;
+    ver.textContent = `Serial Lens v${versionMeta}`;
     managePanel.appendChild(ver);
   }
 }

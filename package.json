@@ -1,8 +1,8 @@
 {
-  "name": "vscode-serial-monitor-oss",
-  "displayName": "Serial Monitor (OSS)",
-  "description": "Tag highlighting, a display-layer filter, and editor-style find for serial streams in VS Code. Multiple ports side by side, live reconnect, log to file. Open-source rebuild of the Microsoft Serial Monitor. Independent, MIT, no telemetry.",
-  "version": "0.5.0",
+  "name": "serial-lens",
+  "displayName": "Serial Lens",
+  "description": "Tag highlighting, a display-layer filter, and editor-style find for serial streams in VS Code. Multi-port split view, live reconnect, log to file. Independent, MIT, no telemetry.",
+  "version": "0.6.0",
   "license": "MIT",
   "publisher": "simplehk",
   "repository": {
@@ -23,19 +23,19 @@
       {
         "command": "serialMonitor.open",
         "title": "Open Monitor",
-        "category": "Serial Monitor"
+        "category": "Serial Lens"
       },
       {
         "command": "serialMonitor.openLogFile",
         "title": "Open Log File...",
-        "category": "Serial Monitor"
+        "category": "Serial Lens"
       }
     ],
     "viewsContainers": {
       "panel": [
         {
           "id": "serialMonitor",
-          "title": "Serial Monitor",
+          "title": "Serial Lens",
           "icon": "assets/serial-monitor.svg"
         }
       ]
