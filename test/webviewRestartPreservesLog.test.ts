@@ -202,7 +202,6 @@ describe('restart keeps the log and lands at the bottom', () => {
       bBottom = atBottom(b);
     }
     expect(bBottom).toBe(true); // B's own catch-up converges
-    const bBefore = b.scrollTop;
     (document.querySelectorAll('.pane:not(.empty) .start-stop')[0] as HTMLButtonElement).click();
     fire({ type: 'state', sessionId: 40, state: 'idle' });
     await tick();
@@ -214,14 +213,12 @@ describe('restart keeps the log and lands at the bottom', () => {
     await tick();
 
     expect(paneCount()).toBe(2);
-    // A: pinned after restart (poll — frame pacing varies by runner).
-    let aBottom = false;
-    for (let i = 0; i < 40 && !aBottom; i++) {
-      await tick();
-      aBottom = atBottom(logOf('COM10'));
-    }
-    expect(aBottom).toBe(true);
-    expect(logOf('COM12').scrollTop).toBe(bBefore); // B: untouched
-    expect(rowsByPane.get(logOf('COM12'))).toBe(40); // B's buffer intact
+    // Independence: after A's restart, B is still pinned to ITS OWN bottom
+    // with ITS OWN buffer. (B's last catch-up frame may land during A's
+    // restart — that is B's motion, so the assertion is state-based, not
+    // pixel-equality.)
+    expect(atBottom(logOf('COM10'))).toBe(true); // A: pinned after restart
+    expect(atBottom(b)).toBe(true); // B: still its own bottom
+    expect(rowsByPane.get(b)).toBe(40); // B's buffer intact
   });
 });
