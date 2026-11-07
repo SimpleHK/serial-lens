@@ -1658,6 +1658,7 @@ function createSession(m: {
       if (s.find.open) {
         scheduleFindRecompute(s);
       }
+      renderChipsInto(s); // the fresh DOM has an empty chip row — paint the inherited tags now
       s.marksDirty = true; // fresh DOM: the overview strip repaints in full
       scheduleRender(s);
       // Viewport handoff, per this pane's own scroll state: follow resumes

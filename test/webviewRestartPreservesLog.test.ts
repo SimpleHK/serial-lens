@@ -94,16 +94,23 @@ const lastPost = (type: string) =>
     | undefined;
 
 describe('restart keeps the log and lands at the bottom', () => {
-  it('■ then ▶ preserves the buffered lines', async () => {
+  it('■ then ▶ preserves the buffered lines AND the tag bar', async () => {
     await openPane(1, 'COM10');
     await appendLines(1, 'COM10', 30, 'l');
     expect(rows()).toBeGreaterThan(0);
+
+    // The pane carries a tag BEFORE the restart; the swap must bring the
+    // chip bar back with the pane.
+    fire({ type: 'tags', sessionId: 1, tags: [{ id: 't9', name: 'ERR', pattern: 'ERR', isRegex: false, color: '#ff0000', highlight: true, filter: true }] });
+    await tick();
+    expect(document.querySelectorAll('.pane:not(.empty) .pane-tags .chip').length).toBe(1);
 
     (document.querySelector('.pane:not(.empty) .start-stop') as HTMLButtonElement).click();
     expect(lastPost('disconnect')).toEqual({ type: 'disconnect', sessionId: 1 });
     fire({ type: 'state', sessionId: 1, state: 'idle' });
     await tick();
     expect(rows()).toBeGreaterThan(0); // the log survives the stop
+    expect(document.querySelectorAll('.pane:not(.empty) .pane-tags .chip').length).toBe(1);
 
     (document.querySelector('.pane:not(.empty) .start-stop') as HTMLButtonElement).click();
     expect(lastPost('connect')?.port).toBe('COM10');
@@ -116,6 +123,11 @@ describe('restart keeps the log and lands at the bottom', () => {
     expect(paneCount()).toBe(1);
     expect(rows()).toBe(oldRows); // the log survives the swap
     expect(document.querySelector('.pane:not(.empty) .row-line')?.textContent).toContain('l-0');
+    // The chip bar renders with the inherited tag right after the swap.
+    const chip = document.querySelector('.pane:not(.empty) .pane-tags .chip') as HTMLElement | null;
+    expect(chip?.textContent).toContain('ERR');
+    const row = document.querySelector('.pane:not(.empty) .pane-tags') as HTMLElement;
+    expect(row.style.display).toBe('flex');
   });
 
   it('a follow-mode pane lands AT THE BOTTOM after the restart', async () => {
