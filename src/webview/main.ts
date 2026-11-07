@@ -1660,6 +1660,21 @@ function createSession(m: {
       }
       s.marksDirty = true; // fresh DOM: the overview strip repaints in full
       scheduleRender(s);
+      // Viewport handoff, per this pane's own scroll state: follow resumes
+      // pinned to the newest line in ONE step (the restored history is a
+      // backfill, not a flood to chase); a locked pane stays where its user
+      // left it. Same row height, same position. The write happens on the
+      // next frame — after the render above — and is marked programmatic so
+      // the atBottom snap cannot flip a locked pane back to follow.
+      requestAnimationFrame(() => {
+        s.programmatic = true;
+        if (s.scroll === 'follow') {
+          s.dom.log.scrollTop = s.dom.log.scrollHeight;
+        } else {
+          s.dom.log.scrollTop = oldPane.dom.log.scrollTop;
+        }
+        s.programmatic = false;
+      });
       panesArea.insertBefore(s.dom.root, oldPane.dom.root);
       if (s.dividerLeft) {
         panesArea.insertBefore(s.dividerLeft, s.dom.root);
