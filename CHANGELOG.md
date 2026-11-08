@@ -4,6 +4,37 @@ All notable changes to Serial Monitor (OSS) are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.1] - 2026-11-08
+
+### Fixed
+
+- **■ then ▶ kept the pane's log** — a restart (■/▶, a port move, a
+  parameter change) used to swap in a fresh session and wipe the buffered
+  lines; the log belongs to the pane and now travels across the swap
+  (arrays move by reference, so lines arriving mid-restart are kept too).
+- **■ did nothing during a live param-edit reconnect** — the reconnect
+  pipeline's teardown made a concurrent disconnect a no-op and then
+  reopened the port anyway; a stop now cancels the pending reconnect.
+
+### Changed
+
+- **Smooth follow** — the viewport eases toward the bottom (per-frame
+  exponential catch-up) instead of teleporting on every append; a user
+  scroll still locks instantly, and a restart lands at the bottom in one
+  step.
+- **Restart polish** — no blank-frame flicker on reveal (the restored log
+  paints synchronously), the tag bar comes back with the pane, and the
+  restart always rejoins the live tail.
+- **Refresh rate** — the serial-to-pixel merge window halved (16 ms →
+  8 ms) and burst flushes wired in (maxItems 64), so a fast stream reaches
+  the pixels sooner.
+- **Invalid regex tags are flagged live** in the manage panel (red border
+  + hint) instead of silently never matching; the ⚙ panel shows the
+  running version; per-append control refresh and overview-strip repaint
+  costs cut; an automated headed-Chrome performance probe joined
+  `scripts/`.
+- README GIFs re-recorded at full resolution (and smaller).
+
 ## [0.6.0] - 2026-11-07
 
 ### Changed

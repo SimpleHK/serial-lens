@@ -2,7 +2,7 @@
   "name": "serial-lens",
   "displayName": "Serial Lens",
   "description": "Tag highlighting, a display-layer filter, and editor-style find for serial streams in VS Code. Multi-port split view, live reconnect, log to file. Independent, MIT, no telemetry.",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "license": "MIT",
   "publisher": "simplehk",
   "repository": {
