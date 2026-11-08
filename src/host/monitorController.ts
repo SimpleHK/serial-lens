@@ -123,7 +123,7 @@ export class MonitorController {
           });
           this.options.onBatch?.(entries);
         },
-        { flushAfterMs: this.options.flushAfterMs },
+        { flushAfterMs: this.options.flushAfterMs, maxItems: 64 },
       );
       this.unsubs.push(
         port.onData((chunk) => this.onChunk(chunk)),

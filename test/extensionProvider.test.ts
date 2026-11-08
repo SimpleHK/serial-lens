@@ -211,7 +211,7 @@ describe('MonitorViewProvider (host layer, vscode-mocked)', () => {
   });
 
   it('appends received lines with timestamps to the right session', async () => {
-    setConfig('serialMonitor.timestamps', true);
+    setConfig('serialLens.timestamps', true);
     fire({ type: 'connect', port: 'COM10', baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' });
     await tick();
     posted.length = 0;
@@ -236,7 +236,7 @@ describe('MonitorViewProvider (host layer, vscode-mocked)', () => {
   it('live-reconnects in place and keeps the log file across the idle hop', async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'sm-log-'));
     const logPath = path.join(dir, 'session.log');
-    setConfig('serialMonitor.logDirectory', dir);
+    setConfig('serialLens.logDirectory', dir);
     fire({ type: 'connect', port: 'COM10', baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none' });
     await tick();
     const sid = (findMsg('sessionCreated') as { sessionId: number }).sessionId;
@@ -257,7 +257,7 @@ describe('MonitorViewProvider (host layer, vscode-mocked)', () => {
     ports.at(-1)!.emitData('after reconnect\n');
     const content = await waitForFileContent(path.join(dir, logFileAfter!), 'after reconnect');
     expect(content).toContain('after reconnect');
-    setConfig('serialMonitor.logDirectory', '');
+    setConfig('serialLens.logDirectory', '');
     dialogs.save.mockReset();
   });
 
@@ -363,7 +363,7 @@ describe('MonitorViewProvider (host layer, vscode-mocked)', () => {
     });
     await tick();
     expect(getConfigUpdates()).toContainEqual({
-      key: 'portTags',
+      key: 'serialLens.portTags',
       value: expect.objectContaining({ COM10: expect.arrayContaining([expect.objectContaining({ name: 'ERROR' })]) }),
     });
     // a second port starts with an independent (empty) set
@@ -397,17 +397,37 @@ describe('MonitorViewProvider (host layer, vscode-mocked)', () => {
     await tick();
     // activePath is gone once detached — the pane's own port must key the save
     expect(getConfigUpdates()).toContainEqual({
-      key: 'portTags',
+      key: 'serialLens.portTags',
       value: expect.objectContaining({ COM10: expect.arrayContaining([expect.objectContaining({ name: 'ERROR' })]) }),
     });
   });
 
-  it('persists serialMonitor settings through the config watcher', async () => {
+  it('persists serialLens settings through the config watcher', async () => {
     fire({ type: 'setTimestamps', enabled: true });
     await tick();
-    expect(getConfigUpdates()).toContainEqual({ key: 'timestamps', value: true });
-    fireConfigChange('serialMonitor.timestamps');
+    expect(getConfigUpdates()).toContainEqual({ key: 'serialLens.timestamps', value: true });
+    fireConfigChange('serialLens.timestamps');
     expect(findMsg('timestamps', { enabled: true })).toBeTruthy();
+  });
+
+  it('migrates pre-rename serialMonitor settings into serialLens.*', async () => {
+    // The user's settings all live under the pre-rename namespace (the new
+    // key shipped in 0.6.0 and cannot hold user values yet); the migration
+    // carries every legacy value over and clears the legacy twin.
+    setConfig('serialMonitor.logDirectory', '/legacy-logs');
+    setConfig('serialMonitor.timestamps', false);
+    getConfigUpdates().length = 0;
+
+    const mod = (await import('../src/extension')) as unknown as {
+      migrateLegacySettings(): void;
+    };
+    mod.migrateLegacySettings();
+
+    const updates = getConfigUpdates();
+    expect(updates).toContainEqual({ key: 'serialLens.logDirectory', value: '/legacy-logs' });
+    expect(updates).toContainEqual({ key: 'serialLens.timestamps', value: false });
+    expect(updates).toContainEqual({ key: 'serialMonitor.logDirectory', value: undefined });
+    expect(updates).toContainEqual({ key: 'serialMonitor.timestamps', value: undefined });
   });
 });
 

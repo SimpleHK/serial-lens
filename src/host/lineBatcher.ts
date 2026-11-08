@@ -57,6 +57,9 @@ export class LineBatcher<T> {
   }
 
   private get flushAfterMs(): number {
-    return this.options.flushAfterMs ?? 16;
+    // 8 ms: the data-to-pixel latency bound. The webview merges appends per
+    // animation frame anyway, so a smaller window costs extra (tiny)
+    // messages, not extra frames — the pixels update sooner.
+    return this.options.flushAfterMs ?? 8;
   }
 }
