@@ -7,7 +7,7 @@
   "publisher": "simplehk",
   "repository": {
     "type": "git",
-    "url": "https://github.com/SimpleHK/vscode-serial-monitor-oss"
+    "url": "https://github.com/SimpleHK/serial-lens.git"
   },
   "engines": {
     "vscode": "^1.90.0",
@@ -186,5 +186,8 @@
   ],
   "activationEvents": [
     "onStartupFinished"
-  ]
+  ],
+  "bugs": {
+    "url": "https://github.com/SimpleHK/serial-lens/issues"
+  }
 }
